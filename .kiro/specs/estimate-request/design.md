@@ -7046,6 +7046,7 @@ mailDisabledReason: {
   - E2E の 42.18 は、`page.addInitScript` で `window.open` を包み、実際に開いたタブを使いつつ、返すタブの `document` の読み出しだけを例外（`SecurityError`）にして再現した（閉じる操作は実際のタブへ渡し、タブが閉じたことを `popup.isClosed()` で主張する）。先に、記録の要求中に開いたタブを Playwright で別のオリジンの文書へ移す形を試したところ、42.18 の文言は表示されたが、タブは閉じなかった。利用者の操作で別のオリジンへ移ったタブは、元の画面のスクリプトから閉じられない（ブラウザの制約。mail-launcher の `closeMailTab` は従来どおり例外を握り、そのタブは利用者が閉じる）。この場合も文言は出るため利用者は失敗を知る
   - 実ブラウザの確認（Chromium）: 本番ビルドの画面（テスト環境の frontend）で、Playwright の既定の `--disable-popup-blocking` を外した新しい headless の Chromium を使い、利用者の操作の扱いが切れた後（6 秒後）のクリックで「Gmailで開く」を押した。ポップアップブロッカーが `window.open` を止めて null を返し、記録の要求が出ず、42.17 の文言がパネルの alert に表示された（一時的な spec で確かめ、spec は残していない）。サイト単位のポップアップの拒否の設定（`popups: 2`）は利用者のクリックによる `window.open` を止めなかった（実測）
   - 実ブラウザの確認（WebKit）: 確かめられなかった。Playwright の WebKit はポップアップを止めない（実測: 利用者の操作の無い `window.open` もタブを返す）ため、Safari の「ポップアップウインドウをブロック」の設定を再現できない。WebKit でも止められたときの `window.open` の戻り値は null であり、その分岐は単体と E2E（null を返す差し替え）が主張する
+  - 実機の Safari の確認（タスク110.1）: 未確認のまま閉じた（利用者の判断 2026-11-08「未確認のまま閉じる」）。利用者の開発環境は Windows で Safari を動かせず、直近で確かめる手段が無い。確かめた範囲は、Chromium の実ブラウザ（上の項）、WebKit の単体と E2E の null の分岐（上の項）である。Safari で止められたときに `window.open` が null 以外を返す場合だけが未確認の危険として残る。Safari の利用者から「Gmailで開く」を押しても何も起きない・文言が出ないという報告があれば、その時点で別のタスクを起票する
 
 ## 2026-11-01 の追加: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（Requirement 8.6）
 
@@ -7230,3 +7231,475 @@ mailDisabledReason: {
   e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts
 - backend の変更だけで frontend は変えないため、テスト環境の frontend の作り直しは要らない。振る舞いを変えるため、受領見積書の経路（`/quotations`）を e2e/ 全体で grep して既存の E2E を選び、流す
 - 挙動の変更であるため RED → GREEN で進め、追加した単体・統合・E2E が改修の前に赤になる（単体は `createLog` が呼ばれない、統合と E2E は監査ログが 0 件）ことを先に示す
+
+## Requirements 43-50: 受領見積書の台帳の項目と IPA の是正（2026-11-08 の追加）
+
+### Overview
+
+**Purpose**: 受領見積書を単価台帳（unit-price-ledger）の元データとして使えるようにする。見積依頼に紐づかない受領見積書（43）、業者名（44）、明細行の区分・条件・換算（45）、見積の情報（46）、分類キーと数量表の行のキー（47）、原本の指紋と二重登録の検出（48）を加える。同じ回に、IPA 注意喚起に基づく是正計画 §5.5 の残りとして、Claude Vision の送信の確認・停止・専用の権限・記録・回数制限（49）と、受領見積書の署名付き URL の有効期限（50）を行う（roadmap の実施順 2、Issue #869）。
+
+**Users**: 見積担当者（受領見積書の登録・修正）、システム管理者（外部の AI での読み取りの全体の停止）。後続の利用者は unit-price-ledger（台帳の取り込み・検索）と claude-connector（Claude からの登録）。
+
+**Impact（既存前提の是正。2026-11-08 の調べもの〔読むだけ。HEAD `d9fad8ac`〕）**:
+
+1. `ReceivedQuotation` の `estimateRequestId` は必須で、案件の列も業者の列も無い。案件は見積依頼の `projectId` から、業者名は見積依頼の宛先の取引先の名前から引いている。閲覧範囲の判定（`findOwnerOfReceivedQuotation`）、ファイルのプレビュー（`getFilePreviewUrl`）、案件の配下の一覧（`findByProjectId`）、ファイルの格納先（`quotations/${estimateRequestId}/...`）は、いずれも見積依頼を経由する。所在は次のファイル
+   backend/prisma/schema.prisma
+   backend/src/services/received-quotation.service.ts
+   backend/src/middleware/estimate-request-project-scope.middleware.ts
+2. サーバーは明細行の数量と単価が両方あると、金額を数量×単価で上書きする（`validateAndCorrectAmounts`）。合計（`calculateTotalAmount`）は全行の単純な和である。明細行の検証（`lineItemSchema`）は数値の範囲も文字の長さの上限も持たない。画面（`LineItemEditor`）も金額を常に数量×単価で表示し、直接入力できない
+3. 実行中に切り替えられるシステムの設定を保存する仕組みは無い。運用設定の先例（`GET/POST /api/v1/admin/log-level`、監査の種別 `OPERATIONAL_SETTING_CHANGED`）は値をプロセスのメモリにしか持たない
+4. Claude Vision の経路（`POST /api/claude-vision/extract`）は app.ts で API 全体の回数制限（`apiLimiter`）より前に mount され、ハンドラーが応答を返して終わるため、回数制限が効いていない。権限は `estimate_request:read` で、利用者を記録しない。数量表の取り込み（`mode: 'quantity-table'`）も同じ経路を使う。画面（`OcrDataExtractor`）は自動開始と手動実行・再試行のどちらでも、確認なしにまず Vision を試す
+5. 受領見積書のプレビューの署名付き URL は `expiresIn: 3600` を直接渡している。画面はプレビューを開くたびに `GET /api/quotations/:id/preview` を呼んで URL を取り直す
+6. 受領見積書の監査ログ（14.7）は金額を記録に入れない（協力業者の金額は社外秘で、監査ログは案件の閲覧範囲で絞らずに読めるため）。46.11 はこの方針に合わせて改訂した（requirements.md の 46.11 の改訂の記録）
+
+### Goals
+- 見積依頼の無い受領見積書を案件に紐づけて登録・一覧・修正・削除できる
+- 受領見積書が台帳の項目（業者名・区分・条件・換算・見積の情報・分類キー・数量表の行のキー・原本の指紋・見積の区別）を持ち、後続の unit-price-ledger と claude-connector が同じモデルを使える
+- 外部の AI へ画像を送る前に利用者が選べ、管理者が止められ、送信が利用者ごとに記録・制限される
+- 受領見積書の署名付き URL の有効期限を 900 秒にする
+
+### Non-Goals
+- 案件の詳細画面への「受領見積書」の欄（project-management の拡張。roadmap の実施順 3）
+- 案件の無い受領見積書の作成（unit-price-ledger の取り込み）、按分の計算、似た単価の検索
+- 見積書の作成で見積依頼の無い受領見積書を転記元に含めること（estimate-creation の 4.5。roadmap の実施順 5）
+- 数量表の取り込みの画面での確認の表示（quantity-table-generation の §5.6）
+- Claude からの登録の操作（claude-connector）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 受領見積書と明細行のモデルの拡張（案件・見積依頼の任意化・業者名・取引先・台帳の項目・指紋・見積の区別）と、既存の行の埋め戻し（44.9・45.13・48.8）
+- 案件の受領見積書の一覧の画面と API、見積依頼の無い受領見積書の登録・編集・削除（43）
+- 受領見積書の保存の規則（業者名と取引先の照合、金額の保持、区分ごとの合計、換算・参考の理由・値引きの検証、読取の確認の遷移、二重登録の検出）
+- Claude Vision の経路の送信の可否（管理者の停止・専用の権限・利用者ごとの回数制限）と送信の記録、受領見積書の OCR の画面の確認
+- 外部の AI での読み取りの設定（保存・管理者の API と画面・変更の監査）。設定の保存の仕組み（`SystemSetting`）は本追加が新設し、今の利用者は本設定だけである
+- 受領見積書の署名付き URL の有効期限
+
+#### Out of Boundary
+- 案件の詳細画面の欄と入口（project-management）。本追加は一覧の画面の URL（`/projects/:projectId/quotations`）を提供し、入口は持たない
+- 案件の無い受領見積書の作成・管理画面・検索・按分（unit-price-ledger）。本追加の API は案件の無い受領見積書を不在として扱う（43.14）
+- 見積書の作成の転記元の選び方（estimate-creation）。案件の配下の一覧の既定の応答は見積依頼に紐づくものだけのまま変えない（下の「決定」の D2）
+- 数量表の取り込みの画面（quantity-table-generation）。経路への停止・権限・回数制限・記録は数量表からの送信にも効く
+- 監査ログの記録の部品と閲覧の画面（user-authentication）。本追加は種別を足すだけ
+- 取引先の登録・管理（trading-partner-management）
+
+#### Allowed Dependencies
+- `ReceivedQuotationService` → Prisma（`ReceivedQuotation`・`ReceivedQuotationLineItem`・`EstimateRequest`・`TradingPartner`）、`StorageProvider`、`IAuditLogService`、`projectScopeService`
+- 経路 → `requireProjectScope` 系の判定（estimate-request-project-scope.middleware.ts）、`requirePermission`、`createRateLimiters` の制限
+- `ClaudeVisionRoutes` → `SystemSettingService`、`IAuditLogService`、`ClaudeVisionService`
+- 画面 → `usePermission`、`Breadcrumb`、`ResourceNotFound`、取引先の検索 API（`searchTradingPartners`）
+- 依存の向き: 型・スキーマ → サービス → 経路 → API クライアント → 部品 → ページ。下位は上位を import しない
+
+#### Revalidation Triggers
+- `ReceivedQuotation` の列の名前・必須の変更（unit-price-ledger・claude-connector・estimate-creation の転記が読む）
+- 案件の配下の一覧の応答の形（estimate-creation の `TransferQuotationDialog`・`NetAllocationDialog` が `tradingPartnerName` を読む）
+- Claude Vision の経路の権限・状態の API・回数制限（quantity-table-generation の取り込みが同じ経路を使う）
+- 一覧の画面の URL（project-management の入口がリンクする）
+- 監査の種別の追加（user-authentication の監査ログの画面のラベル）
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend
+        ProjectReceivedQuotationListPage --> ReceivedQuotationForm
+        EstimateRequestDetailPage --> ReceivedQuotationForm
+        ReceivedQuotationForm --> LineItemEditor
+        ReceivedQuotationForm --> LedgerInfoSection
+        ReceivedQuotationForm --> VendorNameInput
+        ReceivedQuotationForm --> OcrDataExtractor
+        OcrDataExtractor --> VisionConsentDialog
+        AdminSettingsPage
+    end
+    subgraph Backend
+        ProjectQuotationsRoutes --> ReceivedQuotationService
+        ReceivedQuotationRoutes --> ReceivedQuotationService
+        ClaudeVisionRoutes --> SystemSettingService
+        ClaudeVisionRoutes --> ClaudeVisionLimiter
+        AdminSettingsRoutes --> SystemSettingService
+        ReceivedQuotationService --> ReceivedQuotationSchema
+    end
+    ProjectReceivedQuotationListPage --> ProjectQuotationsRoutes
+    ReceivedQuotationForm --> ReceivedQuotationRoutes
+    OcrDataExtractor --> ClaudeVisionRoutes
+    AdminSettingsPage --> AdminSettingsRoutes
+```
+
+### Technology Stack
+
+| Layer | Choice / Version | Role | Notes |
+|---|---|---|---|
+| Backend | Express 5、Prisma 7、zod（既存） | 経路・モデル・検証 | 新しい依存は無い |
+| Backend | Node.js の `crypto.createHash('sha256')`（標準） | 原本の指紋 | 外部ライブラリを使わない |
+| Data | PostgreSQL（既存）、`pg_advisory_xact_lock` | 同じ案件の二重登録の判定の直列化 | 部分一意索引はスキーマに書けないため使わない（下の D6） |
+| Backend | `createRateLimiters` の Redis ストア（既存） | 利用者ごとの回数制限 | 招待の制限（`user:${userId}` のキー）と同じ形 |
+| Frontend | React 19（既存） | 一覧の画面・確認・設定の画面 | 新しい依存は無い |
+
+### File Structure Plan
+
+#### Directory Structure
+```
+backend/
+├── prisma/
+│   ├── schema.prisma                                   # 受領見積書・明細行の列、SystemSetting（変更）
+│   └── migrations/20261108000000_received_quotation_ledger_fields/migration.sql  # 列・enum・埋め戻し（44.9・45.13）・権限の付与
+├── scripts/backfill-received-quotation-file-hash.ts    # 既存のファイルの指紋の埋め戻し（48.8）
+├── src/
+│   ├── schemas/received-quotation.schema.ts            # 明細行・台帳の項目の検証（変更）
+│   ├── services/received-quotation.service.ts          # 保存の規則・一覧・指紋・二重登録（変更）
+│   ├── services/system-setting.service.ts              # 外部の AI での読み取りの設定の読み書き
+│   ├── routes/project-quotations.routes.ts             # 案件の配下の登録と全件の一覧（変更）
+│   ├── routes/received-quotation.routes.ts             # 業者名・台帳の項目・重複の応答（変更）
+│   ├── routes/claude-vision.routes.ts                  # 状態の API、停止・権限・回数制限・記録（変更）
+│   ├── routes/admin-settings.routes.ts                 # 設定の取得・変更
+│   ├── middleware/estimate-request-project-scope.middleware.ts  # 受領見積書の案件の解決（変更）
+│   ├── middleware/rateLimit.middleware.ts              # claudeVisionLimiter（変更）
+│   ├── types/audit-log.types.ts                        # CLAUDE_VISION_SENT（変更）
+│   └── utils/seed-helpers.ts                           # claude_vision:use の定義と付与（変更）
+frontend/src/
+├── routes.tsx                                          # /projects/:projectId/quotations、/admin/settings（変更）
+├── api/received-quotations.ts                          # 型と案件の配下の登録・全件の一覧（変更）
+├── api/claude-vision.ts                                # 状態の取得、回数制限の判別（変更）
+├── api/system-settings.ts                              # 外部の AI での読み取りの設定の取得・変更
+├── pages/ProjectReceivedQuotationListPage.tsx          # 案件の受領見積書の一覧
+├── pages/AdminSettingsPage.tsx                         # 外部の AI での読み取りの停止・再開
+├── components/estimate-requests/ReceivedQuotationForm.tsx   # 登録の文脈・業者名・台帳の情報・重複の表示（変更）
+├── components/estimate-requests/LineItemEditor.tsx          # 区分・分類キー・参考・行の詳細・小計・金額の直接入力（変更）
+├── components/estimate-requests/LedgerInfoSection.tsx       # 台帳の情報の欄
+├── components/estimate-requests/VendorNameInput.tsx         # 業者名の入力と取引先の候補
+├── components/estimate-requests/VisionConsentDialog.tsx     # 外部の AI へ送る前の確認
+├── components/estimate-requests/OcrDataExtractor.tsx        # 確認・停止・権限・回数制限の分岐（変更）
+├── components/estimate-requests/ReceivedQuotationList.tsx   # 参考の印・読取の確認の表示（変更）
+└── components/Navigation/AppHeader.tsx                 # 管理メニューの「システム設定」（変更）
+frontend/src/types/audit-log.types.ts、frontend/src/utils/audit-log-actions.ts  # CLAUDE_VISION_SENT のラベル（変更）
+```
+
+#### Modified Files
+- backend/src/app.ts — 新設の admin-settings.routes.ts を `/api/v1/admin/settings` に mount する
+- backend/package.json — 指紋の埋め戻しの npm script を足す
+- frontend/src/pages/EstimateRequestDetailPage.tsx — 受領見積書のフォームへ登録の文脈（見積依頼）と業者名（取引先の名前）を渡す
+
+### System Flows
+
+**受領見積書の保存（登録・更新）**
+
+```mermaid
+sequenceDiagram
+    participant UI as ReceivedQuotationForm
+    participant R as 経路
+    participant S as ReceivedQuotationService
+    participant DB as PostgreSQL
+    participant ST as Storage
+    UI->>R: POST/PUT（multipart。明細行・台帳の項目・業者名）
+    R->>R: 認証・権限・案件の範囲・ファイルの受信・検証
+    R->>S: create/update(input, actorId)
+    S->>S: ファイルの指紋（sha256）を求める
+    S->>DB: $transaction 開始・pg_advisory_xact_lock(案件)
+    S->>DB: 同じ案件・同じ指紋の受領見積書を読む
+    alt 指紋と見積の区別がともに同じものがある
+        S-->>R: DuplicateOriginalError（既存の名前・業者名・提出日）
+        R-->>UI: 409 DUPLICATE_ORIGINAL
+    else
+        S->>DB: 本体・明細行の保存、業者名と取引先の照合、読取の確認の遷移
+        S->>DB: 監査ログ（金額を除く）
+        S->>ST: ファイルの送信（作成）／旧ファイルの取り除き（更新）
+        S-->>R: 結果と sharedOriginalCount
+        R-->>UI: 201/200
+    end
+```
+
+**外部の AI での読み取りの分岐（受領見積書の OCR）**
+
+```mermaid
+flowchart TD
+    A[OCR の開始（自動・手動・再試行）] --> B[GET /api/claude-vision/status]
+    B -->|disabled_by_admin| C[49.4 の文言を表示し端末で読み取る]
+    B -->|no_permission / not_configured| D[確認を出さず端末で読み取る]
+    B -->|available| E[VisionConsentDialog]
+    E -->|送って読み取る| F[POST /api/claude-vision/extract]
+    E -->|送らずに端末で読み取る| D
+    E -->|閉じる| G[OCR を始めない]
+    F -->|成功| H[抽出結果を表示]
+    F -->|429 利用者の上限| I[49.8 の文言を表示し端末で読み取る]
+    F -->|その他の失敗| J[従来のフォールバック（Requirement 25）]
+```
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 43.1, 43.2, 43.3, 43.4 | 案件の受領見積書の一覧（全件・列・空の表示・見積依頼への遷移） | ProjectReceivedQuotationListPage, ProjectQuotationsRoutes, ReceivedQuotationService | `GET /api/projects/:projectId/quotations?include=all` | - |
+| 43.5, 43.6, 43.7, 43.8 | 見積依頼の無い受領見積書の登録 | ProjectReceivedQuotationListPage, ReceivedQuotationForm, VendorNameInput, ProjectQuotationsRoutes, ReceivedQuotationService | `POST /api/projects/:projectId/quotations` | 受領見積書の保存 |
+| 43.9, 43.10 | 見積依頼の無い受領見積書の編集・削除、紐づけの変更の禁止 | ProjectReceivedQuotationListPage, ReceivedQuotationForm, ReceivedQuotationRoutes, ReceivedQuotationService | `PUT/DELETE /api/quotations/:quotationId` | 受領見積書の保存 |
+| 43.11, 43.12, 43.13, 43.14 | 権限・閲覧範囲・404 の表示・案件の無いものの不在 | ProjectQuotationsRoutes, ReceivedQuotationRoutes, EstimateRequestProjectScopeMiddleware, ProjectReceivedQuotationListPage | 上の経路と `GET /api/quotations/:quotationId/preview` | - |
+| 43.15 | パンくず | ProjectReceivedQuotationListPage | - | - |
+| 44.1, 44.2, 44.3, 44.4, 44.5, 44.6, 44.7, 44.8, 44.9 | 業者名の保持・取引先の照合・既存の行の埋め戻し | ReceivedQuotationSchema, ReceivedQuotationService, VendorNameInput, ReceivedQuotationForm | 上の登録・更新の経路、`GET /api/trading-partners/search` | 受領見積書の保存 |
+| 45.1, 45.2, 45.3, 45.4 | 区分の保持・選択・取り込みの既定・値引きの検証 | ReceivedQuotationSchema, ReceivedQuotationValidation, LineItemEditor, ReceivedQuotationForm | 登録・更新の経路 | - |
+| 45.5, 45.6, 11.13, 34.2 | 別途を除く合計と区分ごとの小計 | LineItemEditor, ReceivedQuotationService, ReceivedQuotationForm | - | - |
+| 45.7, 45.8, 45.9, 45.10 | 条件と換算 | ReceivedQuotationSchema, ReceivedQuotationValidation, LineItemEditor | 登録・更新の経路 | - |
+| 45.11, 45.12, 11.11 | 金額の直接入力と、画面以外の経路の金額の保持 | LineItemEditor, ReceivedQuotationService | 登録・更新の経路 | - |
+| 45.13 | 既存の明細行の区分の埋め戻し | ReceivedQuotationSchema | migration | - |
+| 46.1, 46.2, 46.3, 46.4, 46.5 | 見積の情報・案件の条件・採否・参考の印と理由 | ReceivedQuotationSchema, ReceivedQuotationValidation, LedgerInfoSection, LineItemEditor | 登録・更新の経路 | - |
+| 46.6, 46.7, 46.8 | 読取の確認と遷移 | ReceivedQuotationService, LedgerInfoSection | 登録・更新の経路 | 受領見積書の保存 |
+| 46.9 | 台帳の情報の欄（既定で折りたたみ） | LedgerInfoSection, ReceivedQuotationForm | - | - |
+| 46.10 | 一覧の参考の印・読取の確認の表示 | ReceivedQuotationList, ProjectReceivedQuotationListPage | 一覧の経路 | - |
+| 46.11 | 監査ログ（金額は変更の有無だけ） | ReceivedQuotationService | - | 受領見積書の保存 |
+| 47.1, 47.2, 47.3, 47.4, 47.5, 47.6 | 分類キーと数量表の行のキー | ReceivedQuotationSchema, ReceivedQuotationValidation, LineItemEditor | 登録・更新の経路 | - |
+| 48.1, 48.2, 48.3, 48.4, 48.5, 48.6, 48.7 | 原本の指紋・見積の区別・同じ案件の二重登録の検出 | ReceivedQuotationService, ReceivedQuotationSchema, LedgerInfoSection, ReceivedQuotationForm | 登録・更新の経路（409 `DUPLICATE_ORIGINAL`） | 受領見積書の保存 |
+| 48.8 | 既存のファイルの指紋の埋め戻し | FileHashBackfillScript | `npm run backfill:received-quotation-file-hash` | - |
+| 49.1, 49.2, 49.3, 24.2 | 送る前の確認と選択 | VisionConsentDialog, OcrDataExtractor | `GET /api/claude-vision/status` | 外部の AI での読み取りの分岐 |
+| 49.4, 49.5 | 管理者の全体の停止 | SystemSettingService, AdminSettingsRoutes, AdminSettingsPage, ClaudeVisionRoutes, OcrDataExtractor | `GET/PUT /api/v1/admin/settings/external-ai-reading` | 外部の AI での読み取りの分岐 |
+| 49.6 | 専用の権限 | ClaudeVisionRoutes, VisionPermissionSeed, OcrDataExtractor | `claude_vision:use` | 外部の AI での読み取りの分岐 |
+| 49.7 | 送信の記録 | ClaudeVisionRoutes | 監査の種別 `CLAUDE_VISION_SENT` | - |
+| 49.8 | 利用者ごとの回数制限 | ClaudeVisionLimiter, ClaudeVisionRoutes, OcrDataExtractor | 429 | 外部の AI での読み取りの分岐 |
+| 50.1, 50.2 | 署名付き URL の 900 秒と開き直しの再発行 | ReceivedQuotationService | `GET /api/quotations/:quotationId/preview` | - |
+| 14.1 | 見積依頼に紐づかない受領見積書の保存 | ReceivedQuotationSchema, ReceivedQuotationService | - | - |
+
+### Components and Interfaces
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|---|---|---|---|---|---|
+| ReceivedQuotationSchema | Data | 受領見積書・明細行の列、enum、migration と埋め戻し | 14.1, 44.1, 44.2, 44.9, 45.1, 45.7, 45.8, 45.13, 46.1, 46.2, 46.3, 46.4, 47.1, 47.4, 48.1, 48.2 | Prisma (P0) | State |
+| ReceivedQuotationValidation | Backend / Schema | 明細行と台帳の項目の検証 | 45.4, 45.9, 46.5, 47.1, 47.3 | zod (P0) | Service |
+| ReceivedQuotationService | Backend / Service | 保存の規則・一覧・指紋・二重登録・監査・署名付き URL | 14.1, 43.1, 43.7, 43.9, 43.10, 43.14, 44.2, 44.5, 44.6, 44.7, 44.8, 45.5, 45.12, 46.6, 46.7, 46.8, 46.11, 48.1, 48.3, 48.4, 48.5, 48.6, 48.7, 50.1, 50.2 | Prisma (P0), StorageProvider (P0), IAuditLogService (P0) | Service |
+| ProjectQuotationsRoutes | Backend / Route | 案件の配下の全件の一覧と登録 | 43.1, 43.7, 43.11, 43.12 | ReceivedQuotationService (P0), requireProjectParamScope (P0) | API |
+| ReceivedQuotationRoutes | Backend / Route | 更新・削除・詳細・プレビューへの文脈の適用と重複の応答 | 43.9, 43.10, 43.11, 43.14, 48.3 | ReceivedQuotationService (P0) | API |
+| EstimateRequestProjectScopeMiddleware | Backend / Middleware | 受領見積書の案件を `projectId` で解決する | 43.12, 43.14 | requireProjectScope (P0) | Service |
+| FileHashBackfillScript | Backend / Script | 既存のファイルの指紋の埋め戻し | 48.8 | StorageProvider (P0) | Batch |
+| SystemSettingService | Backend / Service | 外部の AI での読み取りの設定の読み書きと変更の監査 | 49.4, 49.5 | Prisma (P0), IAuditLogService (P0) | Service |
+| AdminSettingsRoutes | Backend / Route | 設定の取得・変更 | 49.5 | SystemSettingService (P0) | API |
+| ClaudeVisionRoutes | Backend / Route | 状態の API と、送信の停止・権限・回数制限・記録 | 49.4, 49.6, 49.7, 49.8 | SystemSettingService (P0), ClaudeVisionLimiter (P0), IAuditLogService (P0) | API |
+| ClaudeVisionLimiter | Backend / Middleware | 利用者ごとの回数制限 | 49.8 | RedisRateLimitStore (P1) | Service |
+| VisionPermissionSeed | Data / Seed | `claude_vision:use` の定義と既存のロールへの付与 | 49.6 | migration・seed-helpers (P0) | State |
+| ProjectReceivedQuotationListPage | Frontend / Page | 案件の受領見積書の一覧・見積依頼の無いものの登録・編集・削除 | 43.1, 43.2, 43.3, 43.4, 43.5, 43.6, 43.9, 43.11, 43.13, 43.15, 46.10 | received-quotations API (P0), Breadcrumb (P1), ResourceNotFound (P1) | State |
+| ReceivedQuotationForm | Frontend / Component | 登録の文脈・業者名・台帳の情報・重複の表示 | 43.6, 43.8, 44.3, 44.4, 45.2, 46.9, 48.3, 48.4 | LineItemEditor (P0), LedgerInfoSection (P0), VendorNameInput (P0) | State |
+| LineItemEditor | Frontend / Component | 区分・分類キー・参考の列、行の詳細（条件・換算・参考の理由・数量表の行のキー）、小計、金額の直接入力 | 45.2, 45.3, 45.5, 45.6, 45.7, 45.8, 45.10, 45.11, 46.4, 47.2, 47.4, 47.6 | - | State |
+| LedgerInfoSection | Frontend / Component | 台帳の情報の欄（見積の情報・読取の確認・見積の区別） | 46.1, 46.2, 46.3, 46.6, 46.7, 46.9, 48.2 | - | State |
+| VendorNameInput | Frontend / Component | 業者名の自由入力と協力業者の候補 | 43.6, 44.4, 44.5 | searchTradingPartners (P1) | State |
+| ReceivedQuotationList | Frontend / Component | 見積依頼の詳細の一覧に参考の印・読取の確認を出す | 46.10 | - | State |
+| OcrDataExtractor | Frontend / Component | 送信の可否の確認と分岐 | 24.2, 49.1, 49.2, 49.3, 49.4, 49.6, 49.8 | VisionConsentDialog (P0), claude-vision API (P0) | State |
+| VisionConsentDialog | Frontend / Component | 外部の AI へ送る前の確認 | 24.2, 49.1, 49.2, 49.3 | - | State |
+| AdminSettingsPage | Frontend / Page | 外部の AI での読み取りの停止・再開 | 49.5 | system-settings API (P0) | State |
+
+#### ReceivedQuotationService
+
+| Field | Detail |
+|---|---|
+| Intent | 受領見積書の保存の規則を一か所に持つ |
+| Requirements | 14.1, 43.1, 43.7, 43.9, 43.10, 43.14, 44.2, 44.5, 44.6, 44.7, 44.8, 45.5, 45.12, 46.6, 46.7, 46.8, 46.11, 48.1, 48.3, 48.4, 48.5, 48.6, 48.7, 50.1, 50.2 |
+
+##### Service Interface
+```typescript
+type QuotationContext =
+  | { readonly kind: 'estimateRequest'; readonly estimateRequestId: string }
+  | { readonly kind: 'project'; readonly projectId: string };
+
+interface LedgerFieldsInput {
+  readonly vendorName?: string;            // 文脈が project のとき必須（43.8）。estimateRequest のときは無視（44.3）
+  readonly tradingPartnerId?: string | null;
+  readonly quoteNumber?: string | null;
+  readonly overallConditions?: string | null;
+  readonly siteLocation?: string | null;
+  readonly constructionKind?: 'RENOVATION' | 'NEW_CONSTRUCTION' | null;
+  readonly useType?: string | null;
+  readonly constructionPrice?: number | null;
+  readonly workConditions?: string | null;
+  readonly distanceKm?: number | null;
+  readonly adoption?: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+  readonly confirmedAmount?: number | null;
+  readonly readingStatus?: 'UNCONFIRMED' | 'CONFIRMED';
+  readonly quoteDiscriminator?: string;
+}
+
+type LineCategory = 'DIRECT' | 'OVERHEAD' | 'TRAVEL' | 'WASTE' | 'DISCOUNT' | 'LEGAL_WELFARE' | 'EXCLUDED';
+
+interface LineItemLedgerInput {
+  readonly category: LineCategory;
+  readonly condition: string | null;
+  readonly conversion: { quantity: number; unit: string; unitPrice: number; basis: string } | null;
+  readonly classificationKey: string | null;
+  readonly quantityRowKey: string | null;
+  readonly isReference: boolean;
+  readonly referenceReason: string | null;
+}
+
+interface SaveResult {
+  readonly quotation: ReceivedQuotationInfo;
+  readonly sharedOriginalCount: number;   // 48.4。同じ指紋で区別が違う他の受領見積書の数
+}
+
+interface ReceivedQuotationService {
+  create(context: QuotationContext, input: CreateReceivedQuotationInput, actorId: string): Promise<SaveResult>;
+  update(id: string, input: UpdateReceivedQuotationInput, expectedUpdatedAt: Date, actorId: string): Promise<SaveResult>;
+  delete(id: string, expectedUpdatedAt: Date, actorId: string): Promise<void>;
+  findByProjectId(projectId: string, options: { readonly include: 'requested' | 'all' }): Promise<ProjectQuotationSummary[]>;
+  getFilePreviewUrl(id: string, viewerId: string): Promise<string>;
+}
+
+class DuplicateOriginalError extends Error {
+  readonly existing: { name: string; vendorName: string; submittedAt: string };
+}
+```
+- 事前条件: 経路が権限と案件の範囲を判定済みである。`update` は受領見積書の文脈（見積依頼・案件）を変えない（43.10。入力に文脈の欄を持たない）
+- 事後条件: 確定したら監査ログを 1 件書く（14.7・46.11）。`DuplicateOriginalError` ではデータもストレージも変えない（48.3）
+
+### Data Models
+
+#### Physical Data Model（`schema.prisma` の変更。新設の migration `20261108000000_received_quotation_ledger_fields`）
+
+**ReceivedQuotation**
+
+| 列 | 型 | 既定 | 備考 |
+|---|---|---|---|
+| estimateRequestId | String? | - | 必須を外す（14.1）。`onDelete: Cascade` は残す |
+| projectId | String? | - | 新設。`Project` へ `onDelete: Restrict`。見積依頼に紐づくものも見積依頼の案件を入れる（D1） |
+| vendorName | VarChar(200) | - | 新設。必須。埋め戻しの後に NOT NULL（44.9） |
+| tradingPartnerId | String? | - | 新設。`TradingPartner` へ `onDelete: SetNull` |
+| quoteNumber | VarChar(100)? | - | 46.1 |
+| overallConditions | VarChar(2000)? | - | 46.1 |
+| siteLocation・useType | VarChar(100)? | - | 46.2 |
+| constructionKind | `ReceivedQuotationConstructionKind`? | null（未設定） | `RENOVATION`・`NEW_CONSTRUCTION` |
+| constructionPrice | Decimal(15,0)? | - | 46.2 |
+| workConditions | VarChar(200)? | - | 46.2 |
+| distanceKm | Decimal(6,1)? | - | 46.2。0 以上 |
+| adoption | `ReceivedQuotationAdoption` | `UNKNOWN` | `ADOPTED`・`REJECTED`・`UNKNOWN` |
+| confirmedAmount | Decimal(15,0)? | - | 46.3 |
+| readingStatus | `ReceivedQuotationReadingStatus` | `UNCONFIRMED` | `UNCONFIRMED`・`CONFIRMED` |
+| readingConfirmedById | String? | - | `User` へ `onDelete: SetNull` |
+| readingConfirmedAt | DateTime? | - | 46.7 |
+| fileSha256 | Char(64)? | - | 16 進の小文字。ファイルの無いものは null（48.6） |
+| quoteDiscriminator | VarChar(100) | `""` | 48.2 |
+
+- 索引: `projectId`、`(projectId, fileSha256)`
+- CHECK（migration の SQL）: `estimate_request_id IS NULL OR project_id IS NOT NULL`（見積依頼に紐づくものは案件を持つ）
+
+**ReceivedQuotationLineItem**
+
+| 列 | 型 | 既定 | 備考 |
+|---|---|---|---|
+| category | `ReceivedQuotationLineCategory` | `DIRECT` | `DIRECT`・`OVERHEAD`・`TRAVEL`・`WASTE`・`DISCOUNT`・`LEGAL_WELFARE`・`EXCLUDED`。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途 |
+| condition | VarChar(500)? | - | 45.7 |
+| conversionQuantity | Decimal(15,4)? | - | 45.8。4 つは全部あるか全部無い |
+| conversionUnit | VarChar(50)? | - | |
+| conversionUnitPrice | Decimal(15,2)? | - | |
+| conversionBasis | VarChar(500)? | - | |
+| classificationKey | VarChar(50)? | - | 47.1 |
+| quantityRowKey | VarChar(1000)? | - | 47.4 |
+| isReference | Boolean | false | 46.4 |
+| referenceReason | VarChar(200)? | - | 46.4 |
+
+**SystemSetting**（新設）: `key String @id`、`value Json`、`version Int @default(0)`、`updatedById String?`、`updatedAt DateTime @updatedAt`。本追加の行は `key = 'externalAiReading'`、`value = { enabled: boolean }`。行が無いときは有効として読む（既存の環境の振る舞いを変えない）。
+
+**埋め戻し（migration の SQL）**
+1. `project_id` を見積依頼の `project_id` で埋める
+2. `vendor_name` と `trading_partner_id` を見積依頼の宛先の取引先の名前と ID で埋めてから NOT NULL にする（44.9）
+3. 既存の明細行の `category` は列の既定 `DIRECT` で入る（45.13）
+4. 権限 `claude_vision:use` を `ON CONFLICT DO NOTHING` で足し、`estimate_request:read` を持つロールへ `INSERT ... SELECT` で付与する（49.6。下の D7）
+5. ファイルの指紋は SQL で求められないため、`FileHashBackfillScript` が行う（48.8）
+
+### 決定
+
+**D1 案件の列を全員に持たせる**: 見積依頼に紐づく受領見積書にも `projectId`（見積依頼の案件）を入れる。閲覧範囲の判定・一覧・二重登録の判定・ファイルの格納先を、見積依頼の有無で分けずに `projectId` 一つで行える。見積依頼の案件は作成後に変わらないため、写しがずれない。作成の時はサービスが見積依頼から写し、入力から受けない。案件の無い受領見積書（両方 null）は本機能の経路で不在として扱う（`findOwnerOfReceivedQuotation` が null を返して 404。43.14）
+
+**D2 一覧の既定を変えない**: `GET /api/projects/:projectId/quotations` の既定（`include` 無し）は見積依頼に紐づくものだけのまま返す（estimate-creation の 4.5 の転記元を変えない）。一覧の画面は `include=all` を付ける。応答の `tradingPartnerName` は `vendorName` の値を入れて残し、`vendorName` も足す（estimate-creation の画面の読み方を変えない）
+- 実装の記録（タスク113.1、2026-11-08）: 一覧は受領見積書の `projectId` で絞る。`include: 'requested'` は見積依頼の ID を持ち、その見積依頼が論理削除されていないものだけを返す（従来の応答と同じ集合）。`include: 'all'` は見積依頼の無いものと、論理削除されていない見積依頼に紐づくものを返し、見積依頼が論理削除された受領見積書は返さない（見積依頼の論理削除で配下の受領見積書が見えなくなる従来の扱いを保つ）。案件の文脈の作成は案件の不在・論理削除を `ProjectNotFoundError` にし、業者名が空なら 43.8 の文言で拒む（取引先の照合は 113.2）。更新・プレビューは案件の無い受領見積書を不在として扱う
+
+- 追記（2026-11-08、タスク118.1 の着手）: 案件の配下の一覧の応答に見積依頼の名前 `estimateRequestName: string | null`（見積依頼の無いものは null）を足す。一覧の画面の 43.2 の見積依頼名の列に使う。既定の応答にも同じ欄が入るが、estimate-creation の転記と NET の割り当ては読まないため影響しない
+
+**D3 登録の経路**: 見積依頼の無い登録は `POST /api/projects/:projectId/quotations`（multipart）を project-quotations.routes.ts に足す。順は `authenticate` → `requirePermission('estimate_request:update')` → 案件 ID の検証 → `requireProjectParamScope('projectId')` → `upload.single('file')` → 本文の検証（ファイルの受信の前に範囲を判定する既存の方針）。編集・削除・詳細・プレビューは既存の `/api/quotations/:quotationId` を使う。権限は見積依頼に紐づくもの（Requirement 11）と同じく、閲覧に `estimate_request:read`、登録・編集・削除に `estimate_request:update` を求める（Requirement 10.2 の「作成・編集・削除の権限」を実装が `estimate_request:update` で読んでいる既存の対応に合わせる。43.11）。ファイルの格納先は `quotations/projects/${projectId}/${quotationId}/${fileName}` とし、既存の格納先は変えない
+
+**D4 業者名**: 見積依頼に紐づくものは、サービスが見積依頼の宛先の取引先の名前と ID を写し、入力の業者名を無視する（44.2・44.3）。案件の文脈では、入力の `tradingPartnerId` があればその取引先（論理削除されていない協力業者）に紐づけ、名前を業者名に入れる（44.5）。無ければ、前後の空白を除いた業者名と `name` が完全に一致する論理削除されていない協力業者の取引先が 1 件だけのときに紐づける（44.6・44.7）。取引先の変更・削除では業者名を書き換えない（44.8）。画面の `VendorNameInput` は自由入力の欄で、入力に応じて `searchTradingPartners(q, ['SUBCONTRACTOR'], 10)` の候補を出す（`CustomerNameInput` と同じデバウンスの形）。`TradingPartnerSelect` は自由な文字を保持できないため使わない
+- 実装の記録（タスク113.2、2026-11-08）: 入力の `tradingPartnerId` が指す取引先が無い・論理削除済み・協力業者の種別を持たない（顧客だけ）ときは、名前の照合へ切り替えずに 400 の検証の誤り（「選んだ取引先が見つからないか、協力業者として登録されていません」）で拒み、何も保存しない。利用者が選んだ取引先と違う取引先へ黙って紐づけたり、顧客の取引先を業者として紐づけたりしないためである（選んだ後に取引先が削除された場合も、選び直しを求める）。顧客と協力業者の両方の種別を持つ取引先は選べる。`tradingPartnerId` が null のときは無いときと同じく名前で照合する。照合は `name` の完全一致（大文字・小文字を区別する）で、論理削除されていない協力業者を 2 件まで読み、1 件のときだけ紐づける。更新は、見積依頼に紐づく受領見積書では入力の業者名と取引先の ID を無視して写しを保つ。案件の文脈では、業者名も取引先の ID も送られないとき、または今と同じ取引先と同じ業者名を送り直したときは書き換えない（送り直しで取引先の今の名前へ書き換えない。44.8）。違う取引先の ID を送れば作成と同じく選んだ取引先として扱い、業者名を打ち直せば（取引先の ID が無い・null・今と同じ）名前で照合し直す。取引先の側（名前の変更・論理削除・物理削除）から受領見積書の業者名を書き換える処理・トリガーは持たない（物理削除では外部キーの `SetNull` で紐づけだけが外れる）
+- 実装の記録（タスク117.3、2026-11-08）: 画面の `VendorNameInput` の値は `{ vendorName, tradingPartnerId }` とする。デバウンスは 300 ミリ秒、候補は 10 件まで、業者名の上限は 200 文字。候補を選ぶと取引先の名前と ID を返し、文字を打ち直すと ID を null にする。文字を変えない限り ID を保ち（フォーカスの出入りでは変えない）、取引先を選んだ状態と打っていない状態では検索しない（選んだ名前で一覧を開き直さない）。遅れて届いた古い検索の結果は捨てる。検索の失敗（権限の不足など）では候補も誤りも出さず、自由な入力を続けられる。必須のときに空のまま離れると 43.8 と同じ「業者名を入力してください」を出す
+- 実装の記録（タスク117.4、2026-11-08）: フォームは登録の文脈 `ReceivedQuotationFormContext`（見積依頼の文脈は見積依頼の ID と宛先の取引先の名前、案件の文脈は案件の ID）を受ける。見積依頼の文脈では業者名を読むだけの欄に出し（登録は宛先の取引先の名前、編集は保存済みの業者名）、保存の入力に業者名も取引先の ID も入れない。案件の文脈では `VendorNameInput` を必須で出し、空なら保存の前に止める。登録は業者名と取引先の ID（選ばなければ null）を送る。編集で業者名も取引先の ID も変えていないときは、取引先に紐づくなら今の取引先の ID と業者名をそのまま送り、紐づかないなら両方を送らない（null と同じ業者名を送ると名前で照合し直すため）。変えたときは業者名と取引先の ID（打ち直しなら null）を送る。サーバーの 400 の `details` の欄の名前が業者名・取引先の ID のとき、または文言が業者名・取引先を名乗るときは業者名の欄に出す
+
+**D5 金額の保持と合計**: サーバーは送られた金額を保持し、金額が null で数量と単価が両方あるときだけ数量×単価（小数第 1 位の四捨五入）で求める（45.12）。画面は従来どおり数量・単価の変更で金額を求めて送り（11.11・11.12）、単価が空の行では金額を直接入力できる（45.11）。合計は区分が `EXCLUDED` の行を除く（45.5。画面の `calculateTotalAmount` とサービスの `calculateTotalAmount` の両方）。NET 金額の自動入力（34.2）は同じ合計を使う
+- 実装の記録（タスク113.3、2026-11-08）: 四捨五入は画面の自動計算と同じ `Math.round` とする（負の値の .5 は 0 の方向へ丸まる）。送られた金額は 0 も保持し、金額が null・省略で数量と単価が両方あるときだけ求める。合計は、別途以外の行に金額を持つものが無いとき null とする（従来の「金額を持つ行が無いとき null」と同じ扱い）。区分の入力が無い行は直接工事として保存する。保存の配線にあわせて、換算の数量と単価に DB の桁の上限（数量は 99,999,999,999.9999 以下、単価は絶対値 9,999,999,999,999.99 以下）を明細行の検証に足した
+
+**D6 指紋と二重登録**: サービスはファイルの `buffer` から sha256 を求めて `fileSha256` に入れる（48.1。送り手の申告値は受けない）。判定はトランザクションの中で `pg_advisory_xact_lock` を案件の ID の hash でかけてから、同じ案件・論理削除されていない・自分以外・同じ指紋の受領見積書を読む。区分も同じなら `DuplicateOriginalError`（409、`code: 'DUPLICATE_ORIGINAL'`、既存の名前・業者名・提出日）、違えば保存して `sharedOriginalCount` を返す（48.3・48.4・48.7）。ファイルの差し替え・見積の区別の変更のときも同じ判定を行う（48.5）。部分一意索引（`WHERE deleted_at IS NULL`）は Prisma のスキーマに書けず、スキーマのずれの検出と食い違うため使わない。画面は 409 の `code` を見て楽観的排他の文言（既存）と分け、48.3 の文言と既存の受領見積書を表示する
+- 実装の記録（タスク113.4、2026-11-08）: ロックは `pg_advisory_xact_lock(113004, hashtext(案件の ID))` の 2 キーの形とする（第 1 キーで他の取引ロックと名前空間を分ける。リフレッシュトークンの取引ロックと同じ形）。判定は、登録では文脈の解決の後・レコードの作成とファイルの送信の前に、更新では楽観的排他の確認の後・ファイルの送信の前に置く。拒むときはストレージへ何も送らないため、取り除く後始末は要らない。照会は同じ案件・論理削除されていない・自分以外の受領見積書のうち、見積依頼の無いものと論理削除されていない見積依頼に紐づくものに限る（見積依頼の論理削除で見えなくなった受領見積書で登録を止めない。D2 の扱いと同じ）。既存として示すのは同じ組のうち最も早く作られたもので、提出日は ISO 8601 の文字列とする。更新は、保存後にファイルを持つなら、ファイルの差し替え・見積の区別の変更の有無によらず保存のたびに判定し、同じ組があれば拒む（48.3。指紋の埋め戻しなどで以前から同じ組がある受領見積書は、見積の区別を変える更新なら判定を通るため、それで解ける）。`sharedOriginalCount` は保存後にファイルを持つ登録・更新のたびに数え、ファイルを外す更新とファイルの無いものは判定もロックもせず 0 とする。ファイルを外す更新は指紋を null にする。`DuplicateOriginalError` は 409・`code: 'DUPLICATE_ORIGINAL'`・本文の `details.existing` を持つ（既存の誤りの扱いで 409 の応答になる。応答の形と `sharedOriginalCount` の応答はタスク114.1）
+- 実装の記録（タスク114.1、2026-11-08）: 409 の本文は経路が組み立て、既存の経路の誤りの本文（Problem Details の形）に揃えて `{ type: 'https://architrack.example.com/problems/duplicate-original', title: 'Duplicate Original', status: 409, detail: '同じ原本の受領見積書が既に登録されています', code: 'DUPLICATE_ORIGINAL', existing: { name, vendorName, submittedAt } }` とする（`existing` は本文の最上位に置き、提出日は ISO 8601 の文字列。楽観的排他の 409 `RECEIVED_QUOTATION_CONFLICT` とは `code` で分ける）。登録・更新の成功の本文は受領見積書の各欄に `sharedOriginalCount` を足した形とする（見積依頼の配下の登録・案件の配下の登録・更新のどれも同じ）。案件の配下の一覧の `include` は `all` だけを受け、他の値は 400 とし、その検証は案件の範囲の判定の後に置く（範囲外は 400 より先に 404）。ファイルを添えた作成は格納先の書き込みで更新日時が進むため、応答の `updatedAt` はその書き込みの後の値を返す（従来は書き込みの前の値を返し、続けての編集が楽観的排他で競合しえた）
+- 実装の記録（タスク117.4、2026-11-08）: フォームは 409 を `isDuplicateOriginalError` と `isReceivedQuotationConflictError` で分け、重複では 48.3 の文言と既存の受領見積書の名前・業者名・提出日（年月日）を出して楽観的排他の文言を消し、競合では楽観的排他の文言だけを出す。見積依頼の詳細画面は保存の失敗をすべてフォームへ投げ返す（従来は 404 だけを投げ返し、400 と 409 を握りつぶしていた）。401 も投げ返し、再認証の後の再試行はフォームの `usePendingSaveAfterReauth` だけが行う（画面が 401 を握りつぶして自前で再送していた経路を外した。その再送の 400・409 は画面に出ずに消えていた）。保存が成功した後の一覧の再取得の失敗は保存の失敗として伝えず、フォームを閉じてから再取得の失敗を知らせる（登録し直して二重に作らせない）。48.4 の知らせはフォームの外に出す: 保存に成功するとフォームは閉じるため、フォームを開いた画面が保存の結果の `sharedOriginalCount` が 1 以上のときに、受領見積書の欄の上へ件数を含む知らせ（`role="status"`。自動では消さない）を出し、次にフォームを開くと消す。文言は `formatSharedOriginalNotice` が作り、案件の受領見積書の一覧の画面（タスク118.1）も同じ関数と同じ置き方を使う。保存の API の呼び出しは従来どおり呼び出し元（画面）が文脈に応じて行い、フォームの `onSubmit` は失敗を投げ返す約束とする
+
+**D7 Vision の送信の可否**:
+- 状態の API `GET /api/claude-vision/status` は `{ available: boolean; reason: 'disabled_by_admin' | 'no_permission' | 'not_configured' | null }` を返す（認証だけを求める）
+- `POST /api/claude-vision/extract` の順は `express.json({limit:'50mb'})` → `authenticate` → `claudeVisionLimiter` → `requirePermission('claude_vision:use')` → 検証 → 設定の確認（停止なら 503 `CLAUDE_VISION_DISABLED_BY_ADMIN`）→ 送信 → 記録。mount の位置（50MB の本文のため全体の本文の解析より前）は変えず、利用者ごとの制限を経路の中に置く
+- 専用の権限 `claude_vision:use` は seed とmigration で定義し、migration で `estimate_request:read` を持つロールへ付与する（既存の環境で Vision を使えた利用者が使い続けられる。49.6）。管理者は `*:*` で持つ
+- 回数制限 `claudeVisionLimiter` は `createRateLimiters` に足し、キーは `user:${userId}`、1 時間に 30 回（1 回の要求は 20 枚まで）とする。超過は 429 `{ error, retryAfter, code: 'CLAUDE_VISION_USER_RATE_LIMITED' }`。画面は `code` で外部のサービスの 429（`CLAUDE_VISION_RATE_LIMIT`）と分け、49.8 の文言を出す
+- 記録: 送信の後に監査の種別 `CLAUDE_VISION_SENT`（対象の種類 `ClaudeVision`、対象の ID は機能 `received_quotation`・`quantity_table`）を、`metadata` に機能・枚数・結果（`success`・`failure`）・失敗の種別だけを入れて書く。画像と読み取りの結果は入れない（49.7）。記録が失敗したら結果を返さず 500 とする（出力の記録の先例と同じく、記録の無い利用を残さない）
+- 画面: `OcrDataExtractor` は自動開始・手動実行・再試行のどれでも、Vision を試す前に状態を読み、`available` のときだけ `VisionConsentDialog` を出す。閉じたら OCR を始めず、手動実行のボタンの状態へ戻す（49.3）
+- **実装の記録（タスク116.2、2026-11-08）**: 状態の API の理由は `disabled_by_admin` → `no_permission` → `not_configured` の順に判定する（API キーの無い試験の環境でも停止と権限なしを観測できるように）。`POST /api/claude-vision/extract` も設定の確認を API キーの有無の確認より先に行う。停止の 503 は `errorType` を従来の機能無効と同じ `service_unavailable` とし（画面の従来の端末の読み取りへの切り替えを保つ）、停止の区別は `code` の `CLAUDE_VISION_DISABLED_BY_ADMIN` で行う。記録の失敗の 500 は `code` を `CLAUDE_VISION_AUDIT_FAILED` とする。外部の API の失敗も記録し（結果 `failure`）、失敗の種別は `ClaudeVisionError` の `errorType`、それ以外の誤りは `unknown` とする。状態の API は回数に数えない。`claudeVisionLimiter` の無効化の判定は他の制限と同じ（試験の実行環境と開発での `DISABLE_RATE_LIMIT` の明示のときだけ外れる）ため、回数制限の試験は本番の判定で組み立てた制限を経路の組み立て（`createClaudeVisionRouter` の依存）へ渡して確かめる。監査ログの画面は種別の表示名「外部AIでの読み取りの送信」で表示し、絞り込みに加える
+- 実装の記録（タスク119.1、2026-11-08）: 画面の確認は `VisionConsentDialog`（frontend/src/components/estimate-requests/VisionConsentDialog.tsx）で、文言は frontend/src/components/estimate-requests/vision-consent-messages.ts に置く。`OcrDataExtractor` は PDF・画像の OCR を始めるたび（自動開始・「OCR実行」・「OCRリトライ」）に状態を読み、Excel のデータパースでは状態を読まない。状態の取得が失敗したときは送ってよいか分からないため送らない側に倒し、確認を出さずに端末で読む（従来の切り替えの知らせに「外部のAIでの読み取りの状態を確認できませんでした」を添える）。権限なし・未設定も確認を出さずに端末で読み、従来の切り替えの知らせに理由（「外部のAIでの読み取りの権限がありません」「外部のAIでの読み取りが設定されていません」）を添える。停止（状態の `disabled_by_admin` と、送った後の 503 `CLAUDE_VISION_DISABLED_BY_ADMIN`）と利用者の上限の 429 は、従来の切り替えの知らせの代わりに 49.4・49.8 の文言を `role="status"` の知らせで出して端末で読む。端末を選んだときは知らせを出さない。確認は「送って読み取る」「送らずに端末で読み取る」「閉じる」の順のボタンを持つモーダルのダイアログで、開くと送らない側のボタンへフォーカスを移し、Tab をダイアログの中で巡回させ、Escape は「閉じる」と同じにして外側のダイアログへ伝えず、閉じると開く前の要素へフォーカスを戻す。OCR の区画が折りたたまれていても見えるように body へ描く。閉じたときは自動開始のときも「OCR実行」のボタンを出す（再試行の確認を閉じたときもエラーの表示から戻す）。状態を読む間と確認を出している間は開始のボタンを押せなくし、状態の取得の待ちの間にファイルが変わる・画面を閉じると、その開始の続きを捨てる
+
+**D8 設定の保存**: `SystemSettingService.getExternalAiReading(): Promise<{ enabled: boolean; version: number }>` と `setExternalAiReading(enabled, expectedVersion, actorId)` を持つ。変更は同じトランザクションで `OPERATIONAL_SETTING_CHANGED`（対象の種類 `SystemSetting`、対象の ID `externalAiReading`、before・after）を記録する（49.5）。経路 `GET/PUT /api/v1/admin/settings/external-ai-reading` は `settings:update`（定義済み・一般のロールに付与されていない）を求める。画面 `AdminSettingsPage`（`/admin/settings`）は管理者のルートのブロックに置き、管理メニューに「システム設定」を足す。キャッシュは持たない（複数のインスタンスで停止がすぐ効くように、送信のたびに 1 行を読む）
+- 実装の記録（タスク116.1、2026-11-08）: 版は、行が無いとき 0、行を作ると 1、変更のたびに 1 ずつ上がる。今と同じ値を送る変更も版を上げ、監査に記録する。版は条件つきの更新（今の版と送られた版が同じ行だけを書く）で比べる。版が違えば 409 を返し、本文は既定の誤りの形に `code: 'SYSTEM_SETTING_CONFLICT'` と `details: { expectedVersion, actualVersion }` を持つ。行の無い状態から同時に作ってぶつかったときは今の版が分からないため、`actualVersion` を入れない。監査の before・after は `{ enabled }` だけで、metadata は `{ setting: 'externalAiReading' }` とする。行があるのに値の `enabled` が真偽でない（文字列・null・欄が無い・配列など）ときは、止めた側に倒して無効として読む。本設定は外部への送信を止める安全側の切り替えであり、壊れた値で送信が再開してはならないためである（行が無いときの有効は変えない）
+
+**D9 読取の確認の遷移**: 保存のたびにサービスが次のとおり決める（46.6〜46.8）。
+- 入力が `CONFIRMED` で、保存前が `UNCONFIRMED` → `CONFIRMED`、確認者は操作した利用者、日時は今
+- 保存前が `CONFIRMED` で、明細行・NET 金額・ファイルのいずれかが変わる → `UNCONFIRMED`、確認者と日時を消す（同じ保存で入力が `CONFIRMED` でも戻す。直した内容は改めて確かめる）
+- それ以外 → 入力のとおり（`UNCONFIRMED` にすれば確認者と日時を消す）
+- 明細行の変化は、保存前と保存後の明細行を並び順と全列で比べて判定する
+- 実装の記録（タスク113.3、2026-11-08）: 作成は保存前を未確認とみる（確認済みを送れば確認者と日時を記録する）。読取の確認を送らない更新は、上の 1 つ目に当たらない限り確認に触れない。確認済みを送り直したときは確認者と日時を保つ。明細行は、保存前を表示順で読み、保存後を入力の表示順で並べ、明細行の全 20 列（数量・単価・金額・換算の数量と単価は DB の小数の桁で揃える）を順に比べる。明細行の比較は保存前が確認済みのときだけ行う。ファイルは新しいファイルを送れば変化とみる（内容の同一は見ない）。ファイルの削除はファイルを持つときだけ変化とみる。NET 金額は送られた値が保存前と違うときだけ変化とみる
+- 実装の記録（タスク117.3、2026-11-08）: 画面の `LedgerInfoSection` は、読取の確認が確認済みで保存済みの確認の日時があるとき「確認者: {名前}　確認日時: {日時}」を欄の下に出し、保存前に確認済みへ変えたときは「保存すると確認者と日時を記録します」を出す（未確認では何も出さない）。受領見積書の応答は確認者の ID（`readingConfirmedById`）だけを持ち、画面に利用者の名前を引く API が無いため、確認者の名前は呼び出し元が `readingConfirmedByName` で渡し、無ければ「—」とする。**46.7 の「確認済みにした利用者…を表示する」はタスク117.3 では満たしていない**。受領見積書の応答に確認者の表示名（`readingConfirmedBy: { id, displayName } | null` か、それに当たる欄）を足すサーバーの変更は必須であり、その変更とフォームが名前を `readingConfirmedByName` へ渡すことはタスク117.4 が受け持つ。「—」は名前を引けない場合（確認者の利用者が削除された古いデータなど）だけの扱いで、46.7 を満たすものではない。欄は既定で閉じ、見出しの `<button>` の `aria-expanded`・`aria-controls` と中身の `hidden` で開閉する（閉じても値は親が持つため失われない）。数の欄（工事価格・確定金額・距離）は入力の途中の文字を保つため文字で持ち、`validateLedgerInfo` がサーバーと同じ規則と文言（整数円は 0〜999,999,999,999,999、距離は 0〜99,999.9 で小数第 1 位まで、見積の区別の前後の空白）で検証し、`toLedgerInfoInput` が空の欄を null、数の欄を数にして保存の入力へ直す
+- 実装の記録（タスク117.4、2026-11-08）: 受領見積書の応答（作成・更新・詳細・見積依頼の配下と案件の配下の一覧）に `readingConfirmedBy: { id, displayName } | null` を足した。サービスが確認者の利用者の `id` と `displayName`（利用者の表示名の列）だけを読み、確認者がいない・利用者が物理削除されて紐づけが外れたときは null とする。監査ログの中身は変えない（D10 のとおり確認者を入れない）。フォームは `readingConfirmedBy` の表示名を `LedgerInfoSection` の `readingConfirmedByName` へ渡し、46.7 の表示を満たす。保存済みの確認の日時は受領見積書の `readingConfirmedAt` を渡す
+
+**D10 監査ログの中身（46.11）**: 14.7 の記録の中身に、`vendorName`・`quoteNumber`・`overallConditions`・`siteLocation`・`constructionKind`・`useType`・`workConditions`・`distanceKm`・`adoption`・`readingStatus`・`quoteDiscriminator` を before・after で足す。`constructionPrice`・`confirmedAmount` は値を入れず、更新の after にだけ `constructionPriceChanged`・`confirmedAmountChanged`（真偽）を入れる。明細行の中身（参考の印を含む）は従来どおり入れない（明細行の数だけ）
+- 実装の記録（タスク113.3、2026-11-08）: 台帳の項目は作成の after、更新の before と after、論理削除の before に入れる。距離は数で入れる。変更の有無は保存前と保存後の値を円の整数で比べる。読取の確認の確認者と日時は入れない
+
+**D11 明細行の画面**: 列は No・区分・任意分類・工種・名称・規格・単位・数量・単価・金額・分類キー・参考・備考・操作とする。条件・換算・参考の理由・数量表の行のキー（読むだけ）は、行の操作のメニューの「詳細」で開く行の下の欄に置く（横幅を増やさない）。フッターに区分ごとの小計と、別途を除く合計を出す。明細行ごとの検証のエラーは行の下に出す。既存の列幅の E2E（e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts）の既存の列の主張は変えない
+- 実装の記録（タスク117.2、2026-11-08）: 画面の明細行の型は台帳の項目（区分・条件・換算の 4 欄・分類キー・数量表の行のキー・参考の印と理由）を省略できる形とし、省略は既定（区分は直接工事、文字は空、参考の印は無）として読む（`getLineItemLedgerFields`）。新しい行・OCR とデータパースの取り込みの行・項目選択からの転記の行は既定（`createLineItemLedgerDefaults`）を明示して持つ（45.3・47.6）。区分の選択の表示名は Data Models の表のとおり。「詳細」は行の操作のメニューの末尾に置き（既存の上下の移動・削除の順とフォーカスの規則を変えない）、`aria-expanded` と `aria-controls` で行の下の欄を指す。開くと条件の欄へ、閉じると操作のメニューのトグルへフォーカスを移す。詳細を開いた行の備考からの Tab は既定の順（操作のメニュー → 詳細の欄）に任せ、閉じた行は従来どおり次の行の最初の欄（区分の選択）へ移す。単価が空の行の金額の欄は入力の途中の文字（負の符号など）を欄の中で保ち、数として読めた値を `Math.round` で整数にして行の金額にする。単価が空の行では数量の変更・数量の欄の書式の適用で金額を求め直さない。換算の単価は欄を離れると単価と同じ整数の書式にし（45.10）、換算の数量は DB の小数 4 桁を保つため書式を適用しない。小計は 7 つの区分をすべて表示し（金額の無い区分は 0）、合計の表示に「（別途を除く）」を添える。行ごとの検証のエラーは部品の入力 `lineItemErrors`（行の ID → 文言の並び）で受け、行の下に表示する（文言と行の番号から ID への対応づけはタスク117.4 のフォームが持つ）。文字の欄の上限は Data Models の長さ（条件 500・換算の単位 50・換算の根拠 500・分類キー 50・参考の理由 200）を入力の上限にする
+- 実装の記録（タスク117.4、2026-11-08）: 保存の入力（明細行）は区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由を送る（省略された欄は既定で補う）。文字の欄は入力のまま送り、空なら null とする。換算は 4 つが揃うときだけ値を送り、どれも無ければ null とする。保存の前にサーバーと同じ規則と文言で 45.4（値引きの行の金額。金額が空なら数量×単価）・45.9（換算の一部だけ、数量が 0 以下、単価が数でない）・46.5 を確かめ、誤りのある行の下に文言を出して保存しない。サーバーの「明細行の{n}行目: 文言」は、送った明細行（名称の空の行を除いた並び）の n 番目の行へ対応づけて出す。行の誤りは明細行を変えると消し、次の保存で確かめ直す。台帳の情報は既定で閉じているため、`validateLedgerInfo` の誤りで保存を止めたとき、またはサーバーの 400 が台帳の項目の誤り（`details` の欄の名前か文言で判定）のときは、欄の見出しのすぐ下に誤りがあることの知らせを出し、サーバーの誤りは欄の `errors` へ渡す。未保存の変更の判定は台帳の情報の各欄・案件の文脈の業者名と取引先の ID・明細行の台帳の 10 欄も比べる（単価が空の行で直接入れた金額も比べる（単価がある行の金額は求めた値のため比べない））
+- 実装の記録（タスク117.5、2026-11-08）: 一覧の参考の印と読取の確認（46.10）は、共有の部品 `ReceivedQuotationLedgerIndicators`（frontend/src/components/estimate-requests/ReceivedQuotationLedgerIndicators.tsx）が出し、`ReceivedQuotationList` の各項目の提出日・明細行数の並びに置く。タスク118.1 の `ProjectReceivedQuotationListPage` も同じ部品を使う。部品は明細行（参考の印だけを読む）と読取の確認の状態を受け、明細行の一つでも参考の印が有れば「参考の印あり」の札を出し（無ければ出さない）、読取の確認は常に「読取: 未確認」か「読取: 確認済み」の札で出す。色は補助で、状態は文字で示す（文字の色は札の地に対し 4.5:1 以上）。表示の文字と判定（`hasReferenceLineItem`）は frontend/src/components/estimate-requests/received-quotation-ledger-indicators.ts に置く。一覧の応答は既に明細行（参考の印を含む）と読取の確認の状態を持つため、サーバーの変更は無い
+
+**D12 署名付き URL（50）**: 受領見積書の定数 `RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN = 900` を置いて `getSignedUrl` に渡す。画面はプレビューを開くたびに `GET /api/quotations/:quotationId/preview` を呼ぶ既存の振る舞いのままで、開き直しは新しい URL を得る（50.2）
+
+**採らなかった案**: 案件の列を見積依頼の無いものだけに持たせる——判定と一覧が見積依頼の有無で二通りになり、取り違えが漏れの原因になるため採らない。設定を環境変数で持つ——管理者が画面で止められず（49.5）、再起動が要るため採らない。ログレベルと同じくメモリで持つ——インスタンス間で共有されず、再起動で戻るため採らない。二重登録を部分一意索引で止める——上の D6 のとおり採らない。業者名の欄に `TradingPartnerSelect` を使う——自由な文字を保持できないため採らない
+
+### Error Handling
+
+| 失敗 | 応答 | 画面 | 根拠 |
+|---|---|---|---|
+| 案件の文脈で業者名が空 | 400 | 「業者名を入力してください」 | 43.8 |
+| 値引きの行の金額が正 | 400（行の番号つき） | 「値引きの金額は0以下で入力してください」 | 45.4 |
+| 換算の一部だけ・数量が 0 以下 | 400 | 「換算は数量・単位・単価・根拠をすべて入力してください（数量は0より大きい値）」 | 45.9 |
+| 参考の印が無い行の参考の理由 | 400 | 「参考の理由は参考の印を付けた行にだけ入力できます」 | 46.5 |
+| 同じ案件に同じ指紋・同じ区別 | 409 `DUPLICATE_ORIGINAL` | 「同じ原本の受領見積書が既に登録されています」と既存の名前・業者名・提出日 | 48.3 |
+| 同じ指紋・違う区別 | 201/200 と `sharedOriginalCount` | 同じ原本の受領見積書が他にもあることと件数 | 48.4 |
+| 案件の無い受領見積書・範囲外・不在 | 404 | 10.5・10.6 の表示 | 43.13, 43.14 |
+| Vision が管理者により停止 | 503 `CLAUDE_VISION_DISABLED_BY_ADMIN` | 「外部のAIでの読み取りはシステム管理者により停止されています」と端末で読み取る | 49.4 |
+| 専用の権限が無い | 403 | 確認を出さず端末で読み取る | 49.6 |
+| 利用者の上限の超過 | 429 `CLAUDE_VISION_USER_RATE_LIMITED` | 49.8 の文言と端末で読み取る | 49.8 |
+| 送信の記録の失敗 | 500（結果を返さない） | 従来のフォールバック | 49.7 |
+| 設定の変更の競合 | 409 | 再読み込みを促す | 49.5 |
+
+### Testing Strategy
+
+- **単体（backend）**: サービスの単体で、業者名の写しと照合（一致 1 件・0 件・複数）、金額の保持（金額あり・金額 null）、別途を除く合計、読取の確認の遷移の 3 通り、指紋の計算、二重登録（同じ組・区別違い・別の案件・論理削除済み・ファイル無し）、監査の中身に金額が現れず変更の有無が入ること、署名付き URL の `expiresIn: 900` を主張する。検証の単体で 45.4・45.9・46.5 と長さの上限を主張する。Vision の経路の単体で、停止・権限なし・上限の超過・記録・記録の失敗を主張する。所在は次のファイル
+  backend/src/__tests__/unit/services/received-quotation.service.test.ts
+  backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
+  backend/src/__tests__/unit/routes/claude-vision.routes.test.ts
+  backend/src/__tests__/unit/routes/admin-settings.routes.test.ts
+- **統合（backend）**: 実際の DB で、案件の配下の登録と全件の一覧、既定の一覧が見積依頼に紐づくものだけであること、案件の無い受領見積書の 404、二重登録の同時の 2 要求が 1 件だけ通ること（勧告ロック）、migration の埋め戻し（業者名・案件・区分）、権限の付与、設定の変更の監査を主張する。所在は次のファイル
+  backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+  backend/src/__tests__/integration/claude-vision.api.integration.test.ts
+- **単体（frontend）**: `LineItemEditor` の区分・小計・金額の直接入力・行の詳細、`ReceivedQuotationForm` の業者名・台帳の情報・409 の分け方、`OcrDataExtractor` の状態ごとの分岐（確認・停止・権限なし・閉じる・上限）、`VisionConsentDialog`、`ProjectReceivedQuotationListPage` の一覧・空・404・パンくずを主張する。既存の LineItemEditor.test.tsx・OcrDataExtractor.test.tsx・ReceivedQuotationForm.test.tsx に足す
+- **E2E**: 案件の受領見積書の一覧の画面で見積依頼の無い受領見積書を登録・編集・削除する流れ（業者名の候補の選択と自由入力）、区分と別途を除く合計、台帳の情報の入力と読取の確認、同じファイルの二度目の登録の拒否と区別を変えた登録、Vision の確認の 3 つの選択（`page.route` で抽出を模擬し、要求の有無を数える）、管理者の停止の画面と停止中の OCR、権限の無い利用者（`createCustomUser`）の OCR、署名付き URL の開き直しを確かめる。被覆の印 `@requirement estimate-request/REQ-43.1` などを置く。新しいファイルは e2e/specs/estimate-requests/received-quotation-ledger.spec.ts と e2e/specs/estimate-requests/claude-vision-consent.spec.ts。既存の Vision の E2E（e2e/specs/estimate-requests/claude-vision-e2e.spec.ts・e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts）は確認の選択を経る形へ追随させ、主張は消さない
+- **E2E で確かめないもの**: 48.8（埋め戻しのスクリプト。統合で確かめる）、49.8 の上限（30 回の要求を画面で重ねない。経路の単体と統合で確かめ、画面の文言は 429 の模擬で確かめる）、50.1 の秒数（URL の期限を画面から測れない。単体で確かめる）。これらは実装のタスクで除外の台帳（e2e/requirement-exclusions.json）へ代替の検証つきで登録する
+- 関門: 受入基準の逐語（「依頼なし」など）は実装に入れて `check:criterion-literals` を通す。43.15 のパンくずの書式は 29.1 と同じく書式の記述として裁定の台帳に載せる。被覆の印と除外を足したら `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで流す
+- 挙動の変更（金額の保持、Vision の確認、権限）は RED → GREEN で進め、改修の前に赤になることを先に示す
+- **実装の記録（タスク120.3、2026-11-08）**: 除外の台帳（e2e/requirement-exclusions.json）へ登録したのは次の 3 件である。44.9（既存の受領見積書の業者名と取引先の埋め戻し）と 45.13（既存の明細行の区分を直接工事にする）は、区分 data-integrity で、代替はタスク112.1 の統合（backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts の「台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）」が migration.sql の文を実際の DB で流す）と単体（backend/src/__tests__/unit/models/received-quotation-ledger.migration.test.ts）。両者の被覆の印は migration の SQL を読む単体だけにあり、本番の経路から到達しないため被覆と数えられなかった。50.1（署名付きURLの 900 秒）は、区分 integration-test で、代替はタスク113.5 のサービスの単体（backend/src/__tests__/unit/services/received-quotation.service.test.ts が `expiresIn: 900` を主張する。E2E の環境のストレージは local で秒数を使わない）
+  - 48.8（指紋の埋め戻しのスクリプト）と 49.7（送信の記録）は、上の「E2E で確かめないもの」とタスク120.3 の本文が除外の候補に挙げていたが、統合テストの被覆の印（backend/src/__tests__/integration/backfill-received-quotation-file-hash.integration.test.ts と backend/src/__tests__/integration/claude-vision-controls.api.integration.test.ts）で本番に到達する被覆と既に数えられているため登録しない。被覆された受入基準を除外すると宣言が実態と食い違うためである。49.8 の上限は claude-vision-consent.spec.ts が 429 の模擬で被覆するため除外しない
+  - 34.2（別途を除く合計）は received-quotation-ledger.spec.ts では観測できないため印を付けず、既存の e2e/specs/estimate-requests/net-amount-auto-fill-e2e.spec.ts が被覆する（タスク120.1）。46.10（一覧の参考の印と読取の確認の表示）は received-quotation-ledger.spec.ts の E2E が被覆するため、タスク117.5 が申し送った ReceivedQuotationList.test.tsx への被覆の印の追加は不要になった
+  - 43.15 のパンくずの書式「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 受領見積書」は、29.1・29.6・29.13 と同じく区分 format-description の書式の記述として裁定の台帳（scripts/criterion-literal-adjudication.json）へ登録し、台帳の件数のラチェットを 25 から 26 へ上げた。除外の件数（131 → 134）と台帳の件数（25 → 26）の鮮度の錨は、site-survey の design.md で帰属つきで貼り直した
+
+### Security Considerations
+- 原本の指紋はサーバーが求める。送り手の申告値を信じると、別のファイルを同じ見積と偽って二重の判定を外せるためである
+- 二重登録の判定は同じ案件に限り、応答に他の案件の情報を含めない（48.7）
+- 外部の AI の送信は、管理者の停止・専用の権限・利用者ごとの制限・記録の 4 つを経路で強制し、画面の確認は利用者への告知として持つ（画面を経ない要求も経路で止まる）
+- 監査ログに金額・明細行の中身・画像・読み取りの結果を入れない（46.11・49.7）
+
+### Migration Strategy
+1. migration を流す（列・enum・CHECK・埋め戻し・権限の付与）。本番は `MIGRATE_ON_DEPLOY=true` の配備で流れる
+2. 配備の後に `npm run backfill:received-quotation-file-hash -- --dry-run` で件数を確かめ、`--dry-run` を外して流す。何度流しても同じ結果になる（指紋が null の行だけを対象にする）。流すまでの間、既存のファイルは二重登録の判定の対象にならない
+3. `SystemSetting` の行は作らない（行が無いときは有効）
+- 実装の記録（タスク115.1、2026-11-08）: スクリプトは指紋が null でファイルを持つ受領見積書（論理削除済みを含む）を ID 順に区切って読み、サービスと同じ指紋の関数で埋める。指紋の埋め戻しは利用者の編集ではないため、更新日時は読んだときの値のまま書き戻す（開いている編集画面の楽観的排他を崩さない）。読んでから書くまでの間にファイルが差し替えられた行へ古い指紋を書かないよう、更新は「指紋がまだ null で格納先が読んだときと同じ」行に限る。読めないファイルは飛ばして報告し、それだけなら終了コードは 0、更新の失敗や説明のつかない残りがあれば 1 とする。二重登録の拒否は行わない（同じ組が生じうる。D6 の実装の記録のとおり見積の区別を変えて解く）

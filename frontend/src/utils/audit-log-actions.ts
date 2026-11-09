@@ -95,6 +95,23 @@ export const USER_DELETION_AUDIT_ACTION_LABELS: Record<UserDeletionAuditAction, 
   USER_DELETED: 'ユーザー削除',
 };
 
+/**
+ * 外部の AI での読み取り（Claude Vision）の送信の種別（estimate-request の 49.7）
+ *
+ * backend は送信のたびに利用者・機能・画像の枚数・結果を記録する（画像と読み取りの結果は入れない）。
+ * 並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const CLAUDE_VISION_AUDIT_ACTIONS = [
+  'CLAUDE_VISION_SENT',
+] as const satisfies readonly AuditLogAction[];
+
+export type ClaudeVisionAuditAction = (typeof CLAUDE_VISION_AUDIT_ACTIONS)[number];
+
+/** 外部の AI での読み取りの送信の種別の表示名 */
+export const CLAUDE_VISION_AUDIT_ACTION_LABELS: Record<ClaudeVisionAuditAction, string> = {
+  CLAUDE_VISION_SENT: '外部AIでの読み取りの送信',
+};
+
 /** 招待の記録の対象の種別（backend の InvitationService.recordAudit と register の記録の targetType） */
 const INVITATION_TARGET_TYPE = 'Invitation';
 

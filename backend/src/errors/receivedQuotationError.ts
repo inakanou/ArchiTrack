@@ -141,3 +141,40 @@ export class FileOrLineItemsRequiredError extends ApiError {
     this.name = 'FileOrLineItemsRequiredError';
   }
 }
+
+/**
+ * 同じ原本の二重登録の誤りの文言（estimate-request の Requirement 48.3）
+ */
+export const DUPLICATE_ORIGINAL_MESSAGE = '同じ原本の受領見積書が既に登録されています';
+
+/**
+ * 同じ原本の二重登録の誤りが示す既存の受領見積書（48.3）。提出日は ISO 8601 の文字列
+ */
+export interface DuplicateOriginalExisting {
+  name: string;
+  vendorName: string;
+  submittedAt: string;
+}
+
+/**
+ * 同じ案件に、原本の指紋と見積の区別がともに同じ受領見積書が既にあるエラー
+ * 409 Conflict（`code: 'DUPLICATE_ORIGINAL'`）
+ *
+ * design の Requirements 43-50 の章の D6、タスク113.4。既存の受領見積書の名前・業者名・提出日を持つ。
+ * 同じ案件の受領見積書だけを示し、他の案件の受領見積書の有無は含めない（48.7）
+ */
+export class DuplicateOriginalError extends ApiError {
+  readonly existing: DuplicateOriginalExisting;
+
+  constructor(existing: DuplicateOriginalExisting) {
+    super(
+      409,
+      DUPLICATE_ORIGINAL_MESSAGE,
+      'DUPLICATE_ORIGINAL',
+      { existing },
+      PROBLEM_TYPES.CONFLICT
+    );
+    this.name = 'DuplicateOriginalError';
+    this.existing = existing;
+  }
+}

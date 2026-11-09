@@ -527,8 +527,12 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
     ).toEqual([
       'input "受領見積書名"',
       'input "提出日"',
+      // Task 117.4: 見積依頼の文脈は業者名（宛先の取引先の名前。読み取り専用）を出す
+      'input "業者名"',
       expect.stringMatching(/^div "ファイルを選択/),
       'button "項目選択から転記"',
+      // Task 117.2: 明細行の列に区分・金額（単価が空の行）・分類キー・参考を足した
+      'select "行1 区分"',
       'input "行1 任意分類"',
       'input "行1 工種"',
       'input "行1 名称"',
@@ -536,10 +540,15 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
       'input "行1 単位"',
       'input "行1 数量"',
       'input "行1 単価"',
+      'input "行1 金額"',
+      'input "行1 分類キー"',
+      'input "行1 参考"',
       'input "行1 備考"',
       'button "行1の操作メニュー"',
       'button "行を追加"',
       'input "NET金額"',
+      // Task 117.4: 台帳の情報の欄の見出し（開閉の釦。既定で閉じる）
+      expect.stringMatching(/^button ".*台帳の情報"$/),
       'button "キャンセル"',
       'button "登録"',
     ]);
@@ -581,7 +590,7 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
   test('明細行の操作メニューの全項目がTab移動時に明確なフォーカス表示を持つ', async ({ page }) => {
     expect(seed, '前提: 見積依頼の前提データが作成されている').not.toBeNull();
     await openReceivedQuotationCreateDialogByKeyboard(page, seed!.estimateRequestId);
-    // 2 行にして、1 行目のメニューの「下に移動」「削除」を活性にする
+    // 2 行にして、1 行目のメニューの「下に移動」「削除」を活性にする（Task 117.2: 末尾に「詳細」が加わる）
     const addButton = page.getByRole('button', { name: '行を追加' });
     await addButton.focus();
     await page.keyboard.press('Enter');
@@ -602,7 +611,7 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
     expect(
       visits.map((visit) => visit.focused.descriptor),
       '一巡が通るメニューの項目'
-    ).toEqual(['button "下に移動"', 'button "削除"']);
+    ).toEqual(['button "下に移動"', 'button "削除"', 'button "詳細"']);
   });
 
   test('詳細画面の本文の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({

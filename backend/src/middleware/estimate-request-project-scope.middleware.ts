@@ -4,7 +4,9 @@
  * estimate-request タスク103.1（Requirement 42.1〜42.7、user-authentication の要件39）。
  * - 判定そのものは user-authentication の `requireProjectScope`（ProjectScopeService）に任せ、
  *   本ファイルは本機能の子リソース（見積依頼・受領見積書と、見積依頼の作成の要求が指す内訳書）から
- *   案件 ID を引く解決関数だけを持つ。受領見積書は親の見積依頼の案件で判定する
+ *   案件 ID を引く解決関数だけを持つ。受領見積書は受領見積書の案件の列（見積依頼に紐づくものは見積依頼の
+ *   案件の写し）で判定し、案件の無い受領見積書は不在と同じ 404 にする（43.12・43.14、design の
+ *   Requirements 43-50 の章の D1。タスク113.1）
  * - 経路では `authenticate` → `requirePermission` → ID の形式の検査 → 本ファイルの判定部品 → 本体の順に置く
  *   （権限なしの 403 を範囲外の 404 より先に返す。user-authentication の tasks.md の Implementation Notes の
  *   52.2 の区分 D）
@@ -65,29 +67,27 @@ export async function findProjectIdOfEstimateRequest(
   return estimateRequest?.projectId ?? null;
 }
 
-/** 受領見積書が属する見積依頼の ID と、その見積依頼の案件 ID */
+/** 受領見積書が属する見積依頼の ID（見積依頼に紐づかなければ null）と案件 ID */
 export interface ReceivedQuotationOwner {
-  estimateRequestId: string;
+  estimateRequestId: string | null;
   projectId: string;
 }
 
 /**
- * 受領見積書の ID から、親の見積依頼の ID と案件 ID を引く。受領見積書が無ければ null
- * （受領見積書と見積依頼の論理削除は区別しない）
+ * 受領見積書の ID から、見積依頼の ID と受領見積書の案件の列の案件 ID を引く。受領見積書が無いか、
+ * 案件の無い受領見積書なら null（43.14。受領見積書と見積依頼の論理削除は区別しない）
  */
 export async function findOwnerOfReceivedQuotation(
   quotationId: string
 ): Promise<ReceivedQuotationOwner | null> {
   const quotation = await getPrismaClient().receivedQuotation.findUnique({
     where: { id: quotationId },
-    select: { estimateRequestId: true, estimateRequest: { select: { projectId: true } } },
+    select: { estimateRequestId: true, projectId: true },
   });
-  return quotation === null
-    ? null
-    : {
-        estimateRequestId: quotation.estimateRequestId,
-        projectId: quotation.estimateRequest.projectId,
-      };
+  if (quotation === null || quotation.projectId === null) {
+    return null;
+  }
+  return { estimateRequestId: quotation.estimateRequestId, projectId: quotation.projectId };
 }
 
 /** 受領見積書の経路の親（`/api/estimate-requests/:id/quotations`）の見積依頼の ID の引数名 */
@@ -139,7 +139,7 @@ export function requireEstimateRequestProjectScope(
 }
 
 /**
- * 受領見積書の ID を経路のパラメータから読んで、親の見積依頼の案件の範囲を判定する。
+ * 受領見積書の ID を経路のパラメータから読んで、受領見積書の案件の範囲を判定する。
  * 見積依頼の配下の経路で、受領見積書が経路の見積依頼（親の経路の引数 `id`）に属さないときは
  * 受領見積書の不在と同じ 404 にし、受領見積書の案件が範囲外なら記録する（42.12）。
  * 受領見積書の引数名が親の引数名と同じだと親の値は子の値に上書きされて読めないため、照合しない

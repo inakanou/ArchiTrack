@@ -15,6 +15,11 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { mkdtemp, readdir, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { createHash } from 'crypto';
+import { join, resolve } from 'path';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -28,8 +33,14 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
-import { ReceivedQuotationService } from '../../services/received-quotation.service.js';
+import {
+  ReceivedQuotationService,
+  type SaveResult,
+} from '../../services/received-quotation.service.js';
+import { DuplicateOriginalError } from '../../errors/receivedQuotationError.js';
+import { LocalStorageProvider } from '../../storage/local-storage.provider.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
+import { TradingPartnerService } from '../../services/trading-partner.service.js';
 import type { IAuditLogService } from '../../types/audit-log.types.js';
 import type { StorageProvider } from '../../storage/storage-provider.interface.js';
 
@@ -482,6 +493,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '受領見積書1',
             submittedAt: new Date('2026-01-23'),
           },
@@ -489,6 +502,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '受領見積書2',
             submittedAt: new Date('2026-01-24'),
           },
@@ -511,6 +526,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '詳細取得テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -548,6 +565,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '更新テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -586,6 +605,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '削除テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -681,6 +702,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const quotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: '楽観的排他制御テスト',
           submittedAt: new Date('2026-01-23'),
         },
@@ -889,6 +912,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const quotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: 'ファイルプレビューテスト',
           submittedAt: new Date('2026-01-23'),
           filePath: 'quotations/test/file.pdf',
@@ -914,6 +939,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const noFileQuotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: 'ファイルなしプレビューテスト',
           submittedAt: new Date('2026-01-23'),
         },
@@ -1256,6 +1283,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: uniqueName(label),
           submittedAt: new Date('2026-01-23T00:00:00.000Z'),
           netAmount: NET_AMOUNT,
@@ -1277,6 +1306,24 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(createResponse.status).toBe(201);
       const quotationId: string = createResponse.body.id;
       expect(await countLogs('RECEIVED_QUOTATION_CREATED', quotationId)).toBe(1);
+      const destination = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+        select: { name: true },
+      });
+      // 台帳の項目の前後（D10。タスク113.3）。工事価格・確定金額は入れない
+      const ledgerAudit = {
+        vendorName: destination.name,
+        quoteNumber: null,
+        overallConditions: null,
+        siteLocation: null,
+        constructionKind: null,
+        useType: null,
+        workConditions: null,
+        distanceKm: null,
+        adoption: 'UNKNOWN',
+        readingStatus: 'UNCONFIRMED',
+        quoteDiscriminator: '',
+      };
       const createdLog = await prisma.auditLog.findFirstOrThrow({
         where: {
           action: 'RECEIVED_QUOTATION_CREATED',
@@ -1292,6 +1339,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
         lineItemCount: 1,
+        ...ledgerAudit,
       });
       expect(JSON.stringify(createdLog.after)).not.toContain(String(NET_AMOUNT));
 
@@ -1315,11 +1363,15 @@ describe('Received Quotation & Status API Integration Tests', () => {
         name,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
       });
       expect(updatedLog.after).toEqual({
         name: renamed,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
+        constructionPriceChanged: false,
+        confirmedAmountChanged: false,
       });
 
       const deleteResponse = await request(app)
@@ -1342,6 +1394,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         name: renamed,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
       });
     });
 
@@ -1350,8 +1403,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
       await expect(
         rollingBackService.create(
+          { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
           {
-            estimateRequestId: testEstimateRequestId,
             name,
             submittedAt: new Date('2026-01-23T00:00:00.000Z'),
             lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
@@ -1425,6 +1478,1047 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
       expect(await countLogs('RECEIVED_QUOTATION_UPDATED', stored.id)).toBe(0);
       expect(await countLogs('RECEIVED_QUOTATION_DELETED', stored.id)).toBe(0);
+    });
+  });
+
+  /**
+   * 台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）
+   *
+   * 適用済みの DB に対し、トランザクションの中で migration の前の形（案件・業者名・取引先が空、
+   * 明細行に区分の列が無い、claude_vision:use が無い）を作り直し、migration.sql から取り出した
+   * 埋め戻し・NOT NULL・CHECK・区分の列の追加・権限の追加と付与の文を流して結果を主張する。
+   * 最後に例外でトランザクションを巻き戻し、共有のテスト DB を元の形へ戻す。
+   *
+   * 対象の受入基準は estimate-request の 14.1・44.9・45.13・49.6（design: Data Models の埋め戻し、D1、D7）
+   */
+  describe('台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）', () => {
+    const MIGRATION_SQL_PATH = resolve(
+      __dirname,
+      '../../../prisma/migrations/20261108000000_received_quotation_ledger_fields/migration.sql'
+    );
+    const ROLLBACK = '検証の後に巻き戻す';
+
+    /** コメント行を除き、文ごとに分ける */
+    const migrationStatements = (): string[] =>
+      readFileSync(MIGRATION_SQL_PATH, 'utf-8')
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .split(';')
+        .map((statement) => statement.trim())
+        .filter((statement) => statement !== '');
+
+    /** 条件に合う文を取り出す（一つも無ければ失敗させる） */
+    const pick = (statements: string[], pattern: RegExp): string[] => {
+      const picked = statements.filter((statement) => pattern.test(statement));
+      expect(picked, `migration.sql に ${pattern} の文が無い`).not.toHaveLength(0);
+      return picked;
+    };
+
+    /** トランザクションの中で検証し、最後に巻き戻す */
+    const inRolledBackTransaction = async (
+      verify: (tx: Parameters<Parameters<PrismaClient['$transaction']>[0]>[0]) => Promise<void>
+    ): Promise<void> => {
+      await expect(
+        prisma.$transaction(
+          async (tx) => {
+            await verify(tx);
+            throw new Error(ROLLBACK);
+          },
+          { timeout: 30_000 }
+        )
+      ).rejects.toThrow(ROLLBACK);
+    };
+
+    it('案件・業者名・取引先が空の既存の受領見積書は、見積依頼の案件と宛先の取引先の名前と ID で埋まり、業者名が NOT NULL になる（44.9、D1）', async () => {
+      const statements = migrationStatements();
+      const backfill = pick(statements, /^UPDATE "received_quotations"/);
+      const notNull = pick(statements, /ALTER COLUMN "vendor_name" SET NOT NULL/);
+      const check = pick(statements, /ADD CONSTRAINT "[^"]+" CHECK/);
+      const tradingPartner = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+      });
+
+      await inRolledBackTransaction(async (tx) => {
+        // migration の前の形: 列は足されたが値が無い（NOT NULL と CHECK は埋め戻しの後に置かれる）
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotations" DROP CONSTRAINT "received_quotations_estimate_request_project_check"'
+        );
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotations" ALTER COLUMN "vendor_name" DROP NOT NULL'
+        );
+        const legacyId = `legacy-${Date.now()}`;
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "name", "submittedAt", "updatedAt")
+          VALUES (${legacyId}, ${testEstimateRequestId}, '移行前の受領見積書', DATE '2026-01-23', CURRENT_TIMESTAMP)`;
+        const before = await tx.$queryRaw<
+          Array<{
+            project_id: string | null;
+            vendor_name: string | null;
+            trading_partner_id: string | null;
+          }>
+        >`SELECT "project_id", "vendor_name", "trading_partner_id" FROM "received_quotations" WHERE "id" = ${legacyId}`;
+        expect(before).toEqual([{ project_id: null, vendor_name: null, trading_partner_id: null }]);
+
+        for (const statement of [...backfill, ...notNull, ...check]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const after = await tx.$queryRaw<
+          Array<{
+            project_id: string | null;
+            vendor_name: string | null;
+            trading_partner_id: string | null;
+          }>
+        >`SELECT "project_id", "vendor_name", "trading_partner_id" FROM "received_quotations" WHERE "id" = ${legacyId}`;
+        expect(after).toEqual([
+          {
+            project_id: testProjectId,
+            vendor_name: tradingPartner.name,
+            trading_partner_id: testTradingPartnerId,
+          },
+        ]);
+        const nullable = await tx.$queryRaw<Array<{ is_nullable: string }>>`
+          SELECT "is_nullable" FROM information_schema.columns
+          WHERE table_name = 'received_quotations' AND column_name = 'vendor_name'`;
+        expect(nullable).toEqual([{ is_nullable: 'NO' }]);
+      });
+    });
+
+    it('見積依頼に紐づく受領見積書は案件を持たなければ保存できない（CHECK、D1）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        await expect(
+          tx.$executeRaw`
+            INSERT INTO "received_quotations" ("id", "estimateRequestId", "name", "submittedAt", "updatedAt", "vendor_name")
+            VALUES (${`check-${Date.now()}`}, ${testEstimateRequestId}, '案件の無い受領見積書', DATE '2026-01-23', CURRENT_TIMESTAMP, '業者')`
+        ).rejects.toThrow(/received_quotations_estimate_request_project_check/);
+      });
+    });
+
+    it('既存の明細行は、migration の区分の列の追加で直接工事（DIRECT）になる（45.13）', async () => {
+      const addCategory = pick(migrationStatements(), /ADD COLUMN\s+"category"/);
+
+      await inRolledBackTransaction(async (tx) => {
+        const quotationId = `line-${Date.now()}`;
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt")
+          VALUES (${quotationId}, ${testEstimateRequestId}, ${testProjectId}, '業者', '明細行の区分の検証', DATE '2026-01-23', CURRENT_TIMESTAMP)`;
+        // migration の前の形: 明細行に区分の列が無い
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotation_line_items" DROP COLUMN "category"'
+        );
+        await tx.$executeRaw`
+          INSERT INTO "received_quotation_line_items" ("id", "receivedQuotationId", "sortOrder", "name")
+          VALUES (${`${quotationId}-item`}, ${quotationId}, 0, '既存の明細行')`;
+
+        for (const statement of addCategory) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const rows = await tx.$queryRaw<Array<{ category: string }>>`
+          SELECT "category"::text AS "category" FROM "received_quotation_line_items"
+          WHERE "receivedQuotationId" = ${quotationId}`;
+        expect(rows).toEqual([{ category: 'DIRECT' }]);
+      });
+    });
+
+    it('estimate_request:read を持つロールは migration の付与で claude_vision:use を持ち、持たないロールは持たない（49.6、D7）', async () => {
+      const statements = migrationStatements();
+      const definePermission = pick(statements, /^INSERT INTO "permissions"/);
+      const grant = pick(statements, /^INSERT INTO "role_permissions"/);
+
+      await inRolledBackTransaction(async (tx) => {
+        // migration の前の形: 専用の権限が無い（割り当ても連鎖して消える）
+        await tx.permission.deleteMany({ where: { resource: 'claude_vision', action: 'use' } });
+        const estimateRead = await tx.permission.findUniqueOrThrow({
+          where: { resource_action: { resource: 'estimate_request', action: 'read' } },
+        });
+        const suffix = Date.now();
+        const viewer = await tx.role.create({
+          data: { name: `vision-migration-viewer-${suffix}`, description: '見積依頼を閲覧できる' },
+        });
+        const outsider = await tx.role.create({
+          data: {
+            name: `vision-migration-outsider-${suffix}`,
+            description: '見積依頼を閲覧できない',
+          },
+        });
+        await tx.rolePermission.create({
+          data: { roleId: viewer.id, permissionId: estimateRead.id },
+        });
+
+        for (const statement of [...definePermission, ...grant]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const holders = await tx.rolePermission.findMany({
+          where: { permission: { resource: 'claude_vision', action: 'use' } },
+          select: { roleId: true },
+        });
+        const holderIds = holders.map((holder) => holder.roleId);
+        expect(holderIds).toContain(viewer.id);
+        expect(holderIds).not.toContain(outsider.id);
+        const userRole = await tx.role.findUniqueOrThrow({ where: { name: 'user' } });
+        expect(holderIds).toContain(userRole.id);
+
+        // 付与の文は二度流しても重複しない
+        for (const statement of [...definePermission, ...grant]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+        const viewerGrants = await tx.rolePermission.count({
+          where: { roleId: viewer.id, permission: { resource: 'claude_vision', action: 'use' } },
+        });
+        expect(viewerGrants).toBe(1);
+      });
+    });
+  });
+
+  /**
+   * 業者名と取引先の照合（タスク113.2）
+   *
+   * design の Requirements 43-50 の章の D4 を実際の DB で確かめる。照合が論理削除と種別（協力業者）で
+   * 絞られること、取引先の名前の変更・論理削除・物理削除で受領見積書の業者名が変わらないことを主張する
+   */
+  describe('業者名と取引先の照合（タスク113.2）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const partnerIds: string[] = [];
+    let service: ReceivedQuotationService;
+    let partnerService: TradingPartnerService;
+
+    const unusedStorage = {
+      upload: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      delete: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      getSignedUrl: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+    } as unknown as StorageProvider;
+
+    const createPartner = async (
+      name: string,
+      types: Array<'CUSTOMER' | 'SUBCONTRACTOR'>,
+      options: { branchName?: string; deletedAt?: Date } = {}
+    ): Promise<string> => {
+      const partner = await prisma.tradingPartner.create({
+        data: {
+          name,
+          nameKana: 'ショウゴウテスト',
+          address: '東京都千代田区1-1-1',
+          branchName: options.branchName ?? null,
+          deletedAt: options.deletedAt ?? null,
+          types: { create: types.map((type) => ({ type })) },
+        },
+      });
+      partnerIds.push(partner.id);
+      return partner.id;
+    };
+
+    const createInProject = (vendorName: string, tradingPartnerId?: string | null) =>
+      service
+        .create(
+          { kind: 'project', projectId: testProjectId },
+          {
+            vendorName,
+            tradingPartnerId,
+            name: `業者名の照合_${vendorName}`,
+            submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+            lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+          },
+          testUserId
+        )
+        .then((saved) => saved.quotation);
+
+    const storedVendor = (id: string) =>
+      prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id },
+        select: { vendorName: true, tradingPartnerId: true },
+      });
+
+    beforeAll(() => {
+      const auditLogService = new AuditLogService({ prisma });
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider: unusedStorage,
+        auditLogService,
+      });
+      partnerService = new TradingPartnerService({ prisma, auditLogService });
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: testProjectId, estimateRequestId: null },
+      });
+      await prisma.tradingPartner.deleteMany({ where: { id: { in: partnerIds } } });
+    });
+
+    it('名前が完全に一致する協力業者が 1 件だけなら紐づけ、論理削除済みと顧客だけの同名は数えない', async () => {
+      const name = `照合_単独_${suffix}`;
+      const subcontractorId = await createPartner(name, ['SUBCONTRACTOR']);
+      await createPartner(name, ['SUBCONTRACTOR'], {
+        branchName: '削除済みの支店',
+        deletedAt: new Date('2026-10-01T00:00:00.000Z'),
+      });
+      await createPartner(name, ['CUSTOMER'], { branchName: '顧客の支店' });
+
+      const created = await createInProject(`  ${name}  `);
+
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: name,
+        tradingPartnerId: subcontractorId,
+      });
+    });
+
+    it('一致する協力業者が複数あるとき、または協力業者が無く顧客だけのときは、業者名だけを保持する', async () => {
+      const duplicated = `照合_複数_${suffix}`;
+      await createPartner(duplicated, ['SUBCONTRACTOR'], { branchName: '東支店' });
+      await createPartner(duplicated, ['SUBCONTRACTOR'], { branchName: '西支店' });
+      const customerOnly = `照合_顧客のみ_${suffix}`;
+      await createPartner(customerOnly, ['CUSTOMER']);
+
+      for (const vendorName of [duplicated, customerOnly, `照合_未登録_${suffix}`]) {
+        const created = await createInProject(vendorName);
+        expect(await storedVendor(created.id)).toEqual({ vendorName, tradingPartnerId: null });
+      }
+    });
+
+    it('選んだ取引先が顧客だけ・論理削除済みなら拒んで保存せず、協力業者なら名前を写して紐づける', async () => {
+      const customerId = await createPartner(`照合_顧客の選択_${suffix}`, ['CUSTOMER']);
+      const deletedId = await createPartner(`照合_削除の選択_${suffix}`, ['SUBCONTRACTOR'], {
+        deletedAt: new Date('2026-10-01T00:00:00.000Z'),
+      });
+      const pickedName = `照合_選択_${suffix}`;
+      const pickedId = await createPartner(pickedName, ['SUBCONTRACTOR', 'CUSTOMER']);
+      const before = await prisma.receivedQuotation.count({ where: { projectId: testProjectId } });
+
+      for (const rejected of [customerId, deletedId]) {
+        await expect(createInProject('入力の名前', rejected)).rejects.toThrow(
+          '選んだ取引先が見つからないか、協力業者として登録されていません'
+        );
+      }
+      expect(await prisma.receivedQuotation.count({ where: { projectId: testProjectId } })).toBe(
+        before
+      );
+
+      const created = await createInProject('入力の名前', pickedId);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: pickedName,
+        tradingPartnerId: pickedId,
+      });
+    });
+
+    it('見積依頼の文脈では入力の業者名を使わず、宛先の取引先の名前と ID を写す', async () => {
+      const destination = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+        select: { name: true },
+      });
+
+      const { quotation: created } = await service.create(
+        { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
+        {
+          vendorName: '入力の業者名',
+          name: `業者名の照合_見積依頼_${suffix}`,
+          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+          lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+        },
+        testUserId
+      );
+
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: destination.name,
+        tradingPartnerId: testTradingPartnerId,
+      });
+      await prisma.receivedQuotation.delete({ where: { id: created.id } });
+    });
+
+    it('紐づく取引先の名前を変えても、論理削除しても、物理削除しても、受領見積書の業者名は変わらない', async () => {
+      const originalName = `照合_改名前_${suffix}`;
+      const partnerId = await createPartner(originalName, ['SUBCONTRACTOR']);
+      const created = await createInProject(originalName);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      const current = await prisma.tradingPartner.findUniqueOrThrow({ where: { id: partnerId } });
+      await partnerService.updatePartner(
+        partnerId,
+        { name: `照合_改名後_${suffix}` },
+        testUserId,
+        current.updatedAt
+      );
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      await partnerService.deletePartner(partnerId, testUserId);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      await prisma.tradingPartner.delete({ where: { id: partnerId } });
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: null,
+      });
+    });
+  });
+
+  describe('台帳の項目・金額・読取の確認・監査の中身の保存（タスク113.3）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+
+    /** ファイルの差し替えの判定に使う、何もしないストレージ */
+    const noopStorage = {
+      upload: () => Promise.resolve({ key: 'noop', size: 1, etag: 'noop' }),
+      delete: () => Promise.resolve(undefined),
+      getSignedUrl: () => Promise.reject(new Error('ストレージの URL は呼ばれない前提')),
+    } as unknown as StorageProvider;
+
+    const ledgerInput = {
+      quoteNumber: 'Q-2026-113',
+      overallConditions: '足場・養生は別途。工程は 2 週間',
+      siteLocation: '相模原市',
+      constructionKind: 'RENOVATION' as const,
+      useType: '学校',
+      constructionPrice: 23_456_789,
+      workConditions: '夜間・土日',
+      distanceKm: 27.3,
+      adoption: 'ADOPTED' as const,
+      confirmedAmount: 22_334_455,
+      quoteDiscriminator: '第2案',
+    };
+
+    const ledgerLines = [
+      {
+        name: '仮設足場',
+        sortOrder: 0,
+        unit: '式',
+        quantity: 1,
+        unitPrice: 240000,
+        amount: 238000,
+        category: 'OVERHEAD' as const,
+        condition: '棟別',
+        conversion: { quantity: 120.25, unit: 'm2', unitPrice: 1995.5, basis: '外周 40m × 3m' },
+        classificationKey: 'K-01',
+        quantityRowKey: 'sheet1/row12',
+        isReference: true,
+        referenceReason: '数量の根拠が不明',
+      },
+      { name: '撤去', sortOrder: 1, quantity: 1.5, unitPrice: 1001, amount: null },
+      { name: '別途の行', sortOrder: 2, amount: 500000, category: 'EXCLUDED' as const },
+      { name: '値引き', sortOrder: 3, amount: -8000, category: 'DISCOUNT' as const },
+    ];
+
+    const createInProject = (extra: Record<string, unknown> = {}) =>
+      service
+        .create(
+          { kind: 'project', projectId: testProjectId },
+          {
+            vendorName: `台帳の業者_${suffix}`,
+            name: `台帳の保存_${suffix}`,
+            submittedAt: new Date('2026-11-08T00:00:00.000Z'),
+            netAmount: 230000,
+            lineItems: ledgerLines,
+            ...extra,
+          },
+          testUserId
+        )
+        .then((saved) => saved.quotation);
+
+    const storedRow = (id: string) =>
+      prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+
+    beforeAll(() => {
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider: noopStorage,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: testProjectId, estimateRequestId: null },
+      });
+    });
+
+    it('台帳の項目（見積の区別を含む）と明細行の新しい欄が DB に保存され、取得で同じ値が返る', async () => {
+      const created = await createInProject(ledgerInput);
+
+      const row = await storedRow(created.id);
+      expect({
+        quoteNumber: row.quoteNumber,
+        overallConditions: row.overallConditions,
+        siteLocation: row.siteLocation,
+        constructionKind: row.constructionKind,
+        useType: row.useType,
+        constructionPrice: Number(row.constructionPrice),
+        workConditions: row.workConditions,
+        distanceKm: Number(row.distanceKm),
+        adoption: row.adoption,
+        confirmedAmount: Number(row.confirmedAmount),
+        quoteDiscriminator: row.quoteDiscriminator,
+      }).toEqual(ledgerInput);
+      expect(row.lineItems[0]).toMatchObject({
+        category: 'OVERHEAD',
+        condition: '棟別',
+        conversionUnit: 'm2',
+        conversionBasis: '外周 40m × 3m',
+        classificationKey: 'K-01',
+        quantityRowKey: 'sheet1/row12',
+        isReference: true,
+        referenceReason: '数量の根拠が不明',
+      });
+      expect(Number(row.lineItems[0]!.conversionQuantity)).toBe(120.25);
+      expect(Number(row.lineItems[0]!.conversionUnitPrice)).toBe(1995.5);
+      // 区分の入力が無い行は直接工事
+      expect(row.lineItems[1]!.category).toBe('DIRECT');
+      expect(row.lineItems[1]!.conversionQuantity).toBeNull();
+
+      const found = await service.findById(created.id);
+      expect(found).toMatchObject({
+        ...ledgerInput,
+        vendorName: `台帳の業者_${suffix}`,
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmedById: null,
+        readingConfirmedAt: null,
+      });
+      expect(found!.lineItems[0]!.conversion).toEqual({
+        quantity: 120.25,
+        unit: 'm2',
+        unitPrice: 1995.5,
+        basis: '外周 40m × 3m',
+      });
+      expect(found!.lineItems[0]!.isReference).toBe(true);
+    });
+
+    it('更新は送られた台帳の項目だけを DB で書き換え、送られない項目を保ち、null で消す', async () => {
+      const created = await createInProject(ledgerInput);
+
+      await service.update(
+        created.id,
+        { quoteNumber: 'Q-2026-114', siteLocation: null, quoteDiscriminator: '第3案' },
+        created.updatedAt,
+        testUserId
+      );
+
+      const row = await storedRow(created.id);
+      expect(row.quoteNumber).toBe('Q-2026-114');
+      expect(row.siteLocation).toBeNull();
+      expect(row.quoteDiscriminator).toBe('第3案');
+      expect(row.useType).toBe(ledgerInput.useType);
+      expect(Number(row.confirmedAmount)).toBe(ledgerInput.confirmedAmount);
+      expect(row.adoption).toBe('ADOPTED');
+    });
+
+    it('送られた金額を保持し、金額の無い行だけ数量×単価（小数第1位の四捨五入）で保存し、合計は別途の行を除く', async () => {
+      const created = await createInProject();
+
+      const row = await storedRow(created.id);
+      expect(
+        row.lineItems.map((line) => (line.amount === null ? null : Number(line.amount)))
+      ).toEqual([238000, 1502, 500000, -8000]);
+      const found = await service.findById(created.id);
+      expect(found!.totalAmount).toBe(238000 + 1502 - 8000);
+    });
+
+    it('API で送った金額は数量×単価と違っても保持して返し、DB にも残る', async () => {
+      const response = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', `金額の保持_${suffix}`)
+        .field('submittedAt', '2026-11-08T00:00:00.000Z')
+        .field(
+          'lineItems',
+          JSON.stringify([
+            { name: '保持', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 9800 },
+            { name: '算出', sortOrder: 1, quantity: 3, unitPrice: 333.5 },
+          ])
+        );
+      expect(response.status).toBe(201);
+      expect(response.body.lineItems.map((line: { amount: number | null }) => line.amount)).toEqual(
+        [9800, 1001]
+      );
+
+      const row = await storedRow(response.body.id);
+      expect(row.lineItems.map((line) => Number(line.amount))).toEqual([9800, 1001]);
+      await prisma.receivedQuotation.delete({ where: { id: response.body.id } });
+    });
+
+    it('読取の確認は確認者と日時を記録し、同じ内容の送り直しで保ち、明細行・NET 金額・ファイルの変更で未確認に戻る', async () => {
+      const beforeCreate = Date.now();
+      const created = await createInProject({ readingStatus: 'CONFIRMED' });
+      const afterCreate = Date.now();
+
+      let row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      const confirmedAt = row.readingConfirmedAt!.getTime();
+      expect(confirmedAt).toBeGreaterThanOrEqual(beforeCreate);
+      expect(confirmedAt).toBeLessThanOrEqual(afterCreate);
+
+      // 保存済みの明細行を取得の形のまま送り直す（明細行も NET 金額も変わらない）
+      const found = await service.findById(created.id);
+      const resend = found!.lineItems.map((line) => ({
+        name: line.name,
+        sortOrder: line.sortOrder,
+        customCategory: line.customCategory,
+        workType: line.workType,
+        specification: line.specification,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        amount: line.amount,
+        remarks: line.remarks,
+        category: line.category,
+        condition: line.condition,
+        conversion: line.conversion,
+        classificationKey: line.classificationKey,
+        quantityRowKey: line.quantityRowKey,
+        isReference: line.isReference,
+        referenceReason: line.referenceReason,
+      }));
+      const { quotation: kept } = await service.update(
+        created.id,
+        {
+          name: `台帳の保存_改名_${suffix}`,
+          netAmount: 230000,
+          lineItems: resend,
+          readingStatus: 'CONFIRMED',
+        },
+        row.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      expect(row.readingConfirmedAt!.getTime()).toBe(confirmedAt);
+
+      // 明細行の単価を直すと、確認済みを送っても未確認に戻る
+      const edited = resend.map((line, index) =>
+        index === 1 ? { ...line, unitPrice: 1100, amount: null } : line
+      );
+      const { quotation: reverted } = await service.update(
+        created.id,
+        { lineItems: edited, readingStatus: 'CONFIRMED' },
+        kept.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+      expect(row.readingConfirmedAt).toBeNull();
+
+      // 改めて確認済みにすると、新しい日時で記録する
+      const beforeReconfirm = Date.now();
+      const { quotation: reconfirmed } = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        reverted.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      expect(row.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(beforeReconfirm);
+
+      // NET 金額の変更で未確認に戻る
+      const { quotation: afterNet } = await service.update(
+        created.id,
+        { netAmount: 229000 },
+        reconfirmed.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedAt).toBeNull();
+
+      // ファイルの差し替えで未確認に戻る
+      const { quotation: confirmedAgain } = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        afterNet.updatedAt,
+        testUserId
+      );
+      await service.update(
+        created.id,
+        {
+          readingStatus: 'CONFIRMED',
+          file: {
+            buffer: Buffer.from('%PDF-1.4'),
+            originalName: '差し替え.pdf',
+            mimeType: 'application/pdf',
+            size: 8,
+          },
+        },
+        confirmedAgain.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+
+      // 未確認を送ると確認者と日時を消す（確認済みにしてから戻す）
+      const { quotation: confirmedLast } = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        row.updatedAt,
+        testUserId
+      );
+      await service.update(
+        created.id,
+        { readingStatus: 'UNCONFIRMED' },
+        confirmedLast.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+      expect(row.readingConfirmedAt).toBeNull();
+    });
+
+    it('確認済みの受領見積書の応答は確認者の ID と利用者の表示名を返し、未確認に戻すと null を返す（タスク117.4）', async () => {
+      const created = await createInProject({ readingStatus: 'CONFIRMED' });
+      const confirmer = { id: testUserId, displayName: 'Received Quotation Test User' };
+      expect(created.readingConfirmedBy).toEqual(confirmer);
+
+      const detail = await request(app)
+        .get(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.readingConfirmedById).toBe(testUserId);
+      expect(detail.body.readingConfirmedBy).toEqual(confirmer);
+
+      const list = await request(app)
+        .get(`/api/projects/${testProjectId}/quotations?include=all`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(list.status).toBe(200);
+      const listed = (list.body as Array<{ id: string; readingConfirmedBy: unknown }>).find(
+        (q) => q.id === created.id
+      );
+      expect(listed?.readingConfirmedBy).toEqual(confirmer);
+
+      const updated = await request(app)
+        .put(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('expectedUpdatedAt', new Date(detail.body.updatedAt).toISOString())
+        .field('readingStatus', 'UNCONFIRMED');
+      expect(updated.status).toBe(200);
+      expect(updated.body.readingConfirmedBy).toBeNull();
+    });
+
+    it('監査ログの行は台帳の項目の前後を持ち、工事価格・確定金額の値を持たず、更新の後に変更の有無だけを持つ', async () => {
+      const created = await createInProject(ledgerInput);
+      const { quotation: updated } = await service.update(
+        created.id,
+        { confirmedAmount: 21_998_877, adoption: 'REJECTED' },
+        created.updatedAt,
+        testUserId
+      );
+      await service.delete(created.id, updated.updatedAt, testUserId);
+
+      const logs = await prisma.auditLog.findMany({
+        where: { targetType: 'ReceivedQuotation', targetId: created.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(logs.map((log) => log.action)).toEqual([
+        'RECEIVED_QUOTATION_CREATED',
+        'RECEIVED_QUOTATION_UPDATED',
+        'RECEIVED_QUOTATION_DELETED',
+      ]);
+      for (const log of logs) {
+        const serialized = JSON.stringify([log.before, log.after]);
+        for (const amount of [
+          ledgerInput.constructionPrice,
+          ledgerInput.confirmedAmount,
+          21_998_877,
+        ]) {
+          expect(serialized).not.toContain(String(amount));
+        }
+        expect(serialized).not.toContain('"constructionPrice"');
+        expect(serialized).not.toContain('"confirmedAmount"');
+      }
+      const [createdLog, updatedLog, deletedLog] = logs;
+      expect(createdLog!.after).toMatchObject({
+        vendorName: `台帳の業者_${suffix}`,
+        quoteNumber: ledgerInput.quoteNumber,
+        siteLocation: ledgerInput.siteLocation,
+        constructionKind: 'RENOVATION',
+        distanceKm: ledgerInput.distanceKm,
+        adoption: 'ADOPTED',
+        readingStatus: 'UNCONFIRMED',
+        quoteDiscriminator: '第2案',
+      });
+      expect(createdLog!.after).not.toHaveProperty('confirmedAmountChanged');
+      expect(updatedLog!.before).toMatchObject({ adoption: 'ADOPTED' });
+      expect(updatedLog!.after).toMatchObject({
+        adoption: 'REJECTED',
+        constructionPriceChanged: false,
+        confirmedAmountChanged: true,
+      });
+      expect(deletedLog!.before).toMatchObject({
+        adoption: 'REJECTED',
+        quoteDiscriminator: '第2案',
+      });
+    });
+  });
+
+  /**
+   * 原本の指紋と同じ案件の二重登録（タスク113.4）
+   *
+   * design の Requirements 43-50 の章の D6 を実際の DB とローカルのストレージで確かめる。同じ案件への同じ原本の
+   * 同時の 2 要求が勧告ロックで直列化されて 1 件だけ保存されること、拒んだ要求のファイルがストレージに残らないこと、
+   * 保存した指紋がファイルの内容の sha256 と一致することを主張する
+   */
+  describe('原本の指紋と二重登録（タスク113.4）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+    let racingService: ReceivedQuotationService;
+    let storageRoot: string;
+    let otherProjectId: string;
+
+    /**
+     * 同時の保存の割り込みを確実に起こすための待ち合わせ。同じ指紋の照会を終えたトランザクションを、もう一方も
+     * 照会を終えるか一定の時間が過ぎるまで止める。ロックが無ければ両方が照会を終えてから作成へ進み（両方が通る）、
+     * ロックがあれば後の側はロックで待つため、先の側は時間切れで進んで確定し、後の側は先の側を読む
+     */
+    let barrier: { arrivals: number; release: () => void; released: Promise<void> } | null = null;
+    const arriveAtBarrier = async (): Promise<void> => {
+      if (barrier === null) return;
+      barrier.arrivals += 1;
+      if (barrier.arrivals >= 2) barrier.release();
+      await Promise.race([barrier.released, new Promise<void>((done) => setTimeout(done, 1500))]);
+    };
+    const armBarrier = () => {
+      let release = () => {};
+      const released = new Promise<void>((done) => {
+        release = done;
+      });
+      barrier = { arrivals: 0, release, released };
+    };
+
+    const pdfOf = (content: string) => {
+      const buffer = Buffer.from(`%PDF-1.4 ${content} ${suffix}`);
+      return {
+        buffer,
+        originalName: '原本.pdf',
+        mimeType: 'application/pdf',
+        size: buffer.length,
+      };
+    };
+    const sha256Of = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex');
+
+    const saveInProject = (
+      projectId: string,
+      file: ReturnType<typeof pdfOf>,
+      extra: Record<string, unknown> = {},
+      via: ReceivedQuotationService = service
+    ) =>
+      via.create(
+        { kind: 'project', projectId },
+        {
+          vendorName: `指紋の業者_${suffix}`,
+          name: `指紋の受領見積書_${suffix}`,
+          submittedAt: new Date('2026-11-08T00:00:00.000Z'),
+          file,
+          ...extra,
+        },
+        testUserId
+      );
+
+    /** 案件の格納先（D3）に置かれた受領見積書のディレクトリ */
+    const storedQuotationDirs = async (projectId: string): Promise<string[]> => {
+      try {
+        return (await readdir(join(storageRoot, 'quotations', 'projects', projectId))).sort();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      }
+    };
+
+    const quotationsWithHash = (projectId: string, fileSha256: string) =>
+      prisma.receivedQuotation.findMany({
+        where: { projectId, fileSha256, deletedAt: null },
+        select: { id: true },
+      });
+
+    beforeAll(async () => {
+      storageRoot = await mkdtemp(join(tmpdir(), 'rq-original-'));
+      const storageProvider = new LocalStorageProvider({ basePath: storageRoot });
+      await storageProvider.initialize();
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+      const racingPrisma = prisma.$extends({
+        query: {
+          receivedQuotation: {
+            async findMany({ args, query }) {
+              const result = await query(args);
+              if (args.where?.fileSha256 !== undefined) await arriveAtBarrier();
+              return result;
+            },
+          },
+        },
+      });
+      racingService = new ReceivedQuotationService({
+        prisma: racingPrisma as unknown as PrismaClient,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+      const otherProject = await prisma.project.create({
+        data: {
+          name: `指紋の別の案件_${suffix}`,
+          status: 'PREPARING',
+          salesPersonId: testUserId,
+          createdById: testUserId,
+        },
+      });
+      otherProjectId = otherProject.id;
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: { in: [testProjectId, otherProjectId] }, estimateRequestId: null },
+      });
+      await prisma.project.deleteMany({ where: { id: otherProjectId } });
+      await rm(storageRoot, { recursive: true, force: true });
+    });
+
+    it('保存した指紋はファイルの内容の sha256 と一致する', async () => {
+      const file = pdfOf('指紋の一致');
+
+      const { quotation, sharedOriginalCount } = await saveInProject(testProjectId, file);
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotation.id },
+        select: { fileSha256: true },
+      });
+      expect(row.fileSha256).toBe(sha256Of(file.buffer));
+      expect(row.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(sharedOriginalCount).toBe(0);
+    });
+
+    it('同じ案件へ同じ原本・同じ区別を同時に 2 件送ると 1 件だけが保存され、拒んだ側のファイルはストレージに残らない', async () => {
+      const file = pdfOf('同時の保存');
+      const before = await storedQuotationDirs(testProjectId);
+
+      armBarrier();
+      const results = await Promise.allSettled([
+        saveInProject(testProjectId, file, { name: `同時_一_${suffix}` }, racingService),
+        saveInProject(testProjectId, file, { name: `同時_二_${suffix}` }, racingService),
+      ]).finally(() => {
+        barrier = null;
+      });
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      const reason = (rejected[0] as PromiseRejectedResult).reason;
+      expect(reason).toBeInstanceOf(DuplicateOriginalError);
+      const winner = (fulfilled[0] as PromiseFulfilledResult<SaveResult>).value.quotation;
+      expect((reason as DuplicateOriginalError).existing).toEqual({
+        name: winner.name,
+        vendorName: `指紋の業者_${suffix}`,
+        submittedAt: '2026-11-08T00:00:00.000Z',
+      });
+
+      const rows = await quotationsWithHash(testProjectId, sha256Of(file.buffer));
+      expect(rows.map((r) => r.id)).toEqual([winner.id]);
+      expect(await storedQuotationDirs(testProjectId)).toEqual([...before, winner.id].sort());
+    });
+
+    it('区別の違う同じ原本は保存して件数を返し、論理削除したものと別の案件のものは判定に含めない', async () => {
+      const file = pdfOf('区別と範囲');
+      const first = await saveInProject(testProjectId, file);
+
+      const second = await saveInProject(testProjectId, file, { quoteDiscriminator: '別案' });
+      expect(second.sharedOriginalCount).toBe(1);
+
+      const elsewhere = await saveInProject(otherProjectId, file);
+      expect(elsewhere.sharedOriginalCount).toBe(0);
+
+      await prisma.receivedQuotation.update({
+        where: { id: first.quotation.id },
+        data: { deletedAt: new Date() },
+      });
+      const again = await saveInProject(testProjectId, file);
+      expect(again.sharedOriginalCount).toBe(1);
+      expect(await quotationsWithHash(testProjectId, sha256Of(file.buffer))).toHaveLength(2);
+    });
+
+    it('ファイルを差し替えて同じ組になる更新は拒み、DB もストレージも変えない', async () => {
+      const original = pdfOf('差し替えの元');
+      const existing = await saveInProject(testProjectId, original);
+      const target = await saveInProject(testProjectId, pdfOf('差し替える側'));
+      const targetBefore = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: target.quotation.id },
+      });
+      const dirBefore = await readdir(
+        join(storageRoot, 'quotations', 'projects', testProjectId, target.quotation.id)
+      );
+
+      await expect(
+        service.update(
+          target.quotation.id,
+          { file: { ...original, originalName: '差し替え.pdf' } },
+          targetBefore.updatedAt,
+          testUserId
+        )
+      ).rejects.toBeInstanceOf(DuplicateOriginalError);
+
+      expect(
+        await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: target.quotation.id } })
+      ).toEqual(targetBefore);
+      expect(
+        await readdir(
+          join(storageRoot, 'quotations', 'projects', testProjectId, target.quotation.id)
+        )
+      ).toEqual(dirBefore);
+      expect(existing.quotation.id).not.toBe(target.quotation.id);
+    });
+
+    it('以前からある同じ組は、指紋も区別も変えない更新でも拒み、区別を変える更新で解ける', async () => {
+      const file = pdfOf('以前からの同じ組');
+      const first = await saveInProject(testProjectId, file);
+      const second = await saveInProject(testProjectId, file, { quoteDiscriminator: '仮の区別' });
+      // 指紋の埋め戻しなどで以前から同じ組がある状態を作る（サービスを通さずに区別をそろえる）
+      await prisma.receivedQuotation.update({
+        where: { id: second.quotation.id },
+        data: { quoteDiscriminator: '' },
+      });
+      const rowBefore = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: second.quotation.id },
+      });
+
+      await expect(
+        service.update(
+          second.quotation.id,
+          { name: `名前だけ変える_${suffix}` },
+          rowBefore.updatedAt,
+          testUserId
+        )
+      ).rejects.toBeInstanceOf(DuplicateOriginalError);
+      expect(
+        await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: second.quotation.id } })
+      ).toEqual(rowBefore);
+
+      const resolved = await service.update(
+        second.quotation.id,
+        { quoteDiscriminator: '第2案' },
+        rowBefore.updatedAt,
+        testUserId
+      );
+      expect(resolved.quotation.quoteDiscriminator).toBe('第2案');
+      expect(resolved.sharedOriginalCount).toBe(1);
+      expect(first.quotation.id).not.toBe(second.quotation.id);
     });
   });
 });

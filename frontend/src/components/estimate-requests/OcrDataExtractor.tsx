@@ -6,6 +6,11 @@
  * Task 40.2: テキストPDF/スキャンPDF判定とハイブリッド処理フローを実装
  * Task 40.3: スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）を実装
  * Task 96.1: PDF の OCR を時間切れとアンマウントで中断する（extractPdfHybrid の options.signal）
+ * Task 119.1（estimate-request の design の「Requirements 43-50」の章の D7）: 自動開始・手動実行・再試行の
+ *   どれでも、Claude Vision を試す前に状態（GET /api/claude-vision/status）を読み、available のときだけ
+ *   VisionConsentDialog で送るかを選ばせる。端末を選ぶ・停止中・権限なし・未設定・状態の取得の失敗では
+ *   外部へ送らずに端末の OCR（Requirement 25.5 の処理）で読み、閉じたら OCR を始めず手動実行の状態へ戻す。
+ *   利用者の上限の 429 と管理者の停止は文言を出して端末で読む（24.2・49.1〜49.4・49.6・49.8）
  *
  * Requirements:
  * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
@@ -31,16 +36,22 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
 import * as XLSX from 'xlsx';
-import type { LineItemFormData } from './LineItemEditor';
+import { createLineItemLedgerDefaults, type LineItemFormData } from './LineItemEditor';
 import { extractPdfHybrid, renderPdfPagesToBase64 } from './pdf-text-extractor';
 import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
 import {
   extractWithClaudeVision,
-  ClaudeVisionApiError,
+  getClaudeVisionStatus,
   isClaudeVisionApiError,
 } from '../../api/claude-vision';
-import type { ClaudeVisionImageInput, ClaudeVisionLineItem } from '../../api/claude-vision';
+import type {
+  ClaudeVisionImageInput,
+  ClaudeVisionLineItem,
+  ClaudeVisionStatus,
+} from '../../api/claude-vision';
 import { useAuth } from '../../hooks/useAuth';
+import { VisionConsentDialog } from './VisionConsentDialog';
+import { VISION_FALLBACK_REASONS, VISION_READING_NOTICES } from './vision-consent-messages';
 
 // ============================================================================
 // 型定義
@@ -73,6 +84,67 @@ type ProcessingStatus = 'idle' | 'processing' | 'completed' | 'error';
  * ファイル種別
  */
 type FileCategory = 'pdf' | 'image' | 'excel' | 'unknown';
+
+/**
+ * PDF・画像の読み取り方（タスク119.1）
+ *
+ * - vision: 確認で「送って読み取る」が選ばれた。Claude Vision を試し、失敗したら端末の OCR へ切り替える
+ * - device: 外部へ送らずに端末の OCR で読む。fallbackReason は従来の切り替えの知らせ（25.4）に添える理由、
+ *   notice は停止・上限の知らせ（49.4・49.8）。端末を選んだとき（49.2）はどちらも null
+ */
+type ReadingPlan =
+  | { kind: 'vision' }
+  | { kind: 'device'; fallbackReason: string | null; notice: string | null };
+
+/** 端末を選んだときの読み取り方（知らせを出さない。49.2） */
+const READ_ON_DEVICE_BY_CHOICE: ReadingPlan = {
+  kind: 'device',
+  fallbackReason: null,
+  notice: null,
+};
+
+/**
+ * 状態から、確認を出すか（null）、確認を出さずに端末で読むかを決める（D7・49.4・49.6）
+ *
+ * 状態を取得できなかった（status が null）ときは、送ってよいか分からないため送らない側に倒す
+ */
+function planForStatus(status: ClaudeVisionStatus | null): ReadingPlan | null {
+  if (status === null) {
+    return {
+      kind: 'device',
+      fallbackReason: VISION_FALLBACK_REASONS.STATUS_UNAVAILABLE,
+      notice: null,
+    };
+  }
+  if (status.available) return null;
+  switch (status.reason) {
+    case 'disabled_by_admin':
+      return {
+        kind: 'device',
+        fallbackReason: null,
+        notice: VISION_READING_NOTICES.DISABLED_BY_ADMIN,
+      };
+    case 'no_permission':
+      return {
+        kind: 'device',
+        fallbackReason: VISION_FALLBACK_REASONS.NO_PERMISSION,
+        notice: null,
+      };
+    case 'not_configured':
+      return {
+        kind: 'device',
+        fallbackReason: VISION_FALLBACK_REASONS.NOT_CONFIGURED,
+        notice: null,
+      };
+    default:
+      // 知らない理由も送らない側に倒す
+      return {
+        kind: 'device',
+        fallbackReason: VISION_FALLBACK_REASONS.STATUS_UNAVAILABLE,
+        notice: null,
+      };
+  }
+}
 
 // ============================================================================
 // 定数
@@ -209,6 +281,8 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
       remarks: '',
       // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
       sortOrder: 0,
+      // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+      ...createLineItemLedgerDefaults(),
     };
 
     if (columnMapping) {
@@ -414,6 +488,8 @@ export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
         remarks: '',
         // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
         sortOrder: 0,
+        // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+        ...createLineItemLedgerDefaults(),
       };
 
       // 数値でないトークンを名称として、数値トークンを数量・単価として推定
@@ -599,6 +675,13 @@ const styles = {
     fontSize: '13px',
     color: '#92400e', // text-yellow-800
   },
+  visionReadingNotice: {
+    padding: '8px 16px',
+    backgroundColor: '#fefce8', // bg-yellow-50
+    borderTop: '1px solid #fde68a', // border-yellow-200
+    fontSize: '13px',
+    color: '#92400e', // text-yellow-800
+  },
   bothFailedErrorBanner: {
     padding: '8px 16px',
     backgroundColor: '#fef2f2', // bg-red-50
@@ -687,6 +770,18 @@ export function OcrDataExtractor({
   const [fallbackActivated, setFallbackActivated] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
 
+  // タスク119.1: 外部の AI での読み取りの確認と分岐の状態
+  /** Claude Vision の試行中（処理中の表示の相に使う） */
+  const [readingWithVision, setReadingWithVision] = useState(false);
+  /** 停止・利用者の上限の知らせ（49.4・49.8） */
+  const [visionNotice, setVisionNotice] = useState<string | null>(null);
+  /** 確認の画面で選ばれるのを待っているファイル（null なら確認を出さない） */
+  const [pendingConsentFile, setPendingConsentFile] = useState<File | null>(null);
+  /** 状態を読んでいる間（開始のボタンを押せなくする） */
+  const [isCheckingVisionStatus, setIsCheckingVisionStatus] = useState(false);
+  /** 確認を閉じた後、自動開始のときも手動実行のボタンを出す（49.3） */
+  const [awaitingManualStart, setAwaitingManualStart] = useState(false);
+
   // ワーカーとタイムアウト管理用のref
   const workerRef = useRef<{
     recognize: (image: File) => Promise<{ data: { text: string } }>;
@@ -700,6 +795,10 @@ export function OcrDataExtractor({
 
   // 手動トリガーモードで使用するファイルオブジェクトの保持
   const fetchedFileRef = useRef<File | null>(null);
+
+  // 開始の世代（タスク119.1）。状態の取得の待ちの間にファイルが変わる・アンマウントされると進め、
+  // 古い開始の続き（確認の表示・読み取り）を捨てる
+  const startGenerationRef = useRef(0);
 
   // タスク 80.1（要件 38.11）: セッション切れ中は OCR 関連ボタンを非活性化する
   // apiClient 経由の 401 検知が自動的に sessionExpiredCallback を発火させ、
@@ -756,6 +855,8 @@ export function OcrDataExtractor({
           remarks: item.remarks ?? '',
           // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
           sortOrder: index,
+          // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+          ...createLineItemLedgerDefaults(),
         };
       });
     },
@@ -780,10 +881,19 @@ export function OcrDataExtractor({
         setStatus('completed');
         return true;
       } catch (error) {
+        // 利用者の上限（49.8）と管理者の停止（49.4）は、その文言を出して端末で読む（タスク119.1）
+        if (isClaudeVisionApiError(error) && error.isUserRateLimited) {
+          setVisionNotice(VISION_READING_NOTICES.USER_RATE_LIMITED);
+          return false;
+        }
+        if (isClaudeVisionApiError(error) && error.isDisabledByAdmin) {
+          setVisionNotice(VISION_READING_NOTICES.DISABLED_BY_ADMIN);
+          return false;
+        }
         // shouldFallbackがtrueの場合（全エラー共通）
-        if (isClaudeVisionApiError(error) && (error as ClaudeVisionApiError).shouldFallback) {
+        if (isClaudeVisionApiError(error) && error.shouldFallback) {
           setFallbackActivated(true);
-          setFallbackReason((error as ClaudeVisionApiError).message);
+          setFallbackReason(error.message);
           return false;
         }
         // その他のエラーもフォールバック
@@ -822,31 +932,45 @@ export function OcrDataExtractor({
   // Requirements: 17.1, 17.2, 17.3, 17.4, 17.8
   // --------------------------------------------------------------------------
 
+  /**
+   * PDF・画像の読み取りを始める前に表示を初期化し、読み取り方の知らせを置く（タスク119.1）
+   */
+  const resetForReading = useCallback((plan: ReadingPlan) => {
+    setStatus('processing');
+    setProgress(10);
+    setExtractedText(null);
+    setParsedLineItems(null);
+    setErrorMessage(null);
+    setImportCompleted(false);
+    setUsedClaudeVision(false);
+    setReadingWithVision(plan.kind === 'vision');
+    setVisionNotice(plan.kind === 'device' ? plan.notice : null);
+    const deviceFallbackReason = plan.kind === 'device' ? plan.fallbackReason : null;
+    setFallbackActivated(deviceFallbackReason !== null);
+    setFallbackReason(deviceFallbackReason);
+    abortedRef.current = false;
+  }, []);
+
   const processPdfHybrid = useCallback(
-    async (targetFile: File) => {
-      setStatus('processing');
-      setProgress(10);
-      setExtractedText(null);
-      setParsedLineItems(null);
-      setErrorMessage(null);
-      setImportCompleted(false);
-      setUsedClaudeVision(false);
-      setFallbackActivated(false);
-      setFallbackReason(null);
-      abortedRef.current = false;
+    async (targetFile: File, plan: ReadingPlan) => {
+      resetForReading(plan);
 
-      // ---- Claude Vision抽出を優先的に試行（24.2）----
-      try {
-        const images = await renderPdfPagesToBase64(targetFile);
-        setProgress(30);
+      // ---- Claude Vision抽出を試行（24.2。確認で送ると選ばれたときだけ。49.1）----
+      if (plan.kind === 'vision') {
+        try {
+          const images = await renderPdfPagesToBase64(targetFile);
+          setProgress(30);
 
-        const success = await processClaudeVision(images);
-        if (success) return; // Claude Vision成功 → 終了
-        // processClaudeVisionがfalseの場合 → フォールバック
-      } catch {
-        // renderPdfPagesToBase64のエラーもフォールバックに進む
-        setFallbackActivated(true);
-        setFallbackReason('PDFページのBase64変換に失敗しました');
+          const success = await processClaudeVision(images);
+          if (success) return; // Claude Vision成功 → 終了
+          // processClaudeVisionがfalseの場合 → フォールバック
+        } catch {
+          // renderPdfPagesToBase64のエラーもフォールバックに進む
+          setFallbackActivated(true);
+          setFallbackReason('PDFページのBase64変換に失敗しました');
+        } finally {
+          setReadingWithVision(false);
+        }
       }
 
       // ---- Tesseract.jsフォールバック（25.1-25.6）----
@@ -915,7 +1039,7 @@ export function OcrDataExtractor({
         }
       }
     },
-    [cleanup, processClaudeVision]
+    [cleanup, processClaudeVision, resetForReading]
   );
 
   // --------------------------------------------------------------------------
@@ -923,29 +1047,24 @@ export function OcrDataExtractor({
   // --------------------------------------------------------------------------
 
   const processOcr = useCallback(
-    async (targetFile: File) => {
-      setStatus('processing');
-      setProgress(10);
-      setExtractedText(null);
-      setParsedLineItems(null);
-      setErrorMessage(null);
-      setImportCompleted(false);
-      setUsedClaudeVision(false);
-      setFallbackActivated(false);
-      setFallbackReason(null);
-      abortedRef.current = false;
+    async (targetFile: File, plan: ReadingPlan) => {
+      resetForReading(plan);
 
-      // ---- Claude Vision抽出を優先的に試行（24.2, 54.3）----
-      try {
-        const images = await readImageFileAsBase64(targetFile);
-        setProgress(30);
+      // ---- Claude Vision抽出を試行（24.2, 54.3。確認で送ると選ばれたときだけ。49.1）----
+      if (plan.kind === 'vision') {
+        try {
+          const images = await readImageFileAsBase64(targetFile);
+          setProgress(30);
 
-        const success = await processClaudeVision(images);
-        if (success) return; // Claude Vision成功 → 終了
-      } catch {
-        // FileReader変換エラーもフォールバックに進む
-        setFallbackActivated(true);
-        setFallbackReason('画像ファイルのBase64変換に失敗しました');
+          const success = await processClaudeVision(images);
+          if (success) return; // Claude Vision成功 → 終了
+        } catch {
+          // FileReader変換エラーもフォールバックに進む
+          setFallbackActivated(true);
+          setFallbackReason('画像ファイルのBase64変換に失敗しました');
+        } finally {
+          setReadingWithVision(false);
+        }
       }
 
       // ---- Tesseract.jsフォールバック（25.1-25.6）----
@@ -1014,7 +1133,7 @@ export function OcrDataExtractor({
         await cleanup();
       }
     },
-    [cleanup, processClaudeVision, readImageFileAsBase64]
+    [cleanup, processClaudeVision, readImageFileAsBase64, resetForReading]
   );
 
   // --------------------------------------------------------------------------
@@ -1102,6 +1221,85 @@ export function OcrDataExtractor({
   }, [fileUrl, fileMimeType]);
 
   // --------------------------------------------------------------------------
+  // 読み取りの開始（タスク119.1。自動開始・手動実行・再試行の共通の入口）
+  // --------------------------------------------------------------------------
+
+  /**
+   * PDF・画像は Claude Vision を試す前に状態を読み、available なら確認を出し、そうでなければ
+   * 確認を出さずに端末で読む（D7・49.1・49.4・49.6）。Excel は外部の AI を使わないため状態を読まない
+   */
+  const beginReading = useCallback(
+    async (targetFile: File) => {
+      const category = detectFileCategory(targetFile.type);
+      if (category === 'excel') {
+        await processExcel(targetFile);
+        return;
+      }
+      if (category !== 'pdf' && category !== 'image') return;
+
+      startGenerationRef.current += 1;
+      const generation = startGenerationRef.current;
+      setAwaitingManualStart(false);
+      setPendingConsentFile(null);
+      setIsCheckingVisionStatus(true);
+
+      let visionStatus: ClaudeVisionStatus | null;
+      try {
+        visionStatus = await getClaudeVisionStatus();
+      } catch {
+        visionStatus = null;
+      }
+      // ファイルが変わった・アンマウントされた・次の開始があったら、この開始の続きは捨てる
+      if (generation !== startGenerationRef.current) return;
+      setIsCheckingVisionStatus(false);
+
+      const plan = planForStatus(visionStatus);
+      if (plan === null) {
+        setPendingConsentFile(targetFile);
+        return;
+      }
+      if (category === 'pdf') {
+        await processPdfHybrid(targetFile, plan);
+      } else {
+        await processOcr(targetFile, plan);
+      }
+    },
+    [processExcel, processPdfHybrid, processOcr]
+  );
+
+  /** 確認の選択で読み取りを進める（送る: 49.1・24.2、端末: 49.2） */
+  const readPendingFile = useCallback(
+    async (plan: ReadingPlan) => {
+      const targetFile = pendingConsentFile;
+      if (!targetFile) return;
+      setPendingConsentFile(null);
+      if (detectFileCategory(targetFile.type) === 'pdf') {
+        await processPdfHybrid(targetFile, plan);
+      } else {
+        await processOcr(targetFile, plan);
+      }
+    },
+    [pendingConsentFile, processPdfHybrid, processOcr]
+  );
+
+  const handleConsentSend = useCallback(() => {
+    void readPendingFile({ kind: 'vision' });
+  }, [readPendingFile]);
+
+  const handleConsentReadOnDevice = useCallback(() => {
+    void readPendingFile(READ_ON_DEVICE_BY_CHOICE);
+  }, [readPendingFile]);
+
+  /** どちらも選ばずに閉じた: OCR を始めず、手動実行のボタンの状態へ戻す（49.3） */
+  const handleConsentClose = useCallback(() => {
+    setPendingConsentFile(null);
+    setAwaitingManualStart(true);
+    setStatus('idle');
+    setProgress(0);
+    setErrorMessage(null);
+  }, []);
+
+  // --------------------------------------------------------------------------
   // 手動トリガー実行ハンドラ
   // --------------------------------------------------------------------------
 
@@ -1117,20 +1315,13 @@ export function OcrDataExtractor({
 
       if (!targetFile) return;
 
-      const category = detectFileCategory(targetFile.type);
-      if (category === 'pdf') {
-        await processPdfHybrid(targetFile);
-      } else if (category === 'image') {
-        await processOcr(targetFile);
-      } else if (category === 'excel') {
-        await processExcel(targetFile);
-      }
+      await beginReading(targetFile);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'ファイルの取得に失敗しました';
       setErrorMessage(message);
       setStatus('error');
     }
-  }, [file, fetchFileFromUrl, processPdfHybrid, processOcr, processExcel]);
+  }, [file, fetchFileFromUrl, beginReading]);
 
   // --------------------------------------------------------------------------
   // リトライハンドラ
@@ -1145,6 +1336,12 @@ export function OcrDataExtractor({
   // --------------------------------------------------------------------------
 
   useEffect(() => {
+    // ファイルが変わったら、前のファイルの確認・状態の取得の待ちを捨てる（タスク119.1）
+    startGenerationRef.current += 1;
+    setPendingConsentFile(null);
+    setIsCheckingVisionStatus(false);
+    setAwaitingManualStart(false);
+
     if (!file) {
       // autoStart=false（手動トリガーモード）でfileUrlが存在する場合はidleで待機
       if (!autoStart && fileUrl) {
@@ -1156,6 +1353,7 @@ export function OcrDataExtractor({
       setParsedLineItems(null);
       setErrorMessage(null);
       setImportCompleted(false);
+      setVisionNotice(null);
       return;
     }
 
@@ -1164,27 +1362,22 @@ export function OcrDataExtractor({
       return;
     }
 
-    const category = detectFileCategory(file.type);
-
-    if (category === 'pdf') {
-      processPdfHybrid(file);
-    } else if (category === 'image') {
-      processOcr(file);
-    } else if (category === 'excel') {
-      processExcel(file);
-    }
+    void beginReading(file);
 
     return () => {
       abortedRef.current = true;
+      startGenerationRef.current += 1;
       cleanup();
     };
-  }, [file, autoStart, fileUrl, processPdfHybrid, processOcr, processExcel, cleanup]);
+  }, [file, autoStart, fileUrl, beginReading, cleanup]);
 
   // アンマウント時に PDF 経路の OCR を中断する（Task 96.1）。上の副作用は autoStart=false の
   // ときに後始末を返さないため、手動トリガーで始めた処理も含めてここで止める
   useEffect(() => {
     return () => {
       pdfAbortControllerRef.current?.abort();
+      // 状態の取得の待ちの後に、アンマウントした部品で確認や読み取りを始めない（タスク119.1）
+      startGenerationRef.current += 1;
     };
   }, []);
 
@@ -1225,8 +1418,9 @@ export function OcrDataExtractor({
   const fileCategory = detectFileCategory(effectiveMimeType);
   const headerTitle = fileCategory === 'excel' ? 'データ抽出（Excelパース）' : 'データ抽出（OCR）';
 
-  // 手動トリガーモード: idleかつautoStart=falseの場合にアクションボタンを表示
-  const showManualTriggerButton = !autoStart && status === 'idle';
+  // 手動トリガーモード: idleかつautoStart=falseの場合にアクションボタンを表示。
+  // 確認を閉じた後は自動開始のときも表示する（49.3。タスク119.1）
+  const showManualTriggerButton = (!autoStart || awaitingManualStart) && status === 'idle';
 
   // リトライボタン: エラー時に表示
   const showRetryButton = status === 'error';
@@ -1238,7 +1432,9 @@ export function OcrDataExtractor({
   // useAuth() は早期 return より前で常に同順序で呼び出す必要があるため、
   // フック呼び出しはレンダリング分岐の前で行う
   const isReauthInProgress = sessionExpiredDuringOperation;
-  const isOcrActionDisabled = isProcessing || isReauthInProgress;
+  // 状態を読んでいる間と確認の画面を出している間も、開始を重ねない（タスク119.1）
+  const isOcrActionDisabled =
+    isProcessing || isReauthInProgress || isCheckingVisionStatus || pendingConsentFile !== null;
 
   return (
     <div style={styles.container}>
@@ -1278,7 +1474,7 @@ export function OcrDataExtractor({
           <span style={styles.progressText}>
             {fileCategory === 'excel'
               ? 'Excelデータを解析中...'
-              : !fallbackActivated && progress <= 30
+              : readingWithVision && !fallbackActivated && progress <= 30
                 ? 'Claude Vision APIで解析中...'
                 : fileCategory === 'pdf'
                   ? progress < 50
@@ -1297,6 +1493,13 @@ export function OcrDataExtractor({
       {status === 'completed' && usedClaudeVision && !fallbackActivated && (
         <div style={styles.claudeVisionInfoBanner} data-testid="claude-vision-info-banner">
           Claude Vision APIで抽出しました
+        </div>
+      )}
+
+      {/* 外部の AI での読み取りの停止・利用者の上限の知らせ（49.4・49.8。タスク119.1） */}
+      {visionNotice && status !== 'idle' && (
+        <div style={styles.visionReadingNotice} role="status" data-testid="vision-reading-notice">
+          {visionNotice}
         </div>
       )}
 
@@ -1362,6 +1565,15 @@ export function OcrDataExtractor({
             </button>
           )}
         </div>
+      )}
+
+      {/* 外部の AI へ送る前の確認（49.1〜49.3。タスク119.1） */}
+      {pendingConsentFile && (
+        <VisionConsentDialog
+          onSend={handleConsentSend}
+          onReadOnDevice={handleConsentReadOnDevice}
+          onClose={handleConsentClose}
+        />
       )}
     </div>
   );

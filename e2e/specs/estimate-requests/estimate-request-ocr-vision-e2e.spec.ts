@@ -67,6 +67,12 @@
  * 検証は Anthropic SDK をモックした backend の単体テスト
  * （`backend/src/__tests__/unit/services/claude-vision.service.test.ts`）の所管である。
  *
+ * タスク119.1（24.2 の改訂）: 受領見積書の OCR は、状態の API が `available` を返し、外部の AI へ送る前の
+ * 確認で「送って読み取る」が選ばれたときだけ Claude Vision を試す。E2E の環境は鍵を持たず状態が
+ * `not_configured` になるため、Claude Vision を試す経路の検証は状態の応答だけを `available` に差し替え、
+ * 確認で送ると選ぶ（e2e/helpers/claude-vision-consent.ts）。抽出の応答は従来どおり本物の 503 か差し替えで決める。
+ * Claude Vision を試さない検証（カンマ区切り数値・Excel）は状態を差し替えず、確認を経ずに端末で読む。
+ *
  * @module e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec
  */
 
@@ -77,6 +83,10 @@ import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { getAccessToken } from '../../helpers/auth-api';
+import {
+  chooseSendToExternalAi,
+  routeClaudeVisionStatusAvailable,
+} from '../../helpers/claude-vision-consent';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -761,7 +771,9 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
    * - REQ-25.1 / 25.4: 応答が 503 であり、フォールバック通知バナーが本番の文言で現れる
    * - REQ-25.5: Tesseract の worker と日本語データが取得され、抽出結果に**画像の中にしか
    *   存在しない語**が現れ、要件20の変換が明細行を生んで一括取り込みボタンが出る
-   * - REQ-25.6: ファイル選択より後、利用者に由来する入力事象が一件も無いまま結果に至る
+   * - REQ-25.6: 確認で送ると選んだ後、利用者に由来する入力事象が一件も無いまま結果に至る
+   *   （タスク119.1 で、ファイル選択と結果の間に確認の選択が入った。選択の操作は観測器が数えることを
+   *   確かめ、その後の件数が増えないことを主張する）
    *
    * @requirement estimate-request/REQ-24.1
    * @requirement estimate-request/REQ-24.2
@@ -781,9 +793,19 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
     const traces = watchOcrRequests(page);
     const visionStatuses = watchClaudeVisionResponseStatuses(page);
     await installUserInputObserver(page);
+    const statusRequestCount = await routeClaudeVisionStatusAvailable(page);
 
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    // 確認で送ると選ぶまで Claude Vision の要求は出ない（タスク119.1）
+    await chooseSendToExternalAi(page);
+    expect(statusRequestCount(), '確認の前に状態の API が読まれていない').toBeGreaterThan(0);
+    const inputAfterConsent = await collectUserInputObservation(page);
+    expect(
+      inputAfterConsent.trustedInputEventsAfterFileSelect,
+      '確認の選択の操作が観測器に数えられていない（後の「増えない」が何も述べていないことになる）'
+    ).toBeGreaterThan(0);
 
     // 抽出の成立だけを主張する（「結果 または エラー」の選言では何も主張していない）。
     // 上限は Claude Vision の試行とその失敗後の Tesseract 一巡を合わせた全体に対するもの。
@@ -888,8 +910,8 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
     ).toBe(true);
     expect(
       userInput.trustedInputEventsAfterFileSelect,
-      'ファイル選択より後に利用者に由来する入力事象が起きている（自動的な切り替えと言えない）'
-    ).toBe(0);
+      '確認で送ると選んだ後に利用者に由来する入力事象が起きている（自動的な切り替えと言えない）'
+    ).toBe(inputAfterConsent.trustedInputEventsAfterFileSelect);
   });
 
   /**
@@ -965,9 +987,11 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
       heldRoutes.push(route);
     };
     await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, holdVisionRoute);
+    await routeClaudeVisionStatusAvailable(page);
 
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+    await chooseSendToExternalAi(page);
 
     // ------------------------------------------------------------------
     // REQ-24.7: Claude Vision 処理が実行中の間の処理中インジケーター
@@ -1041,8 +1065,11 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
       });
     });
 
+    // 外部の AI での読み取りを使える状態にし、確認で送ると選ぶ（タスク119.1）
+    await routeClaudeVisionStatusAvailable(page);
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+    await chooseSendToExternalAi(page);
 
     const fallbackBanner = page.getByTestId('fallback-warning-banner');
     await expect(fallbackBanner).toBeVisible({ timeout: getTimeout(60000) });
@@ -1133,8 +1160,11 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
       });
     });
 
+    // 外部の AI での読み取りを使える状態にし、確認で送ると選ぶ（タスク119.1）
+    await routeClaudeVisionStatusAvailable(page);
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+    await chooseSendToExternalAi(page);
 
     // ------------------------------------------------------------------
     // REQ-24.5: 返却された明細行データを抽出結果として表示する
@@ -1230,8 +1260,11 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
       });
     });
 
+    // 外部の AI での読み取りを使える状態にし、確認で送ると選ぶ（タスク119.1）
+    await routeClaudeVisionStatusAvailable(page);
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+    await chooseSendToExternalAi(page);
 
     const extractedText = page.getByTestId('ocr-extracted-text');
     await expect(extractedText).toBeVisible({ timeout: getTimeout(120000) });
@@ -1291,8 +1324,11 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
     await page.route(`**${TESSERACT_WORKER_PATH_MARK}**`, blockTesseractAsset);
     await page.route(`**${TESSERACT_LANG_PATH_MARK}**`, blockTesseractAsset);
 
+    // 外部の AI での読み取りを使える状態にし、確認で送ると選ぶ（タスク119.1）
+    await routeClaudeVisionStatusAvailable(page);
     await loginAsUser(page, 'REGULAR_USER');
     await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+    await chooseSendToExternalAi(page);
 
     // ------------------------------------------------------------------
     // 二つの刺激がどちらも到達したこと
@@ -1330,7 +1366,8 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
    * 数値として認識する」ことを求める。資材 `e2e/fixtures/test-comma-number-pdf.pdf` は
    * 2 ページのテキスト PDF で、1 ページ目に閾値（空白を除き 50 文字）を満たす英文、
    * 2 ページ目に `WallPaint  Silicone  m2  100  1,234,567` を持つ。
-   * テスト環境では Claude Vision が 503 を返すため退避し、
+   * テスト環境では外部の AI での読み取りの状態が未設定（鍵が無い）のため確認を出さずに端末で読み
+   * （タスク119.1 より前は Claude Vision の 503 を受けて退避していた）、
    * `extractPdfHybrid` が pdfjs-dist の直接抽出で当該テキストを取り出す。
    *
    * 刺激（カンマ付きの原文）と観測（カンマの無い取り込み結果）が**同じ画面に同時に出る**。

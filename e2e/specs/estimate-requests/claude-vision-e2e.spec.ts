@@ -24,6 +24,12 @@
  * Playwright APIルートインターセプトを使用してClaude Vision APIレスポンスをモックし、
  * フロントエンドのフロー全体を検証する。
  *
+ * タスク119.1（24.2 の改訂）: 受領見積書の OCR は、状態の API が `available` を返し、
+ * 外部の AI へ送る前の確認で「送って読み取る」が選ばれたときだけ Claude Vision を試す。
+ * E2E の環境は鍵を持たず状態が `not_configured` になるため、両検証とも状態の応答を `available` に
+ * 差し替え、確認で送ると選ぶ手順を経る（e2e/helpers/claude-vision-consent.ts）。抽出の要求の件数を数え、
+ * 送ると選んだ後に一件だけ出たことを確かめる（確認を経ずに出ていない・端末の読み取りだけで緑にならない）。
+ *
  * @module e2e/specs/estimate-requests/claude-vision-e2e.spec
  */
 
@@ -33,6 +39,10 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { getAccessToken } from '../../helpers/auth-api';
 import { cleanupEstimateRequestFixtures } from '../../helpers/estimate-request-preconditions';
+import {
+  chooseSendToExternalAi,
+  routeClaudeVisionStatusAvailable,
+} from '../../helpers/claude-vision-consent';
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -209,8 +219,13 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       await loginAsUser(page, 'REGULAR_USER');
       accessToken = await getAccessToken(page, 'REGULAR_USER');
 
+      // 外部の AI での読み取りを使える状態にする（確認を出させる。タスク119.1）
+      const statusRequestCount = await routeClaudeVisionStatusAvailable(page);
+
       // Claude Vision APIをインターセプトして成功レスポンスを返す
+      let extractRequestCount = 0;
       await page.route('**/api/claude-vision/extract', async (route) => {
+        extractRequestCount += 1;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -265,6 +280,10 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         buffer: minimalPng,
       });
 
+      // 確認が出るまで抽出は呼ばれず、送ると選んだ後に一件だけ呼ばれる（タスク119.1）
+      await chooseSendToExternalAi(page);
+      expect(statusRequestCount(), '確認の前に状態の API が読まれていない').toBeGreaterThan(0);
+
       // 結果が表示されるまで待機
       // Claude Vision成功時は青色インフォバナーが表示される
       await expect(page.getByText(/Claude Vision APIで抽出しました/)).toBeVisible({
@@ -275,6 +294,8 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       await expect(page.getByTestId('ocr-extracted-text')).toBeVisible({
         timeout: getTimeout(5000),
       });
+
+      expect(extractRequestCount, 'Claude Vision の抽出の要求が一件ちょうどではない').toBe(1);
 
       // 一括取り込みボタンが表示される
       const importButton = page.getByTestId('ocr-import-button');
@@ -316,8 +337,13 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       await loginAsUser(page, 'REGULAR_USER');
       accessToken = await getAccessToken(page, 'REGULAR_USER');
 
+      // 外部の AI での読み取りを使える状態にする（確認を出させる。タスク119.1）
+      await routeClaudeVisionStatusAvailable(page);
+
       // Claude Vision APIをインターセプトして503を返す（API無効）
+      let extractRequestCount = 0;
       await page.route('**/api/claude-vision/extract', async (route) => {
+        extractRequestCount += 1;
         await route.fulfill({
           status: 503,
           contentType: 'application/json',
@@ -348,6 +374,10 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         buffer: minimalPng,
       });
 
+      // 送ると選んだ後の Claude Vision の 503 で切り替わることを確かめる（タスク119.1）。
+      // 状態が使えないときも確認を出さずに切り替えの知らせが出るため、抽出の要求の件数で刺激を固定する
+      await chooseSendToExternalAi(page);
+
       // フォールバック警告バナー（黄色）が表示される（REQ-25.4）
       await expect(page.getByTestId('fallback-warning-banner')).toBeVisible({
         timeout: getTimeout(30000),
@@ -359,6 +389,14 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       await expect(
         page.getByText(/Claude Vision APIが利用できないため、従来のOCR処理で実行しています/)
       ).toBeVisible();
+      expect(
+        extractRequestCount,
+        'Claude Vision の抽出の要求が一件ちょうどではない（503 を受けて切り替えたことにならない）'
+      ).toBe(1);
+      // 理由は差し替えた 503 の本文に由来する（状態による切り替えの理由ではない）
+      await expect(page.getByTestId('fallback-warning-banner')).toContainText(
+        'Claude Vision機能は無効です'
+      );
     });
   });
 

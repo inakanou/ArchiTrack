@@ -172,7 +172,11 @@ describe('見積依頼の部品・ページが共通のフォーカス表示を�
     const { container } = render(
       <ReceivedQuotationForm
         mode="create"
-        estimateRequestId="er-123"
+        context={{
+          kind: 'estimateRequest',
+          estimateRequestId: 'er-123',
+          tradingPartnerName: '協力業者A',
+        }}
         onSubmit={vi.fn().mockResolvedValue(undefined)}
         onCancel={vi.fn()}
         selectedItems={[]}
@@ -192,7 +196,7 @@ describe('見積依頼の部品・ページが共通のフォーカス表示を�
     expect(suppressedControls(controls)).toEqual([]);
   });
 
-  it('明細行のエディタの全行の8つの入力欄がインラインで outline を消していない', () => {
+  it('明細行のエディタの全行の入力欄と区分の選択欄がインラインで outline を消していない', () => {
     const { container } = render(
       <LineItemEditor
         lineItems={[createEmptyLineItem(0), createEmptyLineItem(1)]}
@@ -200,8 +204,11 @@ describe('見積依頼の部品・ページが共通のフォーカス表示を�
       />
     );
 
-    const inputs = getFocusableControls(container).filter((control) => control.matches('input'));
-    expect(inputs).toHaveLength(16);
+    // Task 117.2: 1 行あたり従来の 8 つの入力欄に、金額（単価が空の行）・分類キー・参考の 3 つと区分の選択欄を足した
+    const inputs = getFocusableControls(container).filter((control) =>
+      control.matches('input, select')
+    );
+    expect(inputs).toHaveLength(24);
     expect(suppressedControls(inputs)).toEqual([]);
   });
 });

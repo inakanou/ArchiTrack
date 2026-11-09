@@ -20,10 +20,18 @@
  * - 11.21: 金額フィールドは入力不可（読み取り専用）とする
  */
 
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LineItemEditor, type LineItemFormData, createEmptyLineItem } from './LineItemEditor';
+import {
+  LineItemEditor,
+  type LineItemFormData,
+  createEmptyLineItem,
+  createLineItemLedgerDefaults,
+  calculateTotalAmount,
+  calculateCategorySubtotals,
+} from './LineItemEditor';
 
 // ============================================================================
 // テストヘルパー
@@ -386,11 +394,10 @@ describe('LineItemEditor', () => {
       // Tabキーを押す
       fireEvent.keyDown(firstRowRemarks, { key: 'Tab', code: 'Tab' });
 
-      // 2行目の最初のフィールド（任意分類）にフォーカスが移動していることを確認
-      // Task 32改修: FIELD_ORDERの先頭がcustomCategoryに変更されたため、
-      // 次の行の最初のフィールドは「任意分類」になる
-      const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
-      expect(document.activeElement).toBe(customCategoryInputs[1]);
+      // 2行目の最初のフィールドにフォーカスが移動していることを確認
+      // Task 32改修: FIELD_ORDERの先頭がcustomCategoryに変更された。
+      // Task 117.2: 列の先頭に区分の選択を置いたため、次の行の最初のフィールドは区分の選択になる
+      expect(document.activeElement).toBe(screen.getByLabelText('行2 区分'));
     });
 
     it('最終行の最終フィールドでTabを押しても正常に動作する', () => {
@@ -823,8 +830,8 @@ describe('LineItemEditor', () => {
       // Tabキーで2行目に移動
       fireEvent.keyDown(remarksInput, { key: 'Tab' });
 
-      // 2行目の最初のフィールドにフォーカスが移動
-      const nextInput = screen.getByLabelText('行2 任意分類');
+      // 2行目の最初のフィールドにフォーカスが移動（Task 117.2: 先頭は区分の選択）
+      const nextInput = screen.getByLabelText('行2 区分');
       expect(nextInput).toBe(document.activeElement);
     });
 
@@ -860,6 +867,466 @@ describe('LineItemEditor', () => {
       await user.click(deleteItem);
 
       expect(onLineItemsChange).toHaveBeenCalled();
+    });
+  });
+  // --------------------------------------------------------------------------
+  // Task 117.2: 台帳の項目（区分・分類キー・参考・行の詳細・小計・金額の直接入力・行のエラー）
+  // --------------------------------------------------------------------------
+
+  describe('台帳の項目の列 (Task 117.2)', () => {
+    it('列の並びが No・区分・任意分類・工種・名称・規格・単位・数量・単価・金額・分類キー・参考・備考・操作になる', () => {
+      render(<LineItemEditor {...getDefaultProps()} />);
+
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+      expect(headers).toEqual([
+        'No',
+        '区分',
+        '任意分類',
+        '工種',
+        '名称',
+        '規格',
+        '単位',
+        '数量',
+        '単価',
+        '金額',
+        '分類キー',
+        '参考',
+        '備考',
+        '操作',
+      ]);
+    });
+
+    it('新しい空の行は区分が DIRECT、分類キーと数量表の行のキーが空、参考の印が無い', () => {
+      const item = createEmptyLineItem();
+      expect(item.category).toBe('DIRECT');
+      expect(item.classificationKey).toBe('');
+      expect(item.quantityRowKey).toBe('');
+      expect(item.isReference).toBe(false);
+      expect(item.referenceReason).toBe('');
+      expect(item.condition).toBe('');
+      expect(item.conversionQuantity).toBe('');
+      expect(item.conversionUnit).toBe('');
+      expect(item.conversionUnitPrice).toBe('');
+      expect(item.conversionBasis).toBe('');
+    });
+
+    it('取り込み・転記の行に使う既定値は区分が DIRECT で、二つのキーが空になる', () => {
+      expect(createLineItemLedgerDefaults()).toEqual({
+        category: 'DIRECT',
+        condition: '',
+        conversionQuantity: '',
+        conversionUnit: '',
+        conversionUnitPrice: '',
+        conversionBasis: '',
+        classificationKey: '',
+        quantityRowKey: '',
+        isReference: false,
+        referenceReason: '',
+      });
+    });
+
+    it('区分の選択欄は日本語の 7 つの選択肢を持ち、既定で直接工事を選んでいる', () => {
+      render(<LineItemEditor {...getDefaultProps()} />);
+
+      const select = screen.getByRole('combobox', { name: '行1 区分' });
+      expect(select).toHaveValue('DIRECT');
+      const options = within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent);
+      expect(options).toEqual([
+        '直接工事',
+        '諸経費',
+        '交通費',
+        '産廃',
+        '値引き',
+        '法定福利費',
+        '別途',
+      ]);
+    });
+
+    it('区分の項目を持たない行も直接工事として表示する', () => {
+      const item = createLineItem();
+      delete item.category;
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item] })} />);
+
+      expect(screen.getByRole('combobox', { name: '行1 区分' })).toHaveValue('DIRECT');
+    });
+
+    it('区分を選ぶと行の区分が変わる', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '行1 区分' }), '値引き');
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.category).toBe('DISCOUNT');
+    });
+
+    it('分類キーを入力した文字のまま行に持たせ、50 文字を上限にする', () => {
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+
+      const input = screen.getByRole('textbox', { name: '行1 分類キー' });
+      expect(input).toHaveAttribute('maxLength', '50');
+      fireEvent.change(input, { target: { value: 'ARCH.Finish.Wall-01' } });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.classificationKey).toBe('ARCH.Finish.Wall-01');
+    });
+
+    it('参考の印を付けると行の参考の印が有になる', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+
+      const checkbox = screen.getByRole('checkbox', { name: '行1 参考' });
+      expect(checkbox).not.toBeChecked();
+      await user.click(checkbox);
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.isReference).toBe(true);
+    });
+
+    it('disabled のとき区分・分類キー・参考も操作できない', () => {
+      render(<LineItemEditor {...getDefaultProps({ disabled: true })} />);
+
+      expect(screen.getByRole('combobox', { name: '行1 区分' })).toBeDisabled();
+      expect(screen.getByRole('textbox', { name: '行1 分類キー' })).toBeDisabled();
+      expect(screen.getByRole('checkbox', { name: '行1 参考' })).toBeDisabled();
+    });
+  });
+
+  describe('別途を除く合計と区分ごとの小計 (Task 117.2)', () => {
+    const items = () => [
+      createLineItem({ category: 'DIRECT', quantity: '1', unitPrice: '1000', amount: 1000 }),
+      createLineItem({ category: 'DIRECT', quantity: '2', unitPrice: '500', amount: 1000 }),
+      createLineItem({ category: 'OVERHEAD', quantity: '1', unitPrice: '300', amount: 300 }),
+      createLineItem({ category: 'DISCOUNT', amount: -200 }),
+      createLineItem({ category: 'EXCLUDED', quantity: '1', unitPrice: '5000', amount: 5000 }),
+    ];
+
+    it('calculateTotalAmount は区分が EXCLUDED の行を合計に入れない', () => {
+      expect(calculateTotalAmount(items())).toBe(2100);
+    });
+
+    it('calculateCategorySubtotals は 7 つの区分ごとの金額の和を返す', () => {
+      expect(calculateCategorySubtotals(items())).toEqual({
+        DIRECT: 2000,
+        OVERHEAD: 300,
+        TRAVEL: 0,
+        WASTE: 0,
+        DISCOUNT: -200,
+        LEGAL_WELFARE: 0,
+        EXCLUDED: 5000,
+      });
+    });
+
+    it('フッターの合計は別途の行を除いた額を表示する', () => {
+      render(<LineItemEditor {...getDefaultProps({ lineItems: items() })} />);
+
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('2,100');
+      expect(screen.getByText('（別途を除く）')).toBeInTheDocument();
+    });
+
+    it('フッターに 7 つの区分の小計をラベルと額で表示する', () => {
+      render(<LineItemEditor {...getDefaultProps({ lineItems: items() })} />);
+
+      const subtotals = screen.getByRole('list', { name: '区分ごとの小計' });
+      const rows = within(subtotals)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent);
+      expect(rows).toEqual([
+        '直接工事2,000',
+        '諸経費300',
+        '交通費0',
+        '産廃0',
+        '値引き-200',
+        '法定福利費0',
+        '別途5,000',
+      ]);
+    });
+
+    it('区分を別途へ変えると合計からその行の額が外れる', async () => {
+      const user = userEvent.setup();
+      function Harness() {
+        const [rows, setRows] = useState<LineItemFormData[]>([
+          createLineItem({ quantity: '1', unitPrice: '1000', amount: 1000 }),
+          createLineItem({ quantity: '1', unitPrice: '400', amount: 400 }),
+        ]);
+        return <LineItemEditor lineItems={rows} onLineItemsChange={setRows} />;
+      }
+      render(<Harness />);
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('1,400');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '行2 区分' }), 'EXCLUDED');
+
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('1,000');
+      expect(screen.getByTestId('category-subtotal-EXCLUDED')).toHaveTextContent('400');
+    });
+  });
+
+  describe('単価が空の行の金額の直接入力 (Task 117.2)', () => {
+    it('単価が空の行は金額の入力欄を出し、入力した額を行に持たせる', () => {
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ quantity: '1', unitPrice: '', amount: null });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+
+      const amountInput = screen.getByRole('textbox', { name: '行1 金額' });
+      fireEvent.change(amountInput, { target: { value: '-1500' } });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.amount).toBe(-1500);
+    });
+
+    it('金額の入力欄を空にすると金額が null になる', () => {
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ unitPrice: '', amount: 800 });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+
+      const amountInput = screen.getByRole('textbox', { name: '行1 金額' });
+      expect(amountInput).toHaveValue('800');
+      fireEvent.change(amountInput, { target: { value: '' } });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.amount).toBeNull();
+    });
+
+    it('単価が空の行で数量を変えても直接入力した金額を保つ', () => {
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ quantity: '1', unitPrice: '', amount: 12000 });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+
+      fireEvent.change(screen.getByPlaceholderText('数量'), { target: { value: '3' } });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.amount).toBe(12000);
+    });
+
+    it('単価が空の行で数量の欄を離れても直接入力した金額を保つ', () => {
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ quantity: '3', unitPrice: '', amount: 12000 });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+
+      fireEvent.blur(screen.getByPlaceholderText('数量'));
+
+      const updated = getCallItems(onLineItemsChange, 0)[0];
+      expect(updated?.quantity).toBe('3.00');
+      expect(updated?.amount).toBe(12000);
+    });
+
+    it('単価を入れると金額を数量×単価で求め直し、入力欄が表示に戻る', () => {
+      function Harness() {
+        const [rows, setRows] = useState<LineItemFormData[]>([
+          createLineItem({ quantity: '2', unitPrice: '', amount: 999 }),
+        ]);
+        return <LineItemEditor lineItems={rows} onLineItemsChange={setRows} />;
+      }
+      render(<Harness />);
+      expect(screen.getByRole('textbox', { name: '行1 金額' })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByPlaceholderText('単価'), { target: { value: '450' } });
+
+      expect(screen.queryByRole('textbox', { name: '行1 金額' })).not.toBeInTheDocument();
+      expect(screen.getByTestId('line-item-amount')).toHaveTextContent('900');
+    });
+
+    it('単価がある行は金額の入力欄を出さない', () => {
+      const item = createLineItem({ quantity: '2', unitPrice: '100', amount: 200 });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item] })} />);
+
+      expect(screen.queryByRole('textbox', { name: '行1 金額' })).not.toBeInTheDocument();
+      expect(screen.getByTestId('line-item-amount')).toHaveTextContent('200');
+    });
+
+    it('金額の入力欄を離れると額を整数に丸めて表示する', () => {
+      function Harness() {
+        const [rows, setRows] = useState<LineItemFormData[]>([
+          createLineItem({ unitPrice: '', amount: null }),
+        ]);
+        return <LineItemEditor lineItems={rows} onLineItemsChange={setRows} />;
+      }
+      render(<Harness />);
+      const amountInput = screen.getByRole('textbox', { name: '行1 金額' });
+
+      fireEvent.focus(amountInput);
+      fireEvent.change(amountInput, { target: { value: '1234.6' } });
+      fireEvent.blur(amountInput);
+
+      expect(amountInput).toHaveValue('1235');
+    });
+  });
+
+  describe('行の詳細 (Task 117.2)', () => {
+    async function openDetail(user: ReturnType<typeof userEvent.setup>, rowNumber: number) {
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggles[rowNumber - 1] as HTMLButtonElement);
+      await user.click(screen.getByRole('menuitem', { name: '詳細' }));
+    }
+
+    it('操作メニューの詳細で行の下の欄を開閉し、aria-expanded と aria-controls で欄を指す', async () => {
+      const user = userEvent.setup();
+      render(<LineItemEditor {...getDefaultProps()} />);
+      expect(screen.queryByRole('textbox', { name: '行1 条件' })).not.toBeInTheDocument();
+
+      const toggle = screen.getByRole('button', { name: '行1の操作メニュー' });
+      await user.click(toggle);
+      const detailItem = screen.getByRole('menuitem', { name: '詳細' });
+      expect(detailItem).toHaveAttribute('aria-expanded', 'false');
+      const controlsId = detailItem.getAttribute('aria-controls');
+      expect(controlsId).toBeTruthy();
+      await user.click(detailItem);
+
+      const region = document.getElementById(controlsId as string);
+      expect(region).not.toBeNull();
+      expect(
+        within(region as HTMLElement).getByRole('textbox', { name: '行1 条件' })
+      ).toBeVisible();
+
+      await user.click(toggle);
+      expect(screen.getByRole('menuitem', { name: '詳細' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+      await user.click(screen.getByRole('menuitem', { name: '詳細' }));
+      expect(screen.queryByRole('textbox', { name: '行1 条件' })).not.toBeInTheDocument();
+    });
+
+    it('詳細を開くと条件の欄にフォーカスが移る', async () => {
+      const user = userEvent.setup();
+      render(<LineItemEditor {...getDefaultProps()} />);
+
+      await openDetail(user, 1);
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '行1 条件' }));
+      });
+    });
+
+    it('条件と参考の理由を上限の長さつきで入力できる', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+      await openDetail(user, 1);
+
+      const condition = screen.getByRole('textbox', { name: '行1 条件' });
+      expect(condition).toHaveAttribute('maxLength', '500');
+      fireEvent.change(condition, { target: { value: '夜間' } });
+      expect(getCallItems(onLineItemsChange, 0)[0]?.condition).toBe('夜間');
+
+      const reason = screen.getByRole('textbox', { name: '行1 参考の理由' });
+      expect(reason).toHaveAttribute('maxLength', '200');
+      fireEvent.change(reason, { target: { value: '一式の見積のため' } });
+      expect(getCallItems(onLineItemsChange, 1)[0]?.referenceReason).toBe('一式の見積のため');
+    });
+
+    it('換算の数量・単位・単価・根拠を入力できる', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+      await openDetail(user, 1);
+
+      fireEvent.change(screen.getByRole('textbox', { name: '行1 換算の数量' }), {
+        target: { value: '120.5' },
+      });
+      fireEvent.change(screen.getByRole('textbox', { name: '行1 換算の単位' }), {
+        target: { value: 'm2' },
+      });
+      fireEvent.change(screen.getByRole('textbox', { name: '行1 換算の単価' }), {
+        target: { value: '850' },
+      });
+      fireEvent.change(screen.getByRole('textbox', { name: '行1 換算の根拠' }), {
+        target: { value: '図面の面積で割った' },
+      });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.conversionQuantity).toBe('120.5');
+      expect(getCallItems(onLineItemsChange, 1)[0]?.conversionUnit).toBe('m2');
+      expect(getCallItems(onLineItemsChange, 2)[0]?.conversionUnitPrice).toBe('850');
+      expect(getCallItems(onLineItemsChange, 3)[0]?.conversionBasis).toBe('図面の面積で割った');
+      expect(screen.getByRole('textbox', { name: '行1 換算の単位' })).toHaveAttribute(
+        'maxLength',
+        '50'
+      );
+      expect(screen.getByRole('textbox', { name: '行1 換算の根拠' })).toHaveAttribute(
+        'maxLength',
+        '500'
+      );
+    });
+
+    it('換算の単価は欄を離れると小数第1位で四捨五入した整数にする', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ conversionUnitPrice: '1234.5' });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+      await openDetail(user, 1);
+
+      fireEvent.blur(screen.getByRole('textbox', { name: '行1 換算の単価' }));
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.conversionUnitPrice).toBe('1235');
+    });
+
+    it('数量表の行のキーは読むだけで表示する', async () => {
+      const user = userEvent.setup();
+      const item = createLineItem({ quantityRowKey: 'ARCH.Finish.Wall-01|1F' });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item] })} />);
+      await openDetail(user, 1);
+
+      const key = screen.getByRole('textbox', { name: '行1 数量表の行のキー' });
+      expect(key).toHaveValue('ARCH.Finish.Wall-01|1F');
+      expect(key).toHaveAttribute('readOnly');
+    });
+  });
+
+  describe('行ごとの検証のエラー (Task 117.2)', () => {
+    it('行の ID に渡したエラーをその行の下に出す', () => {
+      const first = createLineItem({ name: 'A' });
+      const second = createLineItem({ name: 'B' });
+      render(
+        <LineItemEditor
+          {...getDefaultProps({
+            lineItems: [first, second],
+            lineItemErrors: { [second.id]: ['テスト用のエラーその1', 'テスト用のエラーその2'] },
+          })}
+        />
+      );
+
+      const errors = screen.getByRole('list', { name: '行2のエラー' });
+      expect(
+        within(errors)
+          .getAllByRole('listitem')
+          .map((li) => li.textContent)
+      ).toEqual(['テスト用のエラーその1', 'テスト用のエラーその2']);
+      expect(screen.queryByRole('list', { name: '行1のエラー' })).not.toBeInTheDocument();
+      // 2 行目の入力の直後（DOM の順で 2 行目の後ろ）に置く
+      const secondName = screen.getByRole('textbox', { name: '行2 名称' });
+      expect(
+        secondName.compareDocumentPosition(errors) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it('エラーが無い行には何も出さない', () => {
+      render(<LineItemEditor {...getDefaultProps({ lineItemErrors: {} })} />);
+      expect(screen.queryByRole('list', { name: /のエラー$/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Tab の順 (Task 117.2)', () => {
+    it('区分から備考まで列の並びどおりに移り、単価が空の行は金額の欄を通る', async () => {
+      const user = userEvent.setup();
+      render(<LineItemEditor {...getDefaultProps()} />);
+
+      await user.click(screen.getByLabelText('行1 区分'));
+      const order = [
+        '行1 任意分類',
+        '行1 工種',
+        '行1 名称',
+        '行1 規格',
+        '行1 単位',
+        '行1 数量',
+        '行1 単価',
+        '行1 金額',
+        '行1 分類キー',
+        '行1 参考',
+        '行1 備考',
+      ];
+      for (const label of order) {
+        await user.tab();
+        expect(document.activeElement).toBe(screen.getByLabelText(label));
+      }
     });
   });
 });

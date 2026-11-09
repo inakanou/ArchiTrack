@@ -6,9 +6,14 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { ReceivedQuotationList } from './ReceivedQuotationList';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 const mockQuotations: ReceivedQuotationInfo[] = [
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-1',
     estimateRequestId: 'er-1',
     name: '株式会社A工業 見積書',
@@ -18,6 +23,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
     fileMimeType: 'application/pdf',
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-1',
         receivedQuotationId: 'rq-1',
         customCategory: null,
@@ -39,6 +45,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
     updatedAt: new Date('2025-01-15'),
   },
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-2',
     estimateRequestId: 'er-1',
     name: '株式会社B建設 見積書',
@@ -48,6 +55,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
     fileMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-2',
         receivedQuotationId: 'rq-2',
         customCategory: null,
@@ -63,6 +71,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
         sortOrder: 0,
       },
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-3',
         receivedQuotationId: 'rq-2',
         customCategory: null,
@@ -84,6 +93,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
     updatedAt: new Date('2025-01-18'),
   },
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-3',
     estimateRequestId: 'er-1',
     name: 'C電気商会 見積書',
@@ -93,6 +103,7 @@ const mockQuotations: ReceivedQuotationInfo[] = [
     fileMimeType: null,
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-4',
         receivedQuotationId: 'rq-3',
         customCategory: null,

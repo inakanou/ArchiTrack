@@ -15,6 +15,7 @@
  * - 案件 other の営業担当者・作成者は担当外の利用者（範囲外の内訳書・見積依頼を用意するため）
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -32,6 +33,9 @@ import { getSharedRBACService } from '../../services/rbac.service.js';
 import { seedPermissions, seedRolePermissions, seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { createTestUser } from './test-user-factory.js';
+import { ReceivedQuotationService } from '../../services/received-quotation.service.js';
+import { AuditLogService } from '../../services/audit-log.service.js';
+import { getStorageProvider } from '../../storage/storage-factory.js';
 
 const MARK = 'test-er103-scope';
 const MEMBER_ROLE = `${MARK}-member`;
@@ -96,7 +100,21 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         { targetId: { in: requestIds } },
       ],
     });
-    // 見積依頼・項目・受領見積書・ステータス履歴・内訳書は案件の削除に連なって消える
+    // 受領見積書は案件を onDelete: Restrict で指すため先に消す（estimate-request の design の D1）。
+    // 見積依頼・項目・ステータス履歴・内訳書は案件の削除に連なって消える
+    await prisma.receivedQuotation.deleteMany({ where: { projectId: { in: projectIds } } });
+    // 案件の無い受領見積書（タスク113.1 の検証で作る）は名前で消す
+    await prisma.receivedQuotation.deleteMany({ where: { name: { contains: MARK } } });
+    // 案件の文脈で格納したファイル（design の D3 の格納先）を消す
+    const storageRoot = process.env.LOCAL_STORAGE_PATH;
+    if (storageRoot) {
+      for (const projectId of projectIds) {
+        fs.rmSync(path.join(storageRoot, 'quotations', 'projects', projectId), {
+          recursive: true,
+          force: true,
+        });
+      }
+    }
     await prisma.projectStatusHistory.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
     await prisma.tradingPartner.deleteMany({ where: { name: { contains: MARK } } });
@@ -227,6 +245,8 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
     const quotation = await prisma.receivedQuotation.create({
       data: {
         estimateRequestId,
+        projectId: project.id,
+        vendorName: `${MARK}-${label}-vendor`,
         name: `${MARK}-${label}-quotation`,
         submittedAt: new Date('2026-10-01'),
         filePath: `quotations/${estimateRequestId}/${label}.pdf`,
@@ -1041,9 +1061,15 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       label: string,
       deletedAt: Date | null = null
     ): Promise<{ id: string; updatedAt: Date }> {
+      const { projectId } = await prisma.estimateRequest.findUniqueOrThrow({
+        where: { id: estimateRequestId },
+        select: { projectId: true },
+      });
       return prisma.receivedQuotation.create({
         data: {
           estimateRequestId,
+          projectId,
+          vendorName: `${MARK}-${label}-vendor`,
           name: `${MARK}-${label}-quotation`,
           submittedAt: new Date('2026-10-01'),
           filePath: `quotations/${estimateRequestId}/${label}.pdf`,
@@ -1227,6 +1253,494 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         .get(`/api/quotations/${siblingQuotation.id}/preview`)
         .set(...auth(sales))
         .expect(200);
+    });
+  });
+  /**
+   * 見積依頼に紐づかない受領見積書（案件の文脈）の閲覧範囲・不在の扱い・一覧の既定（タスク113.1）。
+   * 案件の配下の登録の経路はタスク114.1 で足すため、受領見積書は本番のサービスで作る
+   */
+  describe('案件の文脈の受領見積書（43.12・43.14、タスク113.1）', () => {
+    let projectQuotationId: string;
+    let orphanQuotationId: string;
+    let service: ReceivedQuotationService;
+
+    beforeAll(async () => {
+      const storageProvider = getStorageProvider();
+      expect(storageProvider, '前提: ストレージが構成されている').toBeTruthy();
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider: storageProvider!,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+      const { quotation: created } = await service.create(
+        { kind: 'project', projectId: target.projectId },
+        {
+          name: `${MARK}-project-context`,
+          vendorName: `${MARK}-own-vendor`,
+          submittedAt: new Date('2026-11-01'),
+          file: {
+            buffer: Buffer.from('%PDF-1.4 project context'),
+            originalName: 'project-context.pdf',
+            mimeType: 'application/pdf',
+            size: 24,
+          },
+        },
+        sales.id
+      );
+      projectQuotationId = created.id;
+      // 案件の無い受領見積書（unit-price-ledger の取り込みが作る過去の見積カードの形）
+      const orphan = await prisma.receivedQuotation.create({
+        data: {
+          vendorName: `${MARK}-card-vendor`,
+          name: `${MARK}-orphan-card`,
+          submittedAt: new Date('2026-11-01'),
+          filePath: `quotations/cards/${MARK}/orphan.pdf`,
+          fileName: 'orphan.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 10,
+        },
+        select: { id: true },
+      });
+      orphanQuotationId = orphan.id;
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.7
+     */
+    it('案件の文脈で作った受領見積書は見積依頼を持たずに案件に属し、ファイルは案件の格納先に置かれる（D1・D3）', async () => {
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: projectQuotationId },
+      });
+      expect(row.estimateRequestId).toBeNull();
+      expect(row.projectId).toBe(target.projectId);
+      expect(row.vendorName).toBe(`${MARK}-own-vendor`);
+      expect(row.filePath).toBe(
+        `quotations/projects/${target.projectId}/${projectQuotationId}/project-context.pdf`
+      );
+      const root = process.env.LOCAL_STORAGE_PATH;
+      expect(root, '前提: ローカルストレージのパス').toBeTruthy();
+      expect(fs.existsSync(path.join(root ?? '', row.filePath ?? ''))).toBe(true);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.12
+     */
+    it('範囲内の利用者は案件の文脈の受領見積書の詳細とプレビューを得られ、範囲外の利用者には存在しない ID と同じ 404 になり記録される', async () => {
+      for (const user of [sales, construction, creator, readAll]) {
+        const detail = await request(app)
+          .get(`/api/quotations/${projectQuotationId}`)
+          .set(...auth(user))
+          .expect(200);
+        expect(detail.body.id).toBe(projectQuotationId);
+        const preview = await request(app)
+          .get(`/api/quotations/${projectQuotationId}/preview`)
+          .set(...auth(user))
+          .expect(200);
+        expect(preview.body.url, '案件の文脈の受領見積書の署名付きURL').toBeTruthy();
+      }
+
+      const deniedBefore = await deniedCount(outsider, target.projectId);
+      for (const suffix of ['', '/preview']) {
+        const missing = await request(app)
+          .get(`/api/quotations/${MISSING_ID}${suffix}`)
+          .set(...auth(outsider))
+          .expect(404);
+        const outOfScope = await request(app)
+          .get(`/api/quotations/${projectQuotationId}${suffix}`)
+          .set(...auth(outsider))
+          .expect(404);
+        expect(withoutInstance(outOfScope.body)).toEqual(withoutInstance(missing.body));
+        const exposed = JSON.stringify(withoutInstance(outOfScope.body));
+        expect(exposed).not.toContain(target.projectId);
+        expect(exposed).not.toContain(projectQuotationId);
+        expect(outOfScope.body.url).toBeUndefined();
+      }
+      expect(await deniedCount(outsider, target.projectId)).toBe(deniedBefore + 2);
+
+      // 見積依頼の配下の経路では、見積依頼に属さないため範囲内の利用者にも不在と同じ 404
+      await request(app)
+        .get(`/api/estimate-requests/${target.estimateRequestId}/quotations/${projectQuotationId}`)
+        .set(...auth(sales))
+        .expect(404);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.14
+     */
+    it('案件の無い受領見積書は、全案件閲覧の利用者にも存在しない ID と同じ 404 になり、記録されない', async () => {
+      const deniedBefore = await deniedCount(readAll);
+      for (const suffix of ['', '/preview']) {
+        const missing = await request(app)
+          .get(`/api/quotations/${MISSING_ID}${suffix}`)
+          .set(...auth(readAll))
+          .expect(404);
+        const orphan = await request(app)
+          .get(`/api/quotations/${orphanQuotationId}${suffix}`)
+          .set(...auth(readAll))
+          .expect(404);
+        expect(withoutInstance(orphan.body)).toEqual(withoutInstance(missing.body));
+        expect(orphan.body.url).toBeUndefined();
+      }
+      expect(await deniedCount(readAll)).toBe(deniedBefore);
+      // 発行の箇所（サービス）でも不在として扱う
+      await expect(service.getFilePreviewUrl(orphanQuotationId, readAll.id)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.1
+     */
+    it('案件の配下の一覧の既定は見積依頼に紐づくものだけを返し、全件の指定では見積依頼の無いものも返す（D2）', async () => {
+      const list = await request(app)
+        .get(`/api/projects/${target.projectId}/quotations`)
+        .set(...auth(sales))
+        .expect(200);
+      const listedIds = list.body.map((q: { id: string }) => q.id);
+      expect(listedIds).toContain(target.quotationId);
+      expect(listedIds).not.toContain(projectQuotationId);
+      const listed = list.body.find((q: { id: string }) => q.id === target.quotationId);
+      expect(listed.vendorName).toBe(`${MARK}-target-vendor`);
+      expect(listed.tradingPartnerName).toBe(`${MARK}-target-vendor`);
+      // 一覧の各行に見積依頼の名前が入る（D2 の追記、タスク118.1）
+      expect(listed.estimateRequestName).toBe(`${MARK}-target-request`);
+
+      const all = await service.findByProjectId(target.projectId, { include: 'all' });
+      const allIds = all.map((q) => q.id);
+      expect(allIds).toContain(target.quotationId);
+      expect(allIds).toContain(projectQuotationId);
+      expect(allIds).not.toContain(orphanQuotationId);
+      const own = all.find((q) => q.id === projectQuotationId);
+      expect(own?.estimateRequestId).toBeNull();
+      expect(own?.tradingPartnerName).toBe(`${MARK}-own-vendor`);
+      expect(own?.estimateRequestName).toBeNull();
+      expect(all.find((q) => q.id === target.quotationId)?.estimateRequestName).toBe(
+        `${MARK}-target-request`
+      );
+    });
+  });
+
+  /**
+   * 案件の配下の登録の経路・全件の一覧・同じ原本の応答（タスク114.1、design の D2・D3・D6）。
+   * 登録は HTTP の経路で行い、範囲外・案件の無い受領見積書の更新と論理削除の 404 も確かめる
+   */
+  describe('案件の配下の登録の経路（タスク114.1）', () => {
+    const ORIGINAL = Buffer.from('%PDF-1.4 er114 original via http');
+    let createdResponse: request.Response;
+    let createdId: string;
+    let cardId: string;
+
+    function postUnderProject(
+      user: TestUser,
+      projectId: string,
+      fields: Record<string, string>,
+      file: Buffer | null = ORIGINAL
+    ): request.Test {
+      const req = request(app)
+        .post(`/api/projects/${projectId}/quotations`)
+        .set(...auth(user));
+      for (const [key, value] of Object.entries(fields)) {
+        req.field(key, value);
+      }
+      if (file) {
+        req.attach('file', file, { filename: 'er114.pdf', contentType: 'application/pdf' });
+      }
+      return req;
+    }
+
+    const baseFields = {
+      name: `${MARK}-er114-http`,
+      submittedAt: '2026-11-02T00:00:00.000Z',
+      vendorName: `${MARK}-er114-vendor`,
+    };
+
+    /** 受領見積書の行の状態（範囲外の要求の前後で変わらないことを比べる） */
+    async function quotationRow(id: string): Promise<unknown> {
+      return prisma.receivedQuotation.findUnique({
+        where: { id },
+        select: { name: true, filePath: true, deletedAt: true, updatedAt: true },
+      });
+    }
+
+    beforeAll(async () => {
+      createdResponse = await postUnderProject(sales, target.projectId, {
+        ...baseFields,
+        quoteNumber: 'ER114-001',
+        siteLocation: '東京都千代田区',
+        constructionKind: 'RENOVATION',
+        adoption: 'ADOPTED',
+        readingStatus: 'CONFIRMED',
+        lineItems: JSON.stringify([
+          {
+            name: '配管',
+            sortOrder: 0,
+            quantity: 2,
+            unitPrice: 1000,
+            amount: 2000,
+            category: 'DIRECT',
+          },
+          { name: '足場', sortOrder: 1, amount: 50000, category: 'EXCLUDED' },
+        ]),
+      });
+      createdId = createdResponse.body.id;
+      const card = await prisma.receivedQuotation.create({
+        data: {
+          vendorName: `${MARK}-er114-card-vendor`,
+          name: `${MARK}-er114-card`,
+          submittedAt: new Date('2026-11-01'),
+        },
+        select: { id: true },
+      });
+      cardId = card.id;
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.7
+     */
+    it('案件の経路で、ファイルと台帳の項目を持ち見積依頼に紐づかない受領見積書を登録できる', async () => {
+      expect(createdResponse.status).toBe(201);
+      expect(createdResponse.body).toMatchObject({
+        estimateRequestId: null,
+        name: `${MARK}-er114-http`,
+        vendorName: `${MARK}-er114-vendor`,
+        quoteNumber: 'ER114-001',
+        siteLocation: '東京都千代田区',
+        constructionKind: 'RENOVATION',
+        adoption: 'ADOPTED',
+        readingStatus: 'CONFIRMED',
+        readingConfirmedById: sales.id,
+        totalAmount: 2000,
+        sharedOriginalCount: 0,
+      });
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: createdId },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+      expect(row.estimateRequestId).toBeNull();
+      expect(row.projectId).toBe(target.projectId);
+      expect(row.fileSha256).toBe(createHash('sha256').update(ORIGINAL).digest('hex'));
+      expect(row.filePath).toBe(`quotations/projects/${target.projectId}/${createdId}/er114.pdf`);
+      expect(row.lineItems.map((li) => [li.name, li.category])).toEqual([
+        ['配管', 'DIRECT'],
+        ['足場', 'EXCLUDED'],
+      ]);
+      const root = process.env.LOCAL_STORAGE_PATH;
+      expect(root, '前提: ローカルストレージのパス').toBeTruthy();
+      expect(fs.existsSync(path.join(root ?? '', row.filePath ?? ''))).toBe(true);
+    });
+
+    it('ファイルを添えた登録の応答の更新日時は保存された値で、その値で続けて更新できる', async () => {
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: createdId } });
+      expect(createdResponse.body.updatedAt).toBe(row.updatedAt.toISOString());
+
+      const updated = await request(app)
+        .put(`/api/quotations/${createdId}`)
+        .set(...auth(sales))
+        .field('expectedUpdatedAt', createdResponse.body.updatedAt)
+        .field('name', `${MARK}-er114-http-renamed`)
+        .expect(200);
+      expect(updated.body.name).toBe(`${MARK}-er114-http-renamed`);
+      expect(updated.body.sharedOriginalCount).toBe(0);
+      const after = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: createdId } });
+      expect(updated.body.updatedAt).toBe(after.updatedAt.toISOString());
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.1
+     */
+    it('案件の一覧は既定で見積依頼に紐づくものだけを返し、include=all で見積依頼の無いものも返す', async () => {
+      const requested = await request(app)
+        .get(`/api/projects/${target.projectId}/quotations`)
+        .set(...auth(sales))
+        .expect(200);
+      const requestedIds = requested.body.map((q: { id: string }) => q.id);
+      expect(requestedIds).toContain(target.quotationId);
+      expect(requestedIds).not.toContain(createdId);
+      expect(
+        requested.body.every((q: { estimateRequestId: string | null }) => q.estimateRequestId)
+      ).toBe(true);
+
+      const all = await request(app)
+        .get(`/api/projects/${target.projectId}/quotations?include=all`)
+        .set(...auth(sales))
+        .expect(200);
+      const allIds = all.body.map((q: { id: string }) => q.id);
+      expect(allIds).toContain(target.quotationId);
+      expect(allIds).toContain(createdId);
+      expect(allIds).not.toContain(cardId);
+      const own = all.body.find((q: { id: string }) => q.id === createdId);
+      expect(own.estimateRequestId).toBeNull();
+      expect(own.tradingPartnerName).toBe(`${MARK}-er114-vendor`);
+
+      await request(app)
+        .get(`/api/projects/${target.projectId}/quotations?include=everything`)
+        .set(...auth(sales))
+        .expect(400);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.3
+     */
+    it('同じ案件に同じ原本・同じ区別があれば 409 DUPLICATE_ORIGINAL と既存の受領見積書を返し、何も保存しない', async () => {
+      const before = await prisma.receivedQuotation.count({
+        where: { projectId: target.projectId },
+      });
+      const existing = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: createdId },
+      });
+
+      const response = await postUnderProject(sales, target.projectId, {
+        ...baseFields,
+        name: `${MARK}-er114-second`,
+      }).expect(409);
+
+      expect(withoutInstance(response.body)).toEqual({
+        type: 'https://architrack.example.com/problems/duplicate-original',
+        title: 'Duplicate Original',
+        status: 409,
+        detail: '同じ原本の受領見積書が既に登録されています',
+        code: 'DUPLICATE_ORIGINAL',
+        existing: {
+          name: existing.name,
+          vendorName: existing.vendorName,
+          submittedAt: existing.submittedAt.toISOString(),
+        },
+      });
+      expect(await prisma.receivedQuotation.count({ where: { projectId: target.projectId } })).toBe(
+        before
+      );
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.4
+     */
+    it('同じ原本で区別が違えば登録し、同じ原本の他の件数を応答に入れる', async () => {
+      const response = await postUnderProject(sales, target.projectId, {
+        ...baseFields,
+        name: `${MARK}-er114-variant`,
+        quoteDiscriminator: 'B案',
+      }).expect(201);
+      expect(response.body.sharedOriginalCount).toBe(1);
+      expect(response.body.quoteDiscriminator).toBe('B案');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.12
+     */
+    it('範囲外の利用者の登録・更新・削除は存在しない対象と同じ 404 になり、データを変えない', async () => {
+      const countBefore = await prisma.receivedQuotation.count({
+        where: { projectId: target.projectId },
+      });
+      const rowBefore = await quotationRow(createdId);
+      const deniedBefore = await deniedCount(outsider, target.projectId);
+
+      const missingPost = await postUnderProject(outsider, MISSING_ID, {
+        ...baseFields,
+        name: `${MARK}-er114-outsider`,
+      }).expect(404);
+      const deniedPost = await postUnderProject(outsider, target.projectId, {
+        ...baseFields,
+        name: `${MARK}-er114-outsider`,
+      }).expect(404);
+      expect(withoutInstance(deniedPost.body)).toEqual(withoutInstance(missingPost.body));
+
+      const latest = (
+        await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: createdId } })
+      ).updatedAt;
+      const missingPut = await request(app)
+        .put(`/api/quotations/${MISSING_ID}`)
+        .set(...auth(outsider))
+        .field('expectedUpdatedAt', latest.toISOString())
+        .field('name', `${MARK}-er114-outsider`)
+        .expect(404);
+      const deniedPut = await request(app)
+        .put(`/api/quotations/${createdId}`)
+        .set(...auth(outsider))
+        .field('expectedUpdatedAt', latest.toISOString())
+        .field('name', `${MARK}-er114-outsider`)
+        .expect(404);
+      expect(withoutInstance(deniedPut.body)).toEqual(withoutInstance(missingPut.body));
+
+      const missingDelete = await request(app)
+        .delete(`/api/quotations/${MISSING_ID}`)
+        .query({ updatedAt: latest.toISOString() })
+        .set(...auth(outsider))
+        .expect(404);
+      const deniedDelete = await request(app)
+        .delete(`/api/quotations/${createdId}`)
+        .query({ updatedAt: latest.toISOString() })
+        .set(...auth(outsider))
+        .expect(404);
+      expect(withoutInstance(deniedDelete.body)).toEqual(withoutInstance(missingDelete.body));
+      for (const body of [deniedPost.body, deniedPut.body, deniedDelete.body]) {
+        const exposed = JSON.stringify(withoutInstance(body));
+        expect(exposed).not.toContain(target.projectId);
+        expect(exposed).not.toContain(createdId);
+      }
+
+      expect(await deniedCount(outsider, target.projectId)).toBe(deniedBefore + 3);
+      expect(await prisma.receivedQuotation.count({ where: { projectId: target.projectId } })).toBe(
+        countBefore
+      );
+      expect(await quotationRow(createdId)).toEqual(rowBefore);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.14
+     */
+    it('案件の無い受領見積書の更新・削除は全案件閲覧の利用者にも存在しない ID と同じ 404 になり、記録もデータの変更もない', async () => {
+      const rowBefore = await quotationRow(cardId);
+      const deniedBefore = await deniedCount(readAll);
+      const stamp = new Date().toISOString();
+
+      const missingPut = await request(app)
+        .put(`/api/quotations/${MISSING_ID}`)
+        .set(...auth(readAll))
+        .field('expectedUpdatedAt', stamp)
+        .field('name', `${MARK}-er114-card-renamed`)
+        .expect(404);
+      const cardPut = await request(app)
+        .put(`/api/quotations/${cardId}`)
+        .set(...auth(readAll))
+        .field('expectedUpdatedAt', stamp)
+        .field('name', `${MARK}-er114-card-renamed`)
+        .expect(404);
+      expect(withoutInstance(cardPut.body)).toEqual(withoutInstance(missingPut.body));
+
+      const missingDelete = await request(app)
+        .delete(`/api/quotations/${MISSING_ID}`)
+        .query({ updatedAt: stamp })
+        .set(...auth(readAll))
+        .expect(404);
+      const cardDelete = await request(app)
+        .delete(`/api/quotations/${cardId}`)
+        .query({ updatedAt: stamp })
+        .set(...auth(readAll))
+        .expect(404);
+      expect(withoutInstance(cardDelete.body)).toEqual(withoutInstance(missingDelete.body));
+
+      expect(await deniedCount(readAll)).toBe(deniedBefore);
+      expect(await quotationRow(cardId)).toEqual(rowBefore);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-43.11
+     */
+    it('権限の無い利用者には一覧と登録が 403 になり、登録しない', async () => {
+      const before = await prisma.receivedQuotation.count({
+        where: { projectId: target.projectId },
+      });
+      await request(app)
+        .get(`/api/projects/${target.projectId}/quotations?include=all`)
+        .set(...auth(noPermission))
+        .expect(403);
+      await postUnderProject(noPermission, target.projectId, {
+        ...baseFields,
+        name: `${MARK}-er114-no-permission`,
+      }).expect(403);
+      expect(await prisma.receivedQuotation.count({ where: { projectId: target.projectId } })).toBe(
+        before
+      );
     });
   });
 });

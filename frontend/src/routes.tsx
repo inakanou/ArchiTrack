@@ -15,6 +15,7 @@ import { Dashboard } from './pages/Dashboard';
 import { RoleManagement } from './pages/RoleManagement';
 import { PermissionManagement } from './pages/PermissionManagement';
 import { UserInventoryPage } from './pages/UserInventoryPage';
+import { AdminSettingsPage } from './pages/AdminSettingsPage';
 import ProjectListPage from './pages/ProjectListPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProjectCreatePage from './pages/ProjectCreatePage';
@@ -45,6 +46,7 @@ import EstimateRequestListPage from './pages/EstimateRequestListPage';
 import EstimateRequestCreatePage from './pages/EstimateRequestCreatePage';
 import EstimateRequestDetailPage from './pages/EstimateRequestDetailPage';
 import EstimateRequestEditPage from './pages/EstimateRequestEditPage';
+import ProjectReceivedQuotationListPage from './pages/ProjectReceivedQuotationListPage';
 import EstimateListPage from './pages/EstimateListPage';
 import EstimateCreatePage from './pages/EstimateCreatePage';
 import EstimateDetailPage from './pages/EstimateDetailPage';
@@ -338,6 +340,12 @@ export const routes: RouteObject[] = [
         path: '/projects/:projectId/estimate-requests',
         element: <EstimateRequestListPage />,
       },
+      // 案件の受領見積書の一覧（見積依頼に紐づくものと紐づかないもの）
+      // estimate-request の要件 43。タスク118.1
+      {
+        path: '/projects/:projectId/quotations',
+        element: <ProjectReceivedQuotationListPage />,
+      },
       // 見積依頼編集（/estimate-requests/:id より先に定義する必要あり）
       // REQ-9.3: 見積依頼の名前を編集可能にする
       // Task 6.3: EstimateRequestEditPageの実装
@@ -573,6 +581,11 @@ export const routes: RouteObject[] = [
       {
         path: '/admin/user-inventory',
         element: <UserInventoryPage />,
+      },
+      // システム設定（estimate-request の design.md の D8、タスク119.2）
+      {
+        path: '/admin/settings',
+        element: <AdminSettingsPage />,
       },
     ],
   },

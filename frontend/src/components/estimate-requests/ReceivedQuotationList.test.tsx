@@ -18,10 +18,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceivedQuotationList } from './ReceivedQuotationList';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 describe('ReceivedQuotationList', () => {
   const mockOnAddClick = vi.fn();
@@ -32,6 +36,7 @@ describe('ReceivedQuotationList', () => {
 
   const sampleQuotations: ReceivedQuotationInfo[] = [
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-1',
       estimateRequestId,
       name: '見積書A',
@@ -46,6 +51,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-16T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-2',
       estimateRequestId,
       name: '見積書B（PDF）',
@@ -60,6 +66,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-18T11:30:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-3',
       estimateRequestId,
       name: '見積書C（Excel）',
@@ -74,6 +81,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-20T09:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-4',
       estimateRequestId,
       name: '見積書D（画像）',
@@ -92,6 +100,7 @@ describe('ReceivedQuotationList', () => {
   // Task 26.2: 明細行データを含む受領見積書サンプル
   const quotationsWithLineItems: ReceivedQuotationInfo[] = [
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-10',
       estimateRequestId,
       name: '見積書（明細行あり）',
@@ -101,6 +110,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 500,
       lineItems: [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-1',
           receivedQuotationId: 'rq-10',
           sortOrder: 1,
@@ -116,6 +126,7 @@ describe('ReceivedQuotationList', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-2',
           receivedQuotationId: 'rq-10',
           sortOrder: 2,
@@ -131,6 +142,7 @@ describe('ReceivedQuotationList', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-3',
           receivedQuotationId: 'rq-10',
           sortOrder: 3,
@@ -152,6 +164,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-26T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-11',
       estimateRequestId,
       name: '見積書（明細行のみ）',
@@ -161,6 +174,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: null,
       lineItems: [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-4',
           receivedQuotationId: 'rq-11',
           sortOrder: 1,
@@ -182,6 +196,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-28T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-12',
       estimateRequestId,
       name: '見積書（ファイルのみ）',
@@ -672,6 +687,92 @@ describe('ReceivedQuotationList', () => {
 
       // 「行」テキストは表示されない
       expect(screen.queryByText(/\d+行/)).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * 見積依頼の詳細の一覧の台帳の表示（estimate-request のタスク117.5。一覧に参考の印と読取の確認の状態を出す受入基準）
+   */
+  describe('参考の印と読取の確認の表示 (Task 117.5)', () => {
+    const baseQuotation = quotationsWithLineItems[0]!;
+
+    const renderList = (quotations: ReceivedQuotationInfo[]) =>
+      render(
+        <ReceivedQuotationList
+          estimateRequestId={estimateRequestId}
+          quotations={quotations}
+          onAddClick={mockOnAddClick}
+          onEditClick={mockOnEditClick}
+          onDeleteClick={mockOnDeleteClick}
+          onPreviewClick={mockOnPreviewClick}
+        />
+      );
+
+    const withReferenceLine: ReceivedQuotationInfo = {
+      ...baseQuotation,
+      id: 'rq-ref',
+      name: '参考の行を持つ見積書',
+      lineItems: baseQuotation.lineItems.map((li, index) =>
+        index === 1 ? { ...li, isReference: true, referenceReason: '過去の単価' } : li
+      ),
+    };
+
+    it('参考の印の付いた明細行を持つ受領見積書に、その旨が文字で表示される', () => {
+      renderList([withReferenceLine]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByText('参考の印あり')).toBeInTheDocument();
+    });
+
+    it('参考の印の付いた明細行が無い受領見積書には、参考の表示が出ない', () => {
+      renderList([baseQuotation]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).queryByText('参考の印あり')).not.toBeInTheDocument();
+    });
+
+    it('明細行の無い受領見積書には、参考の表示が出ない', () => {
+      renderList([sampleQuotations[1]!]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).queryByText('参考の印あり')).not.toBeInTheDocument();
+    });
+
+    it('読取の確認が未確認の受領見積書に、未確認の状態が文字で表示される', () => {
+      renderList([{ ...baseQuotation, readingStatus: 'UNCONFIRMED' }]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByText('読取: 未確認')).toBeInTheDocument();
+      expect(within(item).queryByText('読取: 確認済み')).not.toBeInTheDocument();
+    });
+
+    it('読取の確認が確認済みの受領見積書に、確認済みの状態が文字で表示される', () => {
+      renderList([
+        {
+          ...baseQuotation,
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: 'user-1',
+          readingConfirmedAt: new Date('2025-02-01T09:00:00'),
+          readingConfirmedBy: { id: 'user-1', displayName: '確認 太郎' },
+        },
+      ]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByText('読取: 確認済み')).toBeInTheDocument();
+      expect(within(item).queryByText('読取: 未確認')).not.toBeInTheDocument();
+    });
+
+    it('複数の受領見積書で、それぞれの参考の印と読取の確認の状態が項目ごとに表示される', () => {
+      renderList([
+        { ...withReferenceLine, readingStatus: 'CONFIRMED' },
+        { ...sampleQuotations[0]!, readingStatus: 'UNCONFIRMED' },
+      ]);
+
+      const [first, second] = screen.getAllByTestId('received-quotation-item');
+      expect(within(first!).getByText('参考の印あり')).toBeInTheDocument();
+      expect(within(first!).getByText('読取: 確認済み')).toBeInTheDocument();
+      expect(within(second!).queryByText('参考の印あり')).not.toBeInTheDocument();
+      expect(within(second!).getByText('読取: 未確認')).toBeInTheDocument();
     });
   });
 });

@@ -23,6 +23,13 @@
  * Task 105.1 変更: 登録・更新が 404 を受けたときに、見つからない旨のメッセージを表示し、応答の
  *   英語の文言を出さない（登録は見積依頼、更新は受領見積書が見つからない旨）
  *   （estimate-request の Requirement 10.6）
+ *
+ * タスク117.4 変更（design の Requirements 43-50 の章の D4・D5・D6・D9・D11）:
+ * - 登録の文脈（見積依頼・案件）を受け、案件の文脈では業者名の入力（VendorNameInput）を、見積依頼の文脈では
+ *   宛先の取引先の名前を編集できない形で出す（43.6・44.3）。見積依頼の文脈では業者名を送らない
+ * - 台帳の情報の欄（LedgerInfoSection）と明細行の新しい欄を保存の入力に含める。確認者の表示名を欄へ渡す（46.7）
+ * - 明細行の 45.4・45.9・46.5 を保存の前に確かめ、サーバーの「明細行の{n}行目」の誤りを行へ対応づけて出す
+ * - 409 の同じ原本の重複（48.3）と楽観的排他の競合を分けて出す
  */
 
 import {
@@ -36,24 +43,52 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from 'react';
-import type {
-  ReceivedQuotationInfo,
-  CreateReceivedQuotationInput,
-  UpdateReceivedQuotationInput,
-  LineItemInput,
+import {
+  isDuplicateOriginalError,
+  isReceivedQuotationConflictError,
+  type ReceivedQuotationInfo,
+  type CreateReceivedQuotationInput,
+  type UpdateReceivedQuotationInput,
+  type LineItemInput,
+  type LineItemConversion,
+  type DuplicateOriginalExisting,
+  type ReceivedQuotationLedgerInput,
 } from '../../api/received-quotations';
 import { ApiError } from '../../api/client';
 import { getEstimateRequestNotFoundMessage } from '../../utils/estimateRequestNotFound';
 import {
   LineItemEditor,
+  calculateAmount,
   createEmptyLineItem,
+  createLineItemLedgerDefaults,
   calculateTotalAmount,
+  getLineItemLedgerFields,
   ensureSortOrders,
   reassignSortOrder,
   sortBySortOrder,
   type LineItemFormData,
 } from './LineItemEditor';
 import { FileInlinePreview } from './FileInlinePreview';
+import { LedgerInfoSection } from './LedgerInfoSection';
+import {
+  LEDGER_INFO_VALIDATION_MESSAGES,
+  createLedgerInfoFormData,
+  toLedgerInfoInput,
+  validateLedgerInfo,
+  type LedgerInfoErrors,
+  type LedgerInfoFormData,
+} from './ledger-info-form';
+import {
+  VendorNameInput,
+  VENDOR_NAME_REQUIRED_MESSAGE,
+  type VendorNameValue,
+} from './VendorNameInput';
+import {
+  DUPLICATE_ORIGINAL_MESSAGE,
+  LEDGER_INFO_ERROR_SUMMARY,
+  LINE_ITEMS_ERROR_SUMMARY,
+  LINE_ITEM_SAVE_VALIDATION_MESSAGES,
+} from './received-quotation-form-messages';
 import { formatQuantity, formatUnitPrice } from './number-format';
 import { useAuth } from '../../hooks/useAuth';
 import { usePendingSaveAfterReauth } from './usePendingSaveAfterReauth';
@@ -107,6 +142,39 @@ const ALLOWED_FILE_EXTENSIONS = '.pdf,.xls,.xlsx,.jpg,.jpeg,.png';
  */
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
+/** サーバーの明細行の誤りの文言の形（「明細行の{n}行目: 文言」。n は送った明細行の 1 始まりの番号） */
+const SERVER_LINE_ITEM_ERROR_PATTERN = /^明細行の(\d+)行目: ([\s\S]+)$/;
+
+/** サーバーの検証の誤りの欄の名前（台帳の情報の欄） */
+const LEDGER_INFO_FIELD_KEYS: ReadonlyArray<keyof LedgerInfoFormData> = [
+  'quoteNumber',
+  'overallConditions',
+  'siteLocation',
+  'constructionKind',
+  'useType',
+  'constructionPrice',
+  'workConditions',
+  'distanceKm',
+  'adoption',
+  'confirmedAmount',
+  'readingStatus',
+  'quoteDiscriminator',
+];
+
+/** サーバーの文言から台帳の情報の欄を引く（応答に欄の名前が無いとき。文言はサーバーと同じ） */
+const LEDGER_INFO_FIELD_BY_MESSAGE: ReadonlyMap<string, keyof LedgerInfoFormData> = new Map([
+  [LEDGER_INFO_VALIDATION_MESSAGES.QUOTE_NUMBER_TOO_LONG, 'quoteNumber'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.OVERALL_CONDITIONS_TOO_LONG, 'overallConditions'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.SITE_LOCATION_TOO_LONG, 'siteLocation'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.USE_TYPE_TOO_LONG, 'useType'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.WORK_CONDITIONS_TOO_LONG, 'workConditions'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.CONSTRUCTION_PRICE_INVALID, 'constructionPrice'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.DISTANCE_KM_INVALID, 'distanceKm'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.CONFIRMED_AMOUNT_INVALID, 'confirmedAmount'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_TOO_LONG, 'quoteDiscriminator'],
+  [LEDGER_INFO_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_WHITESPACE, 'quoteDiscriminator'],
+] as Array<[string, keyof LedgerInfoFormData]>);
+
 // ============================================================================
 // 型定義
 // ============================================================================
@@ -121,16 +189,35 @@ export type {
 } from '../../api/received-quotations';
 
 /**
+ * 受領見積書の登録の文脈（タスク117.4。design の D3・D4）
+ *
+ * - 見積依頼の文脈: 見積依頼の詳細画面から開く。業者名は見積依頼の宛先の取引先の名前を編集できない形で出し、
+ *   保存の入力に業者名を入れない（44.2・44.3。サーバーは宛先の取引先を写す）
+ * - 案件の文脈: 案件の受領見積書の一覧から開く（見積依頼に紐づかない受領見積書。43.6）。業者名は必須（43.8）
+ */
+export type ReceivedQuotationFormContext =
+  | {
+      readonly kind: 'estimateRequest';
+      readonly estimateRequestId: string;
+      /** 見積依頼の宛先の取引先の名前（登録のときの業者名の表示） */
+      readonly tradingPartnerName: string;
+    }
+  | { readonly kind: 'project'; readonly projectId: string };
+
+/**
  * ReceivedQuotationFormコンポーネントのProps
  */
 export interface ReceivedQuotationFormProps {
   /** フォームモード */
   mode: 'create' | 'edit';
-  /** 見積依頼ID */
-  estimateRequestId: string;
+  /** 登録の文脈（タスク117.4。見積依頼・案件） */
+  context: ReceivedQuotationFormContext;
   /** 編集時の初期データ */
   initialData?: ReceivedQuotationInfo;
-  /** 送信時のコールバック */
+  /**
+   * 送信時のコールバック。API の呼び出し（文脈に応じた登録・更新）は呼び出し元が行う。
+   * 保存の失敗は投げ返すこと（400・404・409 の表示はフォームが持つ。401 は再認証の後に再試行する）
+   */
   onSubmit: (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => Promise<void>;
   /** キャンセル時のコールバック */
   onCancel: () => void;
@@ -150,6 +237,10 @@ interface FormErrors {
   submittedAt?: string;
   content?: string;
   file?: string;
+  /** 業者名（案件の文脈。43.8） */
+  vendorName?: string;
+  /** 明細行の誤りの知らせ（各行の文言は lineItemErrors） */
+  lineItems?: string;
 }
 
 // ============================================================================
@@ -291,6 +382,10 @@ const styles = {
   },
   hiddenInput: {
     display: 'none',
+  },
+  inputReadOnly: {
+    backgroundColor: '#f3f4f6',
+    color: '#374151',
   },
   sectionTitle: {
     fontSize: '14px',
@@ -490,12 +585,64 @@ function hasValidLineItemData(items: LineItemFormData[]): boolean {
 }
 
 /**
+ * 保存で送る明細行（名称の空の行は送らない）。送る順はフォームの並び順で、サーバーの「明細行の{n}行目」の n は
+ * この並びの 1 始まりの番号になる
+ */
+function getSubmittedLineItems(items: LineItemFormData[]): LineItemFormData[] {
+  return items.filter((item) => item.name.trim() !== '');
+}
+
+/** 空の文字を null にする（台帳の文字の欄。入力された文字は変えずに送る） */
+function toNullableText(text: string): string | null {
+  return text === '' ? null : text;
+}
+
+/** 数の欄の文字を数にする（空・数でない文字は null） */
+function parseNumberText(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  const value = parseFloat(trimmed);
+  return Number.isNaN(value) ? null : value;
+}
+
+/** 換算の欄のうち入力されたものの数（0〜4。単価は数として読めるときだけ数える） */
+function countConversionParts(ledger: ReturnType<typeof getLineItemLedgerFields>): number {
+  return [
+    ledger.conversionQuantity.trim() !== '',
+    ledger.conversionUnit.trim() !== '',
+    parseNumberText(ledger.conversionUnitPrice) !== null,
+    ledger.conversionBasis.trim() !== '',
+  ].filter(Boolean).length;
+}
+
+/**
+ * 換算の欄を保存の入力にする（45.8）。4 つが揃うときだけ値を持ち、どれも無ければ null。
+ * 一部だけのときは保存の前の検証（45.9）が止めるため、ここでは null にする
+ */
+function toConversionInput(
+  ledger: ReturnType<typeof getLineItemLedgerFields>
+): LineItemConversion | null {
+  const quantity = parseNumberText(ledger.conversionQuantity);
+  const unitPrice = parseNumberText(ledger.conversionUnitPrice);
+  if (countConversionParts(ledger) !== 4 || quantity === null || unitPrice === null) return null;
+  return {
+    quantity,
+    unit: ledger.conversionUnit,
+    unitPrice,
+    basis: ledger.conversionBasis,
+  };
+}
+
+/**
  * LineItemFormDataをLineItemInputに変換
+ *
+ * タスク117.4: 区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由を送る（省略された欄は既定で補う）。
+ * 保存済みの値をそのまま送り返すため、編集して保存しても区分などが直接工事へ戻らない
  */
 function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
-  return items
-    .filter((item) => item.name.trim() !== '')
-    .map((item, index) => ({
+  return getSubmittedLineItems(items).map((item, index) => {
+    const ledger = getLineItemLedgerFields(item);
+    return {
       name: item.name.trim(),
       customCategory: item.customCategory.trim() || undefined,
       workType: item.workType.trim() || undefined,
@@ -506,7 +653,72 @@ function convertToLineItemInput(items: LineItemFormData[]): LineItemInput[] {
       amount: item.amount ?? undefined,
       remarks: item.remarks.trim() || undefined,
       sortOrder: index,
-    }));
+      category: ledger.category,
+      condition: toNullableText(ledger.condition),
+      conversion: toConversionInput(ledger),
+      classificationKey: toNullableText(ledger.classificationKey),
+      quantityRowKey: toNullableText(ledger.quantityRowKey),
+      isReference: ledger.isReference,
+      referenceReason: ledger.referenceReason.trim() === '' ? null : ledger.referenceReason,
+    };
+  });
+}
+
+/**
+ * 保存で送る明細行を、サーバーの明細行の検証の 45.4・45.9・46.5 と同じ規則で確かめる（タスク117.4）。
+ * 誤りのある行だけを、行の ID → 文言の並びで返す
+ */
+function validateLineItemsForSave(items: LineItemFormData[]): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  const messages = LINE_ITEM_SAVE_VALIDATION_MESSAGES;
+  for (const item of getSubmittedLineItems(items)) {
+    const ledger = getLineItemLedgerFields(item);
+    const rowErrors: string[] = [];
+    // 45.4: 金額が空で数量と単価があるときはサーバーが数量×単価で求めるため、その値で判定する
+    if (ledger.category === 'DISCOUNT') {
+      const effectiveAmount = item.amount ?? calculateAmount(item.quantity, item.unitPrice);
+      if (effectiveAmount !== null && effectiveAmount > 0) {
+        rowErrors.push(messages.DISCOUNT_AMOUNT_POSITIVE);
+      }
+    }
+    // 45.9: 換算は 4 つすべてあるかすべて無い。数量は 0 より大きい
+    const conversionParts = countConversionParts(ledger);
+    if (conversionParts > 0) {
+      const quantity = parseNumberText(ledger.conversionQuantity);
+      if (conversionParts < 4 || quantity === null || quantity <= 0) {
+        rowErrors.push(messages.CONVERSION_INCOMPLETE);
+      }
+    }
+    // 46.5: 参考の理由は参考の印が有の行だけ
+    if (!ledger.isReference && ledger.referenceReason.trim() !== '') {
+      rowErrors.push(messages.REFERENCE_REASON_WITHOUT_REFERENCE);
+    }
+    if (rowErrors.length > 0) {
+      result[item.id] = rowErrors;
+    }
+  }
+  return result;
+}
+
+/** 検証の誤りの応答の `details`（欄の名前と文言）を読む */
+function readValidationDetails(error: ApiError): Array<{ path: string; message: string }> {
+  const response = error.response;
+  if (typeof response !== 'object' || response === null || !('details' in response)) return [];
+  const details = (response as { details?: unknown }).details;
+  if (!Array.isArray(details)) return [];
+  return details.flatMap((detail) =>
+    typeof detail === 'object' &&
+    detail !== null &&
+    typeof (detail as { path?: unknown }).path === 'string' &&
+    typeof (detail as { message?: unknown }).message === 'string'
+      ? [
+          {
+            path: (detail as { path: string }).path,
+            message: (detail as { message: string }).message,
+          },
+        ]
+      : []
+  );
 }
 
 /**
@@ -539,6 +751,19 @@ function convertToLineItemFormData(
       amount: item.amount,
       remarks: item.remarks ?? '',
       sortOrder: typeof rawSortOrder === 'number' ? rawSortOrder : null,
+      // Task 117.2: 台帳の項目をサーバーの値から読む（無い項目は既定）。換算の単価には 18 の表示を適用する（45.10）
+      category: item.category ?? 'DIRECT',
+      condition: item.condition ?? '',
+      conversionQuantity: item.conversion ? String(item.conversion.quantity) : '',
+      conversionUnit: item.conversion?.unit ?? '',
+      conversionUnitPrice: item.conversion
+        ? formatUnitPrice(String(item.conversion.unitPrice))
+        : '',
+      conversionBasis: item.conversion?.basis ?? '',
+      classificationKey: item.classificationKey ?? '',
+      quantityRowKey: item.quantityRowKey ?? '',
+      isReference: item.isReference ?? false,
+      referenceReason: item.referenceReason ?? '',
     };
   });
   // Req 37.3: NULL/undefined 補完 → 昇順ソート
@@ -620,7 +845,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }) {
  * ```tsx
  * <ReceivedQuotationForm
  *   mode="create"
- *   estimateRequestId="er-123"
+ *   context={{ kind: 'estimateRequest', estimateRequestId: 'er-123', tradingPartnerName: '協力業者A' }}
  *   onSubmit={handleSubmit}
  *   onCancel={() => setShowForm(false)}
  * />
@@ -628,7 +853,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }) {
  */
 export function ReceivedQuotationForm({
   mode,
-  estimateRequestId: _estimateRequestId,
+  context,
   initialData,
   onSubmit,
   onCancel,
@@ -660,6 +885,37 @@ export function ReceivedQuotationForm({
   const [lineItems, setLineItems] = useState<LineItemFormData[]>(
     convertToLineItemFormData(initialData?.lineItems)
   );
+
+  // タスク117.4: 業者名（案件の文脈で入力する。見積依頼の文脈では宛先の取引先の名前を出すだけ）
+  const isProjectContext = context.kind === 'project';
+  const initialVendor = useMemo<VendorNameValue>(
+    () => ({
+      vendorName: initialData?.vendorName ?? '',
+      tradingPartnerId: initialData?.tradingPartnerId ?? null,
+    }),
+    [initialData]
+  );
+  const [vendor, setVendor] = useState<VendorNameValue>(initialVendor);
+  // 見積依頼の文脈の業者名の表示: 編集は保存済みの業者名（44.8）、登録は宛先の取引先の名前（44.2）
+  const requestVendorName =
+    context.kind === 'estimateRequest' ? initialData?.vendorName || context.tradingPartnerName : '';
+  const [vendorServerError, setVendorServerError] = useState<string | null>(null);
+
+  // タスク117.4: 台帳の情報の欄の値（46.1〜46.3・46.6・48.2）
+  const [ledgerInfo, setLedgerInfo] = useState<LedgerInfoFormData>(() =>
+    createLedgerInfoFormData(initialData)
+  );
+  // 保存を試みて台帳の情報の検証で止めたか（閉じた欄の見出しの下に知らせを出す）
+  const [ledgerValidationAttempted, setLedgerValidationAttempted] = useState(false);
+  const [ledgerServerErrors, setLedgerServerErrors] = useState<LedgerInfoErrors>({});
+
+  // タスク117.4: 明細行の行ごとの誤り（行の ID → 文言。D11）
+  const [lineItemErrors, setLineItemErrors] = useState<Record<string, string[]>>({});
+
+  // タスク117.4: 同じ原本の二重登録（409 DUPLICATE_ORIGINAL。48.3）
+  const [duplicateOriginal, setDuplicateOriginal] = useState<{
+    existing: DuplicateOriginalExisting | null;
+  } | null>(null);
 
   // ドラッグ&ドロップ状態
   const [isDragOver, setIsDragOver] = useState(false);
@@ -699,10 +955,13 @@ export function ReceivedQuotationForm({
           : '',
       selectedFile: null,
       lineItems: convertToLineItemFormData(initialData?.lineItems),
+      // タスク117.4: 台帳の情報と業者名（案件の文脈だけ）も判定の対象にする
+      ledgerInfo: createLedgerInfoFormData(initialData),
+      vendor: isProjectContext ? initialVendor : undefined,
     };
     // initialData の参照変化（編集対象切替）でスナップショットを再ビルドするため
     // 内部の各フィールドではなく initialData そのものを依存に含める。
-  }, [initialData]);
+  }, [initialData, isProjectContext, initialVendor]);
 
   const [snapshot, setSnapshot] = useState<FormSnapshot>(() => buildInitialSnapshot());
 
@@ -729,10 +988,22 @@ export function ReceivedQuotationForm({
           netAmount,
           selectedFile,
           lineItems,
+          ledgerInfo,
+          vendor: isProjectContext ? vendor : undefined,
         },
         snapshot
       ),
-    [name, submittedAt, netAmount, selectedFile, lineItems, snapshot]
+    [
+      name,
+      submittedAt,
+      netAmount,
+      selectedFile,
+      lineItems,
+      ledgerInfo,
+      isProjectContext,
+      vendor,
+      snapshot,
+    ]
   );
 
   // 未保存変更ガード（Req 38.12, 38.13）
@@ -758,9 +1029,110 @@ export function ReceivedQuotationForm({
       newErrors.content = 'ファイルのアップロードまたは明細行データの入力が必要です';
     }
 
+    // タスク117.4: 案件の文脈の業者名は必須（43.8）
+    if (isProjectContext && vendor.vendorName.trim() === '') {
+      newErrors.vendorName = VENDOR_NAME_REQUIRED_MESSAGE;
+    }
+
+    // タスク117.4: 明細行の 45.4・45.9・46.5（行の下に文言を出す）
+    const rowErrors = validateLineItemsForSave(lineItems);
+    setLineItemErrors(rowErrors);
+    if (Object.keys(rowErrors).length > 0) {
+      newErrors.lineItems = LINE_ITEMS_ERROR_SUMMARY;
+    }
+
+    // タスク117.4: 台帳の情報（欄は閉じていることがあるため、見出しの下に知らせを出す）
+    const ledgerHasErrors = Object.keys(validateLedgerInfo(ledgerInfo)).length > 0;
+    setLedgerValidationAttempted(ledgerHasErrors);
+
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [name, submittedAt, selectedFile, existingFileName, removeFile, lineItems]);
+    return Object.keys(newErrors).length === 0 && !ledgerHasErrors;
+  }, [
+    name,
+    submittedAt,
+    selectedFile,
+    existingFileName,
+    removeFile,
+    lineItems,
+    isProjectContext,
+    vendor,
+    ledgerInfo,
+  ]);
+
+  /**
+   * 業者名の保存の入力（タスク117.4。D4）
+   *
+   * 見積依頼の文脈では送らない（サーバーは宛先の取引先を写し、空の業者名を 400 にする。44.3）。
+   * 案件の文脈の登録は業者名と選んだ取引先の ID（選ばなければ null で名前の照合）を送る。編集で業者名を
+   * 変えていないときは、取引先に紐づくなら今の取引先の ID と業者名をそのまま送り、紐づかないなら何も送らない
+   * （null と同じ業者名を送ると名前で照合し直して紐づけが変わりうるため。113.2 の申し送り）
+   */
+  const buildVendorInput = useCallback((): Pick<
+    ReceivedQuotationLedgerInput,
+    'vendorName' | 'tradingPartnerId'
+  > => {
+    if (!isProjectContext) return {};
+    const vendorName = vendor.vendorName.trim();
+    const unchanged =
+      mode === 'edit' &&
+      vendorName === initialVendor.vendorName.trim() &&
+      vendor.tradingPartnerId === initialVendor.tradingPartnerId;
+    if (unchanged) {
+      return vendor.tradingPartnerId !== null
+        ? { vendorName, tradingPartnerId: vendor.tradingPartnerId }
+        : {};
+    }
+    return { vendorName, tradingPartnerId: vendor.tradingPartnerId };
+  }, [isProjectContext, vendor, mode, initialVendor]);
+
+  /**
+   * サーバーの検証の誤り（400）を欄・行へ対応づける（タスク117.4）。対応づけたら true
+   *
+   * - 「明細行の{n}行目: 文言」は、送った n 行目の行の下に出す（名称の空の行は送らないため数えない）
+   * - 応答の `details` の欄の名前、または文言から、台帳の情報の欄と業者名の欄へ出す
+   */
+  const applyServerValidationError = useCallback(
+    (error: ApiError, submittedIds: readonly string[]): boolean => {
+      const lineMatch = SERVER_LINE_ITEM_ERROR_PATTERN.exec(error.message);
+      if (lineMatch) {
+        const rowId = submittedIds[Number(lineMatch[1]) - 1];
+        if (rowId) {
+          setLineItemErrors({ [rowId]: [lineMatch[2]!] });
+          setErrors((prev) => ({ ...prev, lineItems: LINE_ITEMS_ERROR_SUMMARY }));
+          return true;
+        }
+      }
+
+      const ledgerErrors: LedgerInfoErrors = {};
+      let vendorError: string | null = null;
+      const details = readValidationDetails(error);
+      for (const { path, message } of details) {
+        if ((LEDGER_INFO_FIELD_KEYS as readonly string[]).includes(path)) {
+          ledgerErrors[path as keyof LedgerInfoFormData] ??= message;
+        } else if (path === 'vendorName' || path === 'tradingPartnerId') {
+          vendorError ??= message;
+        }
+      }
+      if (details.length === 0) {
+        const ledgerField = LEDGER_INFO_FIELD_BY_MESSAGE.get(error.message);
+        if (ledgerField) {
+          ledgerErrors[ledgerField] = error.message;
+        } else if (/^業者名|取引先/.test(error.message)) {
+          vendorError = error.message;
+        }
+      }
+      if (vendorError !== null && !isProjectContext) {
+        // 見積依頼の文脈は業者名の欄を持たないため、保存のエラーとして出す
+        vendorError = null;
+      }
+
+      const ledgerMapped = Object.keys(ledgerErrors).length > 0;
+      if (ledgerMapped) setLedgerServerErrors(ledgerErrors);
+      if (vendorError !== null) setVendorServerError(vendorError);
+      return ledgerMapped || vendorError !== null;
+    },
+    [isProjectContext]
+  );
 
   // フォーム送信
   // Task 79.3: 保存リトライ・401/409 ハンドリング・isReauthInProgress を統合
@@ -771,6 +1143,8 @@ export function ReceivedQuotationForm({
     //   convertToLineItemInput は filter（空名行除外）後に index で sortOrder を割り当てる
     //   ため、画面表示順 = sortOrder 連続値という不変条件を担保する。
     const lineItemInputs = convertToLineItemInput(lineItems);
+    // サーバーの「明細行の{n}行目」を行へ対応づけるため、送る明細行の ID を送る順で控える
+    const submittedLineItemIds = getSubmittedLineItems(lineItems).map((item) => item.id);
 
     // Task 63.2: NET金額をAPIリクエストに含める（空文字列 → null）
     const parsedNetAmount = netAmount.trim() !== '' ? Math.round(parseFloat(netAmount)) : null;
@@ -784,7 +1158,14 @@ export function ReceivedQuotationForm({
       ...(removeFile ? { removeFile: true } : {}),
       ...(lineItemInputs.length > 0 ? { lineItems: lineItemInputs } : {}),
       netAmount: netAmountValue,
+      // タスク117.4: 台帳の情報（採否・読取の確認・見積の区別に空の文字を送らない）と業者名
+      ...toLedgerInfoInput(ledgerInfo),
+      ...buildVendorInput(),
     };
+
+    setDuplicateOriginal(null);
+    setLedgerServerErrors({});
+    setVendorServerError(null);
 
     try {
       await onSubmit(data);
@@ -802,10 +1183,19 @@ export function ReceivedQuotationForm({
         netAmount,
         selectedFile,
         lineItems,
+        ledgerInfo,
+        vendor: isProjectContext ? vendor : undefined,
       });
     } catch (err) {
+      // タスク117.4: 同じ原本の二重登録（48.3）。楽観的排他の文言は出さない
+      if (isDuplicateOriginalError(err)) {
+        clearPendingSave();
+        setOptimisticConflictError(null);
+        setDuplicateOriginal({ existing: err.existing });
+        return;
+      }
       // Req 38.10: 楽観的排他制御競合は再認証フローと別系統で処理
-      if (err instanceof ApiError && err.statusCode === 409) {
+      if (isReceivedQuotationConflictError(err)) {
         clearPendingSave();
         setOptimisticConflictError(err);
         return;
@@ -815,10 +1205,19 @@ export function ReceivedQuotationForm({
       if (err instanceof ApiError && err.statusCode === 401) {
         return;
       }
-      // 404 は見つからない旨を告げる（登録は見積依頼、更新は受領見積書。REQ-10.6）
+      // タスク117.4: 検証の誤り（400）を明細行・台帳の情報・業者名の欄へ対応づける
+      if (
+        err instanceof ApiError &&
+        err.statusCode === 400 &&
+        applyServerValidationError(err, submittedLineItemIds)
+      ) {
+        clearPendingSave();
+        return;
+      }
+      // 404 は見つからない旨を告げる（登録は見積依頼・案件、更新は受領見積書。REQ-10.6）
       const notFoundMessage = getEstimateRequestNotFoundMessage(
         err,
-        mode === 'edit' ? 'receivedQuotation' : 'estimateRequest'
+        mode === 'edit' ? 'receivedQuotation' : isProjectContext ? 'project' : 'estimateRequest'
       );
       // それ以外の保存エラー
       setSaveError(notFoundMessage ?? (err instanceof Error ? err.message : '保存に失敗しました'));
@@ -831,6 +1230,11 @@ export function ReceivedQuotationForm({
     removeFile,
     lineItems,
     netAmount,
+    ledgerInfo,
+    vendor,
+    isProjectContext,
+    buildVendorInput,
+    applyServerValidationError,
     onSubmit,
     clearPendingSave,
     mode,
@@ -948,7 +1352,22 @@ export function ReceivedQuotationForm({
   // 明細行変更ハンドラ
   const handleLineItemsChange = useCallback((items: LineItemFormData[]) => {
     setLineItems(items);
-    setErrors((prev) => ({ ...prev, content: undefined }));
+    // タスク117.4: 行の誤りは次の保存で確かめ直す（直した行に古い文言を残さない）
+    setLineItemErrors({});
+    setErrors((prev) => ({ ...prev, content: undefined, lineItems: undefined }));
+  }, []);
+
+  // タスク117.4: 業者名の変更（案件の文脈）
+  const handleVendorChange = useCallback((next: VendorNameValue) => {
+    setVendor(next);
+    setVendorServerError(null);
+    setErrors((prev) => ({ ...prev, vendorName: undefined }));
+  }, []);
+
+  // タスク117.4: 台帳の情報の変更
+  const handleLedgerInfoChange = useCallback((next: LedgerInfoFormData) => {
+    setLedgerInfo(next);
+    setLedgerServerErrors({});
   }, []);
 
   // OCR一括取り込みハンドラ
@@ -957,7 +1376,8 @@ export function ReceivedQuotationForm({
     (items: LineItemFormData[]) => {
       const reordered = reassignSortOrder(items);
       setLineItems(reordered);
-      setErrors((prev) => ({ ...prev, content: undefined }));
+      setLineItemErrors({});
+      setErrors((prev) => ({ ...prev, content: undefined, lineItems: undefined }));
 
       // NET金額自動入力ロジック（34.1, 34.2）
       if (netAmount.trim() === '') {
@@ -1024,13 +1444,16 @@ export function ReceivedQuotationForm({
         amount: null,
         remarks: item.remarks ?? '',
         sortOrder: index,
+        // Task 117.2: 転記の行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+        ...createLineItemLedgerDefaults(),
       };
     });
 
     // Task 79.3: Req 37.14 - 転記後の lineItems に reassignSortOrder を適用してから反映
     const reordered = reassignSortOrder(newLineItems);
     setLineItems(reordered);
-    setErrors((prev) => ({ ...prev, content: undefined }));
+    setLineItemErrors({});
+    setErrors((prev) => ({ ...prev, content: undefined, lineItems: undefined }));
 
     // NET金額自動入力ロジック（34.6）
     if (netAmount.trim() === '') {
@@ -1117,6 +1540,11 @@ export function ReceivedQuotationForm({
   // Req 38.4: 再認証中は内部の操作系（保存・追加・メニュー・ファイル UP・OCR・項目転記）を非活性化
   const isOperationLocked = isSubmitting || isReauthInProgress;
 
+  // タスク117.4: 台帳の情報の誤りの知らせ（保存を検証で止めたとき、またはサーバーが台帳の項目を拒んだとき）
+  const showLedgerErrorSummary =
+    (ledgerValidationAttempted && Object.keys(validateLedgerInfo(ledgerInfo)).length > 0) ||
+    Object.keys(ledgerServerErrors).length > 0;
+
   return (
     <form onSubmit={handleSubmit} style={styles.form}>
       {/* 受領見積書名 */}
@@ -1170,6 +1598,32 @@ export function ReceivedQuotationForm({
           </p>
         )}
       </div>
+
+      {/* 業者名（タスク117.4。案件の文脈は入力、見積依頼の文脈は宛先の取引先の名前を編集できない形で出す） */}
+      {context.kind === 'estimateRequest' ? (
+        <div style={styles.fieldGroup}>
+          <label htmlFor="quotation-vendor-name" style={styles.label}>
+            業者名
+          </label>
+          <input
+            id="quotation-vendor-name"
+            type="text"
+            value={requestVendorName}
+            readOnly
+            style={{ ...styles.input, ...styles.inputReadOnly }}
+            data-testid="quotation-vendor-name-readonly"
+          />
+        </div>
+      ) : (
+        <VendorNameInput
+          value={vendor}
+          onChange={handleVendorChange}
+          required
+          disabled={isOperationLocked}
+          error={errors.vendorName ?? vendorServerError ?? undefined}
+          placeholder="業者名を入力"
+        />
+      )}
 
       {/* ファイルアップロード (11.5, 11.6) */}
       <div style={styles.fieldGroup}>
@@ -1381,7 +1835,13 @@ export function ReceivedQuotationForm({
           lineItems={lineItems}
           onLineItemsChange={handleLineItemsChange}
           disabled={isOperationLocked}
+          lineItemErrors={lineItemErrors}
         />
+        {errors.lineItems && (
+          <p style={styles.errorText} role="alert" data-testid="line-items-error">
+            {errors.lineItems}
+          </p>
+        )}
       </div>
 
       {/* NET金額フィールド（Task 63.1: 受領見積書レベル、明細行テーブルの下） */}
@@ -1412,11 +1872,40 @@ export function ReceivedQuotationForm({
         />
       </div>
 
+      {/* 台帳の情報（タスク117.4。46.9: 既定で折りたたむ。確認者の表示名を渡す。46.7） */}
+      <LedgerInfoSection
+        value={ledgerInfo}
+        onChange={handleLedgerInfoChange}
+        readingConfirmedAt={initialData?.readingConfirmedAt ?? null}
+        readingConfirmedByName={initialData?.readingConfirmedBy?.displayName ?? null}
+        errors={ledgerServerErrors}
+        disabled={isOperationLocked}
+      />
+      {showLedgerErrorSummary && (
+        <p style={styles.errorText} role="alert" data-testid="ledger-info-error">
+          {LEDGER_INFO_ERROR_SUMMARY}
+        </p>
+      )}
+
       {/* コンテンツエラー（ファイルも明細行もない場合） */}
       {errors.content && (
         <p style={styles.errorText} role="alert">
           {errors.content}
         </p>
+      )}
+
+      {/* 同じ原本の二重登録（タスク117.4。48.3: 文言と既存の受領見積書の名前・業者名・提出日） */}
+      {duplicateOriginal && (
+        <div style={styles.errorText} role="alert" data-testid="duplicate-original-error">
+          <p style={{ margin: 0 }}>{DUPLICATE_ORIGINAL_MESSAGE}</p>
+          {duplicateOriginal.existing && (
+            <p style={{ margin: '4px 0 0 0' }}>
+              既存の受領見積書: {duplicateOriginal.existing.name}（業者名:{' '}
+              {duplicateOriginal.existing.vendorName}、提出日:{' '}
+              {formatDateForInput(duplicateOriginal.existing.submittedAt)}）
+            </p>
+          )}
+        </div>
       )}
 
       {/* 楽観的排他制御エラー（Req 38.10: 再認証フローと別系統） */}

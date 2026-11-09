@@ -24,6 +24,10 @@ import * as estimateRequestApi from '../../api/estimate-requests';
 import * as receivedQuotationApi from '../../api/received-quotations';
 import * as estimateRequestStatusApi from '../../api/estimate-request-status';
 import { ApiError, apiClient } from '../../api/client';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 // APIモック
 vi.mock('../../api/estimate-requests');
@@ -70,6 +74,7 @@ const mockEstimateRequest = {
 
 const mockReceivedQuotations = [
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-1',
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書1',
@@ -79,6 +84,7 @@ const mockReceivedQuotations = [
     fileSize: null,
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-1',
         receivedQuotationId: 'rq-1',
         customCategory: null,
@@ -102,6 +108,7 @@ const mockReceivedQuotations = [
     updatedAt: new Date('2025-01-05T10:00:00.000Z'),
   },
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-2',
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書2',
@@ -1037,6 +1044,42 @@ describe('EstimateRequestDetailPage', () => {
       windowOpenSpy.mockRestore();
     });
 
+    it('プレビューを開き直すと、URLを取り直して新しいURLで開く（タスク113.5）', async () => {
+      const user = userEvent.setup();
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      vi.mocked(receivedQuotationApi.getPreviewUrl)
+        .mockResolvedValueOnce('https://example.com/preview?token=first')
+        .mockResolvedValueOnce('https://example.com/preview?token=second');
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+
+      const previewButton = screen.getAllByRole('button', { name: /プレビュー/i })[0]!;
+      await user.click(previewButton);
+      await waitFor(() => {
+        expect(windowOpenSpy).toHaveBeenCalledWith(
+          'https://example.com/preview?token=first',
+          '_blank'
+        );
+      });
+
+      // 期限の切れた URL を使い回さず、開くたびにサーバーへ求める
+      await user.click(previewButton);
+      await waitFor(() => {
+        expect(windowOpenSpy).toHaveBeenCalledWith(
+          'https://example.com/preview?token=second',
+          '_blank'
+        );
+      });
+      expect(receivedQuotationApi.getPreviewUrl).toHaveBeenCalledTimes(2);
+      expect(receivedQuotationApi.getPreviewUrl).toHaveBeenNthCalledWith(1, 'rq-2');
+      expect(receivedQuotationApi.getPreviewUrl).toHaveBeenNthCalledWith(2, 'rq-2');
+      windowOpenSpy.mockRestore();
+    });
+
     it('受領見積書の編集ボタンをクリックすると編集フォームを表示する', async () => {
       const user = userEvent.setup();
       renderWithRouter();
@@ -1204,6 +1247,7 @@ describe('EstimateRequestDetailPage', () => {
     it('受領見積書を新規作成できる', async () => {
       const user = userEvent.setup();
       const mockCreate = vi.fn().mockResolvedValue({
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-new',
         estimateRequestId: 'er-1',
         name: '新規見積書',

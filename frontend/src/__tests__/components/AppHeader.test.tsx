@@ -384,6 +384,41 @@ describe('AppHeader - タスク23.2: ナビゲーションコンポーネント�
 
       expect(mockNavigate).toHaveBeenCalledWith('/admin/audit-logs');
     });
+
+    /**
+     * システム設定の項目が管理メニューの末尾にあり、/admin/settings へ遷移する
+     * （estimate-request の design.md の D8、タスク119.2）
+     */
+    it('should navigate to system settings page from the last admin menu item', async () => {
+      const user = userEvent.setup();
+      const mockAuthValue = createMockAuthContextValue({
+        user: {
+          id: 'admin-1',
+          email: 'admin@example.com',
+          displayName: 'Admin User',
+          roles: ['admin', 'user'],
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter>
+            <AppHeader />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      await user.click(screen.getByRole('button', { name: /管理メニュー/i }));
+
+      const items = screen.getAllByRole('menuitem');
+      const settingsItem = screen.getByRole('menuitem', { name: 'システム設定' });
+      expect(items[items.length - 1]).toBe(settingsItem);
+      expect(settingsItem).toHaveAttribute('data-testid', 'admin-menu-settings');
+
+      await user.click(settingsItem);
+
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/settings');
+    });
   });
 
   describe('アクセシビリティ', () => {

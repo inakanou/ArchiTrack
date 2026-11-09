@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { AuditLog, AuditLogAction } from '../types/audit-log.types';
 import {
+  CLAUDE_VISION_AUDIT_ACTIONS,
+  CLAUDE_VISION_AUDIT_ACTION_LABELS,
   INVITATION_AUDIT_ACTIONS,
   INVITATION_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
@@ -133,6 +135,7 @@ export function AuditLogs() {
       ...INVITATION_AUDIT_ACTION_LABELS,
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+      ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
     };
     return labels[action] || action;
   };
@@ -241,6 +244,11 @@ export function AuditLogs() {
             {SECURITY_REMEDIATION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {SECURITY_REMEDIATION_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
+            {CLAUDE_VISION_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {CLAUDE_VISION_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
           </select>

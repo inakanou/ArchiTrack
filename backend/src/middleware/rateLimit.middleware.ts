@@ -37,6 +37,15 @@ export const AUTH_RATE_LIMITS = {
 } as const;
 
 /**
+ * 外部の AI での読み取り（Claude Vision の送信）の利用者ごとの制限: 1 時間に 30 回
+ * （estimate-request の design の章「Requirements 43-50」の D7。1 回の要求は 20 枚まで）
+ */
+export const CLAUDE_VISION_RATE_LIMIT = { windowMs: 60 * 60 * 1000, limit: 30 } as const;
+
+/** 外部の AI での読み取りの利用者ごとの制限の超過の code（画面は外部のサービスの 429 と分ける） */
+export const CLAUDE_VISION_USER_RATE_LIMITED_CODE = 'CLAUDE_VISION_USER_RATE_LIMITED';
+
+/**
  * 制限の組み立てに与える依存
  */
 export interface RateLimiterDependencies {
@@ -62,6 +71,8 @@ export interface RateLimiters {
   passwordResetRequestByIp: RateLimitRequestHandler;
   /** リセットの要求のメールアドレスごとの制限（超過は通常の受理と同じ 200 を返し送信しない） */
   passwordResetRequestByEmail: RateLimitRequestHandler;
+  /** 外部の AI での読み取りの利用者ごとの制限（Claude Vision の経路の認証の後に掛ける） */
+  claudeVision: RateLimitRequestHandler;
 }
 
 /**
@@ -83,6 +94,15 @@ const observeRateLimited = (req: Request): void => {
 /** 送信元 IP による識別（信頼する中継の段数に基づく req.ip。IPv6 は正規化する） */
 const ipKey = (req: Request): string => ipKeyGenerator(getClientIp(req));
 
+/** 認証済みなら利用者 ID、未認証なら送信元 IP による識別（authenticate の後に掛ける制限） */
+const userOrIpKey = (req: Request): string => {
+  const userId = userIdOf(req);
+  if (userId) {
+    return `user:${userId}`;
+  }
+  return `ip:${ipKey(req)}`;
+};
+
 /** 要求の本文のメールアドレス（文字列でなければ undefined。形式の誤りは後ろの検証が 400 を返す） */
 const bodyEmail = (req: Request): string | undefined => {
   const email: unknown = (req.body as { email?: unknown } | undefined)?.email;
@@ -101,6 +121,8 @@ interface LimiterSpec {
   prefix: string;
   /** 超過時の応答の error（省略時は既定の応答） */
   error?: string;
+  /** 超過時の応答に含める code（省略時は含めない） */
+  code?: string;
   /** 超過時のログの文言 */
   logMessage?: string;
   /** 無効化の判定に従うか（ヘルスチェックは従わない） */
@@ -162,6 +184,7 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
         res.status(429).json({
           error: spec.error,
           retryAfter: res.getHeader('Retry-After'),
+          ...(spec.code !== undefined && { code: spec.code }),
         });
       },
     });
@@ -203,15 +226,8 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
       logMessage: 'Invitation rate limit exceeded',
       skippable: true,
       logUserId: true,
-      keyGenerator: (req: Request): string => {
-        // 認証済みユーザーのIDを使用（招待の経路は authenticate の後に掛ける）
-        const userId = userIdOf(req);
-        if (userId) {
-          return `user:${userId}`;
-        }
-        // 送信元 IP を使用（IPv6対応）
-        return `ip:${ipKey(req)}`;
-      },
+      // 認証済みユーザーのIDを使用（招待の経路は authenticate の後に掛ける）。未認証は送信元 IP
+      keyGenerator: userOrIpKey,
     }),
     // ヘルスチェック用の緩いレート制限: 1分間で60リクエストまで（無効化の判定に従わない）
     healthCheck: build({
@@ -275,6 +291,20 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
         res.status(200).json(PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE);
       },
     }),
+    // 外部の AI での読み取り（Claude Vision の送信）: 利用者ごとに 1 時間で 30 回。
+    // 経路の authenticate の後に掛けるため利用者 ID で数える。数量表の取り込みも同じ経路で数える。
+    // 無効化の判定は他の制限と同じ（試験の実行環境・開発での明示のときだけ外す）
+    claudeVision: build({
+      windowMs: CLAUDE_VISION_RATE_LIMIT.windowMs,
+      max: CLAUDE_VISION_RATE_LIMIT.limit,
+      prefix: 'rl:claude-vision:',
+      error: 'Too many external AI reading requests, please try again later.',
+      code: CLAUDE_VISION_USER_RATE_LIMITED_CODE,
+      logMessage: 'Claude Vision user rate limit exceeded',
+      skippable: true,
+      logUserId: true,
+      keyGenerator: userOrIpKey,
+    }),
   };
 }
 
@@ -317,3 +347,4 @@ export const loginLimiter = rateLimiters.login;
 export const refreshLimiter = rateLimiters.refresh;
 export const invitationLimiter = rateLimiters.invitation;
 export const healthCheckLimiter = rateLimiters.healthCheck;
+export const claudeVisionLimiter = rateLimiters.claudeVision;

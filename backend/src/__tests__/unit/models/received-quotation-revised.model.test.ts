@@ -55,6 +55,7 @@ describe('ReceivedQuotation Revised Model Schema', () => {
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-20'),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       // contentTypeとtextContentが不要であること
@@ -74,6 +75,7 @@ describe('ReceivedQuotation Revised Model Schema', () => {
         fileMimeType: 'application/pdf',
         fileSize: 1024000,
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.filePath).toBe('quotations/uuid/filename.pdf');
@@ -86,6 +88,7 @@ describe('ReceivedQuotation Revised Model Schema', () => {
         name: '明細付き見積書',
         submittedAt: new Date('2026-01-20'),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
         lineItems: {
           create: [
             {
@@ -114,6 +117,7 @@ describe('ReceivedQuotation Revised Model Schema', () => {
         fileMimeType: 'application/pdf',
         fileSize: 1024000,
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
         lineItems: {
           create: [
             {

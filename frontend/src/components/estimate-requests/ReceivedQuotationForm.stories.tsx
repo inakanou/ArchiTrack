@@ -6,6 +6,10 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
 import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 // Task 79.3 で ReceivedQuotationForm（および遅延ロードする OcrDataExtractor）が
 // useAuth() を直接購読するため、Storybook 環境向けに最小限の AuthContext 値を供給する。
@@ -15,6 +19,7 @@ const mockAuthContext = {
 } as unknown as AuthContextValue;
 
 const mockInitialData = {
+  ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
   id: 'rq-1',
   estimateRequestId: 'er-1',
   name: '株式会社A工業 見積書',
@@ -24,6 +29,7 @@ const mockInitialData = {
   fileMimeType: 'application/pdf',
   lineItems: [
     {
+      ...LINE_ITEM_LEDGER_DEFAULTS,
       id: 'li-1',
       receivedQuotationId: 'rq-1',
       customCategory: null,
@@ -40,6 +46,7 @@ const mockInitialData = {
       updatedAt: new Date('2025-01-15'),
     },
     {
+      ...LINE_ITEM_LEDGER_DEFAULTS,
       id: 'li-2',
       receivedQuotationId: 'rq-1',
       customCategory: null,
@@ -96,7 +103,11 @@ type Story = StoryObj<typeof meta>;
 export const CreateMode: Story = {
   args: {
     mode: 'create',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: undefined,
     isSubmitting: false,
   },
@@ -108,7 +119,11 @@ export const CreateMode: Story = {
 export const EditMode: Story = {
   args: {
     mode: 'edit',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: mockInitialData,
     isSubmitting: false,
   },
@@ -120,7 +135,11 @@ export const EditMode: Story = {
 export const Submitting: Story = {
   args: {
     mode: 'create',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: undefined,
     isSubmitting: true,
   },

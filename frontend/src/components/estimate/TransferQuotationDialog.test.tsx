@@ -36,6 +36,10 @@ import type {
   QuotationTransferPayload,
 } from '../../domain/estimate/estimateEditReducer.types';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 vi.mock('../../api/received-quotations');
 vi.mock('../../api/estimates');
@@ -57,6 +61,7 @@ const expectNoEstimateApiCall = (): void => {
 
 const mockReceivedQuotations = [
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-001',
     estimateRequestId: 'er-001',
     name: '見積書A',
@@ -69,6 +74,7 @@ const mockReceivedQuotations = [
     tradingPartnerName: '業者A',
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'rql-001',
         receivedQuotationId: 'rq-001',
         sortOrder: 0,
@@ -83,6 +89,7 @@ const mockReceivedQuotations = [
         remarks: '転記対象外の備考',
       },
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'rql-002',
         receivedQuotationId: 'rq-001',
         sortOrder: 1,
@@ -101,6 +108,7 @@ const mockReceivedQuotations = [
     updatedAt: new Date('2024-01-10'),
   },
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-002',
     estimateRequestId: 'er-001',
     name: '見積書B',
@@ -113,6 +121,7 @@ const mockReceivedQuotations = [
     tradingPartnerName: '業者B',
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'rql-003',
         receivedQuotationId: 'rq-002',
         sortOrder: 0,

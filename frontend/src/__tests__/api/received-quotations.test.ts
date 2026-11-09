@@ -30,6 +30,10 @@ import type {
   LineItemInfo,
   LineItemInput,
 } from '../../api/received-quotations';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 // fetch のモック
 const mockFetch = vi.fn();
@@ -49,6 +53,7 @@ describe('received-quotations API client', () => {
   // Task 61.3: netAmountを明細行レベルから削除（受領見積書レベルに移動）
   const mockLineItems: LineItemInfo[] = [
     {
+      ...LINE_ITEM_LEDGER_DEFAULTS,
       id: 'li-1',
       receivedQuotationId: 'quotation-1',
       sortOrder: 0,
@@ -63,6 +68,7 @@ describe('received-quotations API client', () => {
       remarks: null,
     },
     {
+      ...LINE_ITEM_LEDGER_DEFAULTS,
       id: 'li-2',
       receivedQuotationId: 'quotation-1',
       sortOrder: 1,
@@ -81,6 +87,7 @@ describe('received-quotations API client', () => {
   // テスト用のモックデータ（改訂版：contentType廃止、lineItems追加、netAmount受領見積書レベル）
   // Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
   const mockQuotationWithLineItems: ReceivedQuotationInfo = {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'quotation-1',
     estimateRequestId: 'er-1',
     name: '受領見積書#1',
@@ -96,6 +103,7 @@ describe('received-quotations API client', () => {
   };
 
   const mockQuotationWithFile: ReceivedQuotationInfo = {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'quotation-2',
     estimateRequestId: 'er-1',
     name: '受領見積書#2',
@@ -111,6 +119,7 @@ describe('received-quotations API client', () => {
   };
 
   const mockQuotationWithFileAndLineItems: ReceivedQuotationInfo = {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'quotation-3',
     estimateRequestId: 'er-1',
     name: '受領見積書#3',
@@ -642,6 +651,7 @@ describe('received-quotations API client', () => {
     it('明細行全量置換パラメータで更新できること（Requirements: 11.22）', async () => {
       const updatedLineItems: LineItemInfo[] = [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-new-1',
           receivedQuotationId: 'quotation-1',
           sortOrder: 0,
@@ -710,6 +720,7 @@ describe('received-quotations API client', () => {
 
     it('ファイル削除フラグを指定して更新できること', async () => {
       const mockResponse = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         ...mockQuotationWithLineItems,
         fileName: null,
         fileMimeType: null,
@@ -855,6 +866,34 @@ describe('received-quotations API client', () => {
       expect(result).toBe(mockUrl);
     });
 
+    it('同じ受領見積書のURLを続けて求めると、毎回サーバーへ問い合わせて新しいURLを返すこと（タスク113.5）', async () => {
+      const firstUrl = 'https://storage.example.com/signed-url?token=first';
+      const secondUrl = 'https://storage.example.com/signed-url?token=second';
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ url: firstUrl }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ url: secondUrl }),
+        });
+
+      const first = await getPreviewUrl('quotation-2');
+      const second = await getPreviewUrl('quotation-2');
+
+      // 取得した URL を手元に残さず、開き直しのたびに GET /api/quotations/:id/preview を呼ぶ
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      for (const call of mockFetch.mock.calls) {
+        expect(call[0]).toMatch(/\/api\/quotations\/quotation-2\/preview$/);
+        expect(call[1]).toEqual(expect.objectContaining({ method: 'GET' }));
+      }
+      expect(first).toBe(firstUrl);
+      expect(second).toBe(secondUrl);
+    });
+
     it('存在しない受領見積書のプレビューURLを取得しようとした場合、404エラーがスローされること', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -927,6 +966,7 @@ describe('received-quotations API client', () => {
 
     it('LineItemInfoにnetAmountが含まれないこと', () => {
       const lineItem: LineItemInfo = {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-test',
         receivedQuotationId: 'q-1',
         sortOrder: 0,

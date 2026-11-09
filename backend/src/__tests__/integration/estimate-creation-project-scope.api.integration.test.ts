@@ -125,7 +125,9 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
         { targetId: { in: estimateIds } },
       ],
     });
-    // 見積書・見積項目・在席・内訳書・見積依頼・受領見積書は案件の削除に連なって消える
+    // 受領見積書は案件を onDelete: Restrict で指すため先に消す（estimate-request の design の D1）。
+    // 見積書・見積項目・在席・内訳書・見積依頼は案件の削除に連なって消える
+    await prisma.receivedQuotation.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.projectStatusHistory.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
     await prisma.tradingPartner.deleteMany({ where: { name: { contains: MARK } } });
@@ -243,6 +245,8 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
     const quotation = await prisma.receivedQuotation.create({
       data: {
         estimateRequestId: estimateRequest.id,
+        projectId: project.id,
+        vendorName: `${MARK}-${label}-vendor`,
         name: `${MARK}-${label}-quotation`,
         submittedAt: new Date('2026-10-01'),
         filePath: `quotations/${estimateRequest.id}/${label}.pdf`,

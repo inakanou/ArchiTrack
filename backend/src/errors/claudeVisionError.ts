@@ -15,6 +15,12 @@ import { ApiError } from './apiError.js';
 import type { ProblemDetails } from '../types/problem-details.js';
 
 /**
+ * 管理者が外部の AI での読み取りを止めているときの文言（estimate-request の要件 49.4。画面も同じ文言を出す）
+ */
+export const CLAUDE_VISION_DISABLED_BY_ADMIN_MESSAGE =
+  '外部のAIでの読み取りはシステム管理者により停止されています';
+
+/**
  * Claude Vision APIのエラー種別
  */
 export type ClaudeVisionErrorType =
@@ -104,6 +110,35 @@ export class ClaudeVisionError extends ApiError {
       'Claude Vision機能は無効です（ANTHROPIC_API_KEY未設定）',
       'service_unavailable',
       'CLAUDE_VISION_SERVICE_UNAVAILABLE'
+    );
+  }
+
+  /**
+   * 管理者が外部の AI での読み取りを止めているときのエラーを生成（503。外部へ送らない）
+   *
+   * 種別は従来の機能無効と同じ service_unavailable とし、画面の従来の端末の読み取りへの切り替えを保つ。
+   * 停止の区別は code（CLAUDE_VISION_DISABLED_BY_ADMIN）で行う（estimate-request の design の D7）
+   */
+  static disabledByAdmin(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      503,
+      CLAUDE_VISION_DISABLED_BY_ADMIN_MESSAGE,
+      'service_unavailable',
+      'CLAUDE_VISION_DISABLED_BY_ADMIN'
+    );
+  }
+
+  /**
+   * 送信の記録（監査ログ）に失敗したときのエラーを生成（500。読み取りの結果は返さない）
+   *
+   * 記録の無い利用を残さないため（estimate-request の design の D7）
+   */
+  static auditFailed(): ClaudeVisionError {
+    return new ClaudeVisionError(
+      500,
+      '外部のAIでの読み取りの記録に失敗したため、結果を返せませんでした',
+      'unknown',
+      'CLAUDE_VISION_AUDIT_FAILED'
     );
   }
 

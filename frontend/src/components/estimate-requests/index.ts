@@ -22,5 +22,32 @@ export {
   createEmptyLineItem,
   calculateAmount,
   calculateTotalAmount,
+  calculateCategorySubtotals,
+  createLineItemLedgerDefaults,
+  getLineItemLedgerFields,
+  LINE_ITEM_CATEGORY_LABELS,
 } from './LineItemEditor';
-export type { LineItemFormData, LineItemEditorProps } from './LineItemEditor';
+export type {
+  LineItemFormData,
+  LineItemLedgerFormData,
+  LineItemEditorProps,
+} from './LineItemEditor';
+
+export { LedgerInfoSection, LEDGER_INFO_SECTION_TITLE } from './LedgerInfoSection';
+export type { LedgerInfoSectionProps } from './LedgerInfoSection';
+export {
+  createLedgerInfoFormData,
+  toLedgerInfoInput,
+  validateLedgerInfo,
+  LEDGER_INFO_MAX_LENGTHS,
+  LEDGER_INFO_VALIDATION_MESSAGES,
+} from './ledger-info-form';
+export type {
+  LedgerInfoFormData,
+  LedgerInfoErrors,
+  LedgerInfoInput,
+  LedgerInfoSource,
+} from './ledger-info-form';
+
+export { VendorNameInput } from './VendorNameInput';
+export type { VendorNameInputProps, VendorNameValue } from './VendorNameInput';

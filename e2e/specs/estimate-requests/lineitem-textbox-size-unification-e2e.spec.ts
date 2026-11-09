@@ -292,25 +292,30 @@ test.describe('受領見積書 明細行テキストボックスサイズ統一�
     /**
      * @requirement estimate-request/REQ-33.12
      */
-    test('Tab キーで「任意分類 → 工種 → 名称 → 規格 → 単位 → 数量 → 単価 → 備考」へ順次フォーカス移動する (REQ-33.12)', async ({
+    test('Tab キーで「区分 → 任意分類 → 工種 → 名称 → 規格 → 単位 → 数量 → 単価 → 金額 → 分類キー → 参考 → 備考」へ順次フォーカス移動する (REQ-33.12)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       await loginAsUser(page, 'REGULAR_USER');
       await openCreateDialog(page, createdEstimateRequestId as string);
 
-      // 任意分類にフォーカス
-      const customCategory = page.locator('input[aria-label="行1 任意分類"]');
-      await customCategory.focus();
+      // 行の先頭の欄（Task 117.2 で列の先頭に置いた区分の選択）にフォーカス
+      const category = page.locator('select[aria-label="行1 区分"]');
+      await category.focus();
 
       // Tab キー連打で順次移動できることを確認
+      // Task 117.2: 単価が空の行は金額を直接入力でき、単価と備考の間に分類キーと参考の列が入る
       const expectedOrder = [
+        '行1 任意分類',
         '行1 工種',
         '行1 名称',
         '行1 規格',
         '行1 単位',
         '行1 数量',
         '行1 単価',
+        '行1 金額',
+        '行1 分類キー',
+        '行1 参考',
         '行1 備考',
       ];
 
