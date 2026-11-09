@@ -385,41 +385,41 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     test('存在しないプロジェクトIDにアクセス時にエラーメッセージと戻るリンクを表示 (project-management/REQ-21.13)', async ({
       page,
     }) => {
-      // REQ-21.13 のうち「プロジェクト一覧への戻るリンク」は未実装である。
-      // ProjectDetailPage のエラー表示は再試行ボタンだけを置く
-      // （取引先詳細が使う ResourceNotFound のような戻る導線が無い）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 78.1 で詳細画面の 404 は、汎用の 404 の画面への遷移から、編集画面と同じ
+      // ResourceNotFound のその場の表示に替わった（design.md「Requirements 42-46」D3）。
+      // 存在しない ID は形式の正しい UUID とする。全桁 0 の UUID は版の桁が不正で、
+      // サーバーは「不在」ではなく形式の誤り（400）を返すため、21.13 の条件に当たらない。
+      const missingProjectId = '00000000-0000-4000-8000-000000000000';
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 存在しないUUID
-      await page.goto('/projects/00000000-0000-0000-0000-000000000000');
-      await page.waitForLoadState('networkidle');
-
-      // エラーメッセージの確認
-      const errorMessage = page.getByText(
-        /プロジェクトが見つかりませんでした|プロジェクトIDの形式が不正です|404|Not Found|Bad Request/i
+      const detailLoaded = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'GET' &&
+          new URL(r.url()).pathname === `/api/projects/${missingProjectId}/detail-summary`,
+        { timeout: getTimeout(30000) }
       );
-      await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
+      await page.goto(`/projects/${missingProjectId}`);
+      expect((await detailLoaded).status()).toBe(404);
 
-      // REQ-21.13 はエラーメッセージの表示に加えて「プロジェクト一覧への戻るリンク」を
-      // 提供することを求めている。
-      // 以前は「戻るリンク または 再試行ボタン」の論理和で判定していた。
-      // 実装（ProjectDetailPage のエラー表示）が置くのは再試行ボタンだけで、
-      // 戻るリンクは存在しない。論理和は再試行ボタンだけで成立するため、
-      // 要件のうち戻るリンクの部分を一度も確かめていなかった。
-      // 要件が求める戻るリンクそのものを主張する。
-      const backLink = page.getByRole('link', { name: /一覧に戻る|プロジェクト一覧/i });
+      // 「プロジェクトが見つかりません」というエラーメッセージを、その URL のまま表示する
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'プロジェクトが見つかりません' })
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(page).toHaveURL(new RegExp(`/projects/${missingProjectId}$`));
+
+      // プロジェクト一覧への戻るリンクを提供し、押すと一覧へ移る
+      const backLink = page.getByRole('link', { name: 'プロジェクト一覧に戻る' });
       await expect(
         backLink,
         'REQ-21.13: 存在しないプロジェクトIDのエラー画面にプロジェクト一覧への戻るリンクが無い'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toBeVisible();
+      await expect(backLink).toHaveAttribute('href', '/projects');
+      await backLink.click();
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
+      await expect(page.getByRole('heading', { level: 1, name: 'プロジェクト一覧' })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
     });
   });
 
