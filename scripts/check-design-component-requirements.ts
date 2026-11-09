@@ -376,9 +376,10 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'project-management': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 22,
-    minTableDeclarations: 21,
-    minDetailDeclarations: 20,
+    // Requirements 42-46 の章（2026-11-09）が部品表と詳細節の自己申告を 4 部品ぶん足したため、締める向きへ動かした
+    minPairs: 26,
+    minTableDeclarations: 25,
+    minDetailDeclarations: 24,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
   'quantity-table-generation': {
