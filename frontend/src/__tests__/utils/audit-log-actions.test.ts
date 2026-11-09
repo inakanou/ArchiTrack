@@ -6,6 +6,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CLAUDE_VISION_AUDIT_ACTIONS,
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
+  PROJECT_PURGE_AUDIT_ACTIONS,
+  PROJECT_PURGE_AUDIT_ACTION_LABELS,
   getAuditLogTargetLabel,
 } from '../../utils/audit-log-actions';
 
@@ -26,6 +28,16 @@ describe('外部の AI での読み取りの送信の種別', () => {
         metadata: { feature: 'received_quotation', imageCount: 2, outcome: 'success' },
       })
     ).toBe('received_quotation');
+  });
+});
+
+describe('プロジェクトの完全削除の種別', () => {
+  /**
+   * @requirement project-management/REQ-46.6 完全削除の記録を監査ログ画面で種別の名前で表示できる
+   */
+  it('完全削除の記録の種別と表示名を持つ', () => {
+    expect(PROJECT_PURGE_AUDIT_ACTIONS).toEqual(['PROJECT_PURGED']);
+    expect(PROJECT_PURGE_AUDIT_ACTION_LABELS.PROJECT_PURGED).toBe('プロジェクトの完全削除');
   });
 });
 
