@@ -8,8 +8,9 @@
  * - 9.1: ユーザーがプロジェクト詳細画面で「削除」ボタンをクリックする、削除確認ダイアログを表示する
  * - 9.3: プロジェクトが正常に削除される、「プロジェクトを削除しました」という成功メッセージを表示する
  * - 9.4: ユーザーが削除確認ダイアログで「キャンセル」を選択する、ダイアログを閉じ、詳細画面に留まる
- * - 9.5: プロジェクトに関連データ（現場調査、見積書等）が存在する、「関連データがあります。本当に削除しますか？」という警告メッセージを表示
- * - 9.6: ユーザーが関連データ警告ダイアログで「削除する」を選択する、関連データを含めてプロジェクトを論理削除する
+ * - 9.5: 論理削除されていない関連データがあるとき、「関連データがあります。本当に削除しますか？」と種類ごとの件数を出し、「削除する」「キャンセル」を出す
+ * - 9.6: ユーザーが関連データ警告ダイアログで「削除する」を選択する、プロジェクトを論理削除する
+ * - 46.3, 46.4: 元に戻す手段を出さず、関連データと共に90日後に完全に削除され元に戻せない旨を出す
  * - 20.1: すべての操作をキーボードのみで実行可能にする
  */
 
@@ -17,6 +18,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DeleteConfirmationDialog from '../../../components/projects/DeleteConfirmationDialog';
+import type { RelatedCounts } from '../../../components/projects/DeleteConfirmationDialog';
+
+// 保持期間の文（Req 46.4）
+const RETENTION_NOTICE =
+  '削除したプロジェクトは、関連データと共に90日後に完全に削除され、元に戻せません。';
+
+// すべての種類が 0 件の件数
+const zeroCounts: RelatedCounts = {
+  siteSurveys: 0,
+  quantityTables: 0,
+  itemizedStatements: 0,
+  estimateRequests: 0,
+  receivedQuotations: 0,
+  estimates: 0,
+  contracts: 0,
+  schedules: 0,
+  executionBudgets: 0,
+  constructionPhotos: 0,
+};
 
 describe('DeleteConfirmationDialog', () => {
   const mockOnConfirm = vi.fn<() => void>();
@@ -91,6 +111,13 @@ describe('DeleteConfirmationDialog', () => {
 
       expect(screen.queryByText(/関連データがあります/)).not.toBeInTheDocument();
     });
+
+    it('確定のボタンは「削除」になる', () => {
+      render(<DeleteConfirmationDialog {...defaultProps} hasRelatedData={false} />);
+
+      expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除する' })).not.toBeInTheDocument();
+    });
   });
 
   describe('関連データありの場合（Req 9.5）', () => {
@@ -100,12 +127,28 @@ describe('DeleteConfirmationDialog', () => {
       expect(screen.getByText(/関連データがあります/)).toBeInTheDocument();
     });
 
+    it('9.5 の逐語の警告が表示される', () => {
+      render(<DeleteConfirmationDialog {...defaultProps} hasRelatedData={true} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '関連データがあります。本当に削除しますか？'
+      );
+    });
+
+    it('「削除する」「キャンセル」の選択肢が出る', () => {
+      render(<DeleteConfirmationDialog {...defaultProps} hasRelatedData={true} />);
+
+      expect(screen.getByRole('button', { name: '削除する' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
     it('関連データの件数が表示される', () => {
       render(
         <DeleteConfirmationDialog
           {...defaultProps}
           hasRelatedData={true}
-          relatedDataCounts={{ surveys: 3, estimates: 2 }}
+          relatedDataCounts={{ ...zeroCounts, siteSurveys: 3, estimates: 2 }}
         />
       );
 
@@ -113,17 +156,53 @@ describe('DeleteConfirmationDialog', () => {
       expect(screen.getByText(/見積書: 2件/)).toBeInTheDocument();
     });
 
-    it('件数が0の場合でも表示される', () => {
+    it('件数が0の種類は並べない', () => {
       render(
         <DeleteConfirmationDialog
           {...defaultProps}
           hasRelatedData={true}
-          relatedDataCounts={{ surveys: 0, estimates: 0 }}
+          relatedDataCounts={{ ...zeroCounts, siteSurveys: 0, estimates: 2 }}
         />
       );
 
-      expect(screen.getByText(/現場調査: 0件/)).toBeInTheDocument();
-      expect(screen.getByText(/見積書: 0件/)).toBeInTheDocument();
+      expect(screen.queryByText(/現場調査:/)).not.toBeInTheDocument();
+      expect(screen.getByText(/見積書: 2件/)).toBeInTheDocument();
+      expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    });
+
+    it('すべての種類を 9.5 の順に並べる', () => {
+      render(
+        <DeleteConfirmationDialog
+          {...defaultProps}
+          hasRelatedData={true}
+          relatedDataCounts={{
+            siteSurveys: 1,
+            quantityTables: 2,
+            itemizedStatements: 3,
+            estimateRequests: 4,
+            receivedQuotations: 5,
+            estimates: 6,
+            contracts: 7,
+            schedules: 8,
+            executionBudgets: 9,
+            constructionPhotos: 10,
+          }}
+        />
+      );
+
+      const items = screen.getAllByRole('listitem').map((item) => item.textContent);
+      expect(items).toEqual([
+        '現場調査: 1件',
+        '数量表: 2件',
+        '内訳書: 3件',
+        '見積依頼: 4件',
+        '受領見積書: 5件',
+        '見積書: 6件',
+        '契約書: 7件',
+        '工程表: 8件',
+        '実行予算: 9件',
+        '工事写真: 10件',
+      ]);
     });
 
     it('relatedDataCountsがない場合、件数表示なしで警告のみ表示', () => {
@@ -131,6 +210,26 @@ describe('DeleteConfirmationDialog', () => {
 
       expect(screen.getByText(/関連データがあります/)).toBeInTheDocument();
       expect(screen.queryByText(/現場調査:/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('保持期間の文（Req 46.3, 46.4）', () => {
+    it('関連データなしでも保持期間の文が表示される', () => {
+      render(<DeleteConfirmationDialog {...defaultProps} hasRelatedData={false} />);
+
+      expect(screen.getByText(RETENTION_NOTICE)).toBeInTheDocument();
+    });
+
+    it('関連データありでも保持期間の文が表示される', () => {
+      render(
+        <DeleteConfirmationDialog
+          {...defaultProps}
+          hasRelatedData={true}
+          relatedDataCounts={{ ...zeroCounts, siteSurveys: 1 }}
+        />
+      );
+
+      expect(screen.getByText(RETENTION_NOTICE)).toBeInTheDocument();
     });
   });
 
