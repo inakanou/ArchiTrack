@@ -1938,7 +1938,7 @@
   - _Requirements: 9.5_
   - _Boundary: ProjectService_
 
-- [ ] 80.2 関連データの件数の経路を足す
+- [x] 80.2 関連データの件数の経路を足す
   - design.md の同章の ProjectsRoutes のとおり、削除の権限と閲覧範囲の判定を経る経路で件数を返す。経路の注釈を足したら `npm --prefix backend run docs:generate` で OpenAPI の生成物を作り直す
   - 経路の単体（既存の projects の経路の単体のファイルに足す）で、権限・閲覧範囲外の 404・応答の形を主張する。改修の前に赤になることを先に示す
   - 単体で、権限のある利用者に種類ごとの件数が返り、範囲外は 404 になる状態になる
@@ -2038,3 +2038,6 @@
 
 - frontend の単体は `npm --prefix frontend run test -- <file>` で流す。`npm --prefix frontend exec vitest run` は作業ディレクトリが根になり、frontend の設定を読まない（77.3）
 - 詳細画面は読み込み中に画面全体の回転表示を返すため、セクションの骨組みの分岐は実行時に通らない。兄弟のセクションと同じく、骨組みは部品の単体と、E2E では回転表示の後に骨組みが残らないことの間接の確認で被覆する（40.8 の E2E の先例。82.1 も同じ形にする）（77.5）
+- 関連データの件数の型 RelatedCounts の鍵は siteSurveys, quantityTables, itemizedStatements, estimateRequests, receivedQuotations, estimates, contracts, schedules, executionBudgets, constructionPhotos（80.1。80.3 の画面の型はこれに揃える）
+- `@swagger` の注釈の中に「Task N: …」のような `key: value` の行を書くと、OpenAPI の生成物の paths に不正な鍵が入る。作業の記録は注釈の外の `//` に書く。既存の `"Task 46.3"` の鍵は未対処（80.2）
+- 関連データの件数の経路は `{ counts }` で包まず RelatedCounts をそのまま返す（80.2。80.4 の画面の型はこれに合わせる）

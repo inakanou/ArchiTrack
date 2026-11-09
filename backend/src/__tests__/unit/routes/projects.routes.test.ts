@@ -802,6 +802,52 @@ describe('Projects Routes', () => {
     });
   });
 
+  // Task 80.2: 削除の前に示す関連データの種類ごとの件数（9.5、design D5）
+  describe('GET /api/projects/:id/related-counts', () => {
+    const relatedCounts = {
+      siteSurveys: 2,
+      quantityTables: 1,
+      itemizedStatements: 0,
+      estimateRequests: 3,
+      receivedQuotations: 1,
+      estimates: 0,
+      contracts: 1,
+      schedules: 0,
+      executionBudgets: 1,
+      constructionPhotos: 12,
+    };
+
+    it('種類ごとの件数をそのままの形で返す', async () => {
+      mockProjectService.getRelatedCounts.mockResolvedValue(relatedCounts);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/related-counts`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(relatedCounts);
+      expect(mockProjectService.getRelatedCounts).toHaveBeenCalledWith(TEST_PROJECT_ID);
+      // 詳細の取得と取り違えていないこと
+      expect(mockProjectService.getProject).not.toHaveBeenCalled();
+    });
+
+    it('ID の形式が誤っていれば 400 になり、件数を求めない', async () => {
+      const response = await request(app).get('/api/projects/invalid-id/related-counts');
+
+      expect(response.status).toBe(400);
+      expect(mockProjectService.getRelatedCounts).not.toHaveBeenCalled();
+    });
+
+    it('案件が無い（論理削除済みを含む）ときは 404 になる', async () => {
+      mockProjectService.getRelatedCounts.mockRejectedValue(
+        new ProjectNotFoundError(TEST_PROJECT_ID)
+      );
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/related-counts`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+    });
+  });
+
   describe('Authentication and Authorization', () => {
     // Note: These tests verify middleware is applied
     // Actual middleware behavior is tested in middleware tests
@@ -1485,6 +1531,7 @@ describe('Projects Routes', () => {
       },
       { name: '削除', method: 'delete', path: '' },
       { name: '状態変更', method: 'patch', path: '/status', body: { status: 'SURVEYING' } },
+      { name: '関連データの件数', method: 'get', path: '/related-counts' },
     ];
 
     for (const route of idRoutes) {
@@ -1507,6 +1554,7 @@ describe('Projects Routes', () => {
         expect(mockProjectService.getProject).not.toHaveBeenCalled();
         expect(mockProjectService.updateProject).not.toHaveBeenCalled();
         expect(mockProjectService.deleteProject).not.toHaveBeenCalled();
+        expect(mockProjectService.getRelatedCounts).not.toHaveBeenCalled();
         expect(mockProjectStatusService.getStatusHistory).not.toHaveBeenCalled();
         expect(mockProjectStatusService.transitionStatus).not.toHaveBeenCalled();
       });

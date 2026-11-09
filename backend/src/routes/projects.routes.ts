@@ -16,10 +16,11 @@
  * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
  * - 29.1-29.6: プロジェクト詳細一括取得API（detail-summary）
  * - 43.1, 43.4, 43.5: detail-summary の受領見積書のデータ（見積依頼の閲覧権限のある利用者だけ。タスク77.2）
+ * - 9.5: GET /api/projects/:id/related-counts 削除の確認に示す関連データの件数（削除の権限。タスク80.2）
  *
  * 案件の閲覧範囲（user-authentication 要件39.2・39.3、タスク52.3）:
  * - 一覧・検索・状態ごとの件数は、ProjectScopeService の絞り込み条件で範囲内の案件に絞る
- * - ID 指定の要求（詳細・詳細の集計・更新・削除・状態変更・状態の履歴）は、authenticate・requirePermission・
+ * - ID 指定の要求（詳細・詳細の集計・更新・削除・関連データの件数・状態変更・状態の履歴）は、authenticate・requirePermission・
  *   ID の形式の検査の後に requireProjectScope を置き、範囲外と不在を同じ汎用の 404（NOT_FOUND）にする
  * - 作成（POST /）は案件 ID を持たないため判定しない
  */
@@ -950,6 +951,116 @@ router.delete(
       logger.info({ userId: actorId, projectId: id }, 'Project deleted successfully');
 
       res.status(204).send();
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) {
+        res.status(404).json({
+          type: error.problemType,
+          title: 'Project Not Found',
+          status: 404,
+          detail: error.message,
+          code: error.code,
+          projectId: error.projectId,
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/projects/{id}/related-counts:
+ *   get:
+ *     summary: プロジェクトの関連データの件数取得
+ *     description: |
+ *       削除の確認のため、論理削除されていない関連データの種類ごとの件数を返す。
+ *       削除の権限（project:delete）を求め、閲覧範囲外と不在は同じ 404 にする。
+ *     tags:
+ *       - Projects
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *     responses:
+ *       200:
+ *         description: 関連データの種類ごとの件数
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - siteSurveys
+ *                 - quantityTables
+ *                 - itemizedStatements
+ *                 - estimateRequests
+ *                 - receivedQuotations
+ *                 - estimates
+ *                 - contracts
+ *                 - schedules
+ *                 - executionBudgets
+ *                 - constructionPhotos
+ *               properties:
+ *                 siteSurveys:
+ *                   type: integer
+ *                   description: 現場調査の件数
+ *                 quantityTables:
+ *                   type: integer
+ *                   description: 数量表の件数
+ *                 itemizedStatements:
+ *                   type: integer
+ *                   description: 内訳書の件数
+ *                 estimateRequests:
+ *                   type: integer
+ *                   description: 見積依頼の件数
+ *                 receivedQuotations:
+ *                   type: integer
+ *                   description: 受領見積書の件数
+ *                 estimates:
+ *                   type: integer
+ *                   description: 見積書の件数
+ *                 contracts:
+ *                   type: integer
+ *                   description: 契約書の件数
+ *                 schedules:
+ *                   type: integer
+ *                   description: 工程表の件数
+ *                 executionBudgets:
+ *                   type: integer
+ *                   description: 実行予算の件数
+ *                 constructionPhotos:
+ *                   type: integer
+ *                   description: 工事写真の件数（論理削除されていないアルバムのもの）
+ *       400:
+ *         description: 無効なプロジェクトID形式
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
+ */
+// Task 80.2 削除の確認に示す関連データの件数（要件 9.5、design D5）
+router.get(
+  '/:id/related-counts',
+  authenticate,
+  requirePermission('project:delete'),
+  validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+
+      // 削除できる利用者には全種類の件数をそのまま返す
+      const counts = await projectService.getRelatedCounts(id);
+
+      res.json(counts);
     } catch (error) {
       if (error instanceof ProjectNotFoundError) {
         res.status(404).json({

@@ -6140,6 +6140,110 @@
         }
       }
     },
+    "/api/projects/{id}/related-counts": {
+      "get": {
+        "summary": "プロジェクトの関連データの件数取得",
+        "description": "削除の確認のため、論理削除されていない関連データの種類ごとの件数を返す。\n削除の権限（project:delete）を求め、閲覧範囲外と不在は同じ 404 にする。\n",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "関連データの種類ごとの件数",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "siteSurveys",
+                    "quantityTables",
+                    "itemizedStatements",
+                    "estimateRequests",
+                    "receivedQuotations",
+                    "estimates",
+                    "contracts",
+                    "schedules",
+                    "executionBudgets",
+                    "constructionPhotos"
+                  ],
+                  "properties": {
+                    "siteSurveys": {
+                      "type": "integer",
+                      "description": "現場調査の件数"
+                    },
+                    "quantityTables": {
+                      "type": "integer",
+                      "description": "数量表の件数"
+                    },
+                    "itemizedStatements": {
+                      "type": "integer",
+                      "description": "内訳書の件数"
+                    },
+                    "estimateRequests": {
+                      "type": "integer",
+                      "description": "見積依頼の件数"
+                    },
+                    "receivedQuotations": {
+                      "type": "integer",
+                      "description": "受領見積書の件数"
+                    },
+                    "estimates": {
+                      "type": "integer",
+                      "description": "見積書の件数"
+                    },
+                    "contracts": {
+                      "type": "integer",
+                      "description": "契約書の件数"
+                    },
+                    "schedules": {
+                      "type": "integer",
+                      "description": "工程表の件数"
+                    },
+                    "executionBudgets": {
+                      "type": "integer",
+                      "description": "実行予算の件数"
+                    },
+                    "constructionPhotos": {
+                      "type": "integer",
+                      "description": "工事写真の件数（論理削除されていないアルバムのもの）"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "無効なプロジェクトID形式"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/status": {
       "patch": {
         "summary": "プロジェクトステータス変更",
