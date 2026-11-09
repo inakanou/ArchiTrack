@@ -1874,7 +1874,7 @@
   - _Requirements: 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9, 42.10, 42.11, 42.12, 42.13, 42.14_
   - _Boundary: ReceivedQuotationSectionCard_
 
-- [ ] 77.4 (P) 案件の受領見積書の一覧画面が、遷移の状態を受けて登録フォームを開く
+- [x] 77.4 (P) 案件の受領見積書の一覧画面が、遷移の状態を受けて登録フォームを開く
   - design.md の同章の ProjectReceivedQuotationListPage のとおり、遷移の状態を受けたら一覧の読み込みの成功の後に登録フォームを開き、状態を消して読み込み直しで開き直さないようにする
   - 単体（`frontend/src/__tests__/pages/ProjectReceivedQuotationListPage.test.tsx`）で、状態があると開き、無いと開かず、読み込みの失敗（404 など）では開かないことを主張する。改修の前に赤になることを先に示す
   - 単体で、遷移の状態で登録フォームが開いた状態になる

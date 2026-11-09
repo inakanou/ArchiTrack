@@ -13,8 +13,8 @@
  *   フォームを閉じた後に一覧の上の `role="status"` へ出す
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { getProject } from '../api/projects';
 import {
   getReceivedQuotationsByProject,
@@ -32,6 +32,7 @@ import type {
 import { ApiError } from '../api/client';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { ReceivedQuotationForm } from '../components/estimate-requests';
+import type { ReceivedQuotationListNavigationState } from '../components/projects/ReceivedQuotationSectionCard';
 import { ReceivedQuotationLedgerIndicators } from '../components/estimate-requests/ReceivedQuotationLedgerIndicators';
 import {
   QUOTATION_LIST_REFRESH_FAILED_MESSAGE,
@@ -298,6 +299,15 @@ function formatNetAmount(amount: number | null): string {
   return amount === null ? '-' : `${amount.toLocaleString('ja-JP')}円`;
 }
 
+/** プロジェクト詳細の新規登録から来た遷移の状態か（project-management の要件 42.11） */
+function isOpenRegisterFormState(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    (state as Partial<ReceivedQuotationListNavigationState>).openRegisterForm === true
+  );
+}
+
 /** 権限の無い操作（403）か */
 function isForbiddenError(error: unknown): boolean {
   return error instanceof ApiError && error.statusCode === 403;
@@ -426,6 +436,10 @@ function QuotationRow({ quotation, onEdit, onDelete }: QuotationRowProps) {
  */
 export default function ProjectReceivedQuotationListPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // 遷移の状態で登録フォームを開くか（要件 42.11）。読み込みの成功の後に一度だけ使う
+  const pendingOpenRegisterFormRef = useRef(isOpenRegisterFormState(location.state));
 
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
   const [projectName, setProjectName] = useState<string>('');
@@ -472,6 +486,15 @@ export default function ProjectReceivedQuotationListPage() {
       if (project?.name) {
         setProjectName(project.name);
       }
+      // 遷移の状態を受けていれば登録フォームを開き、状態を消して読み込み直しで開き直さない（要件 42.11）
+      if (pendingOpenRegisterFormRef.current) {
+        pendingOpenRegisterFormRef.current = false;
+        setEditingQuotation(null);
+        setExistingFilePreviewUrl(null);
+        setShowForm(true);
+        // 今の画面の履歴を、状態の無いものに置き換える
+        navigate('.', { replace: true, state: null });
+      }
     } catch (err) {
       if (isNotFoundError(err)) {
         // 見つからない旨は ResourceNotFound が告げる（要件 43.13）
@@ -486,7 +509,7 @@ export default function ProjectReceivedQuotationListPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, navigate]);
 
   useEffect(() => {
     fetchData();
