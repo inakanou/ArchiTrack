@@ -15,6 +15,7 @@
  * - 10.14: 差し戻し遷移時の理由必須バリデーション
  * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
  * - 29.1-29.6: プロジェクト詳細一括取得API（detail-summary）
+ * - 43.1, 43.4, 43.5: detail-summary の受領見積書のデータ（見積依頼の閲覧権限のある利用者だけ。タスク77.2）
  *
  * 案件の閲覧範囲（user-authentication 要件39.2・39.3、タスク52.3）:
  * - 一覧・検索・状態ごとの件数は、ProjectScopeService の絞り込み条件で範囲内の案件に絞る
@@ -41,6 +42,11 @@ import {
   type ConstructionPhotoAlbumSummaryInfo,
 } from '../services/construction-photo-summary.service.js';
 import { SIGNED_URL_EXPIRES_IN as CONSTRUCTION_PHOTO_SIGNED_URL_EXPIRES_IN } from '../services/construction-photo-image.service.js';
+import {
+  ReceivedQuotationService,
+  type ReceivedQuotationSectionSummary,
+} from '../services/received-quotation.service.js';
+import { getSharedRBACService } from '../services/rbac.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -101,6 +107,44 @@ const contractService = new ContractService({ prisma });
 const scheduleService = new ScheduleService({ prisma });
 const executionBudgetService = new ExecutionBudgetService({ prisma });
 const constructionPhotoSummaryService = new ConstructionPhotoSummaryService({ prisma });
+
+let receivedQuotationService: ReceivedQuotationService | null = null;
+
+/** 受領見積書のサービス（ストレージを要するため初めて使うときに作る。未設定なら失敗にする） */
+function getReceivedQuotationService(): ReceivedQuotationService {
+  if (receivedQuotationService) {
+    return receivedQuotationService;
+  }
+  const storageProvider = getStorageProvider();
+  if (!storageProvider) {
+    throw new Error('Storage provider is not configured.');
+  }
+  receivedQuotationService = new ReceivedQuotationService({
+    prisma,
+    storageProvider,
+    auditLogService,
+  });
+  return receivedQuotationService;
+}
+
+/** 受領見積書のデータの取得の失敗時の既定値（43.5） */
+const EMPTY_RECEIVED_QUOTATIONS: ReceivedQuotationSectionSummary = {
+  totalCount: 0,
+  latestReceivedQuotations: [],
+};
+
+/**
+ * 見積依頼の閲覧権限の有無（43.1・43.4）。
+ * 判定が失敗したときは受領見積書のデータを出さない側に倒す
+ */
+async function canReadEstimateRequests(userId: string): Promise<boolean> {
+  try {
+    return await getSharedRBACService().hasPermission(userId, 'estimate_request:read');
+  } catch (error) {
+    logger.warn({ userId, error }, 'Failed to check estimate_request:read for detail summary');
+    return false;
+  }
+}
 
 /** ID 指定の要求の閲覧範囲の判定（範囲外と不在は同じ汎用の 404） */
 const requireProjectInScope = requireProjectScope(projectIdFromParam('id'));
@@ -329,8 +373,13 @@ router.get(
  *
  * 個別セクションの取得エラー時はデフォルト値にフォールバックし、
  * 他セクションの正常返却を妨げない。
+ *
+ * includeReceivedQuotations が偽なら受領見積書の鍵を含めない（43.4。タスク77.2）
  */
-async function getProjectSections(projectId: string) {
+async function getProjectSections(
+  projectId: string,
+  { includeReceivedQuotations }: { includeReceivedQuotations: boolean }
+) {
   const results = await Promise.allSettled([
     siteSurveyService.findLatestByProjectId(projectId),
     quantityTableService.findLatestByProjectId(projectId),
@@ -341,7 +390,18 @@ async function getProjectSections(projectId: string) {
     scheduleService.findLatestByProjectId(projectId),
     executionBudgetService.getSummaryByProjectId(projectId),
     constructionPhotoSummaryService.findLatestByProjectId(projectId),
+    // 受領見積書は権限のあるときだけ取る（組み立ての例外も失敗として扱う）
+    includeReceivedQuotations
+      ? Promise.resolve().then(() => getReceivedQuotationService().findLatestByProjectId(projectId))
+      : Promise.resolve(null),
   ]);
+
+  if (results[9].status === 'rejected') {
+    logger.warn(
+      { projectId, error: results[9].reason },
+      'Failed to fetch received quotations summary'
+    );
+  }
 
   // 現場調査セクションの取得結果
   const siteSurveysResult =
@@ -436,6 +496,11 @@ async function getProjectSections(projectId: string) {
       totalCount: constructionPhotosResult.totalCount,
       latestAlbums: enrichedAlbums,
     },
+    // 権限の無い利用者には鍵ごと含めない（43.4）。失敗は 0 件・直近なし（43.5）
+    ...(includeReceivedQuotations && {
+      receivedQuotations:
+        (results[9].status === 'fulfilled' && results[9].value) || EMPTY_RECEIVED_QUOTATIONS,
+    }),
   };
 }
 
@@ -473,6 +538,35 @@ async function getProjectSections(projectId: string) {
  *                     type: object
  *                 sections:
  *                   type: object
+ *                   properties:
+ *                     receivedQuotations:
+ *                       type: object
+ *                       description: 受領見積書のデータ。見積依頼の閲覧権限（estimate_request:read）が無い利用者の応答には含めない。取得の失敗時は 0 件・直近なし
+ *                       properties:
+ *                         totalCount:
+ *                           type: integer
+ *                         latestReceivedQuotations:
+ *                           type: array
+ *                           description: 登録日時の新しい順の直近 3 件
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                               vendorName:
+ *                                 type: string
+ *                               submittedAt:
+ *                                 type: string
+ *                                 format: date-time
+ *                               netAmount:
+ *                                 type: number
+ *                                 nullable: true
+ *                               createdAt:
+ *                                 type: string
+ *                                 format: date-time
  *       400:
  *         description: 無効なプロジェクトID形式
  *       401:
@@ -509,8 +603,11 @@ router.get(
         transitionTypeLabel: TRANSITION_TYPE_LABELS[h.transitionType as TransitionType],
       }));
 
-      // 5セクションサマリーを並列取得（個別エラーはフォールバック）
-      const sections = await getProjectSections(id);
+      // 受領見積書は見積依頼の閲覧権限のある利用者だけに含める（43.1・43.4）
+      const includeReceivedQuotations = await canReadEstimateRequests(req.user!.userId);
+
+      // 各セクションサマリーを並列取得（個別エラーはフォールバック）
+      const sections = await getProjectSections(id, { includeReceivedQuotations });
 
       logger.debug({ userId: req.user?.userId, projectId: id }, 'Project detail summary retrieved');
 

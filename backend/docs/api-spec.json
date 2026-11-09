@@ -5851,7 +5851,49 @@
                       }
                     },
                     "sections": {
-                      "type": "object"
+                      "type": "object",
+                      "properties": {
+                        "receivedQuotations": {
+                          "type": "object",
+                          "description": "受領見積書のデータ。見積依頼の閲覧権限（estimate_request:read）が無い利用者の応答には含めない。取得の失敗時は 0 件・直近なし",
+                          "properties": {
+                            "totalCount": {
+                              "type": "integer"
+                            },
+                            "latestReceivedQuotations": {
+                              "type": "array",
+                              "description": "登録日時の新しい順の直近 3 件",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "vendorName": {
+                                    "type": "string"
+                                  },
+                                  "submittedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "netAmount": {
+                                    "type": "number",
+                                    "nullable": true
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }

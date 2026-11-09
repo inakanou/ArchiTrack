@@ -1858,7 +1858,7 @@
   - _Requirements: 42.4, 42.5, 42.6, 43.2, 43.3_
   - _Boundary: ReceivedQuotationService_
 
-- [ ] 77.2 detail-summary の応答に、閲覧権限のある利用者にだけ受領見積書のデータを含める
+- [x] 77.2 detail-summary の応答に、閲覧権限のある利用者にだけ受領見積書のデータを含める
   - design.md の同章の ProjectsRoutes のとおり、ハンドラーが見積依頼の閲覧権限を判定して一括取得に渡し、権限が無ければ応答に受領見積書の鍵を含めない。取得の失敗は 0 件・直近なしにして他のセクションを返す
   - 経路の注釈を変えたら OpenAPI の生成物（`backend/docs/api-spec.json`）を `npm --prefix backend run docs:generate` で作り直す
   - 単体（`backend/src/__tests__/unit/routes/projects.detail-summary.routes.test.ts`）で、権限の有無による鍵の有無、取得の失敗の既定値、他のセクションが影響を受けないことを主張する。改修の前に赤になることを先に示す
