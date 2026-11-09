@@ -36,6 +36,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
 import type {
   ContractSectionSummary,
+  ReceivedQuotationSectionSummary,
   ScheduleSectionSummary,
   ProjectConstructionPhotoSummary,
 } from '../api/projects';
@@ -61,6 +62,8 @@ import { QuantityTableSectionCard } from '../components/projects/QuantityTableSe
 import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
 import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
+import { ReceivedQuotationSectionCard } from '../components/projects/ReceivedQuotationSectionCard';
+import { usePermission } from '../hooks/usePermission';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
 import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
 import { ConstructionPhotoSectionCard } from '../components/projects/ConstructionPhotoSectionCard';
@@ -402,6 +405,10 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  // Task 77.5: 受領見積書セクションの骨組みと新規登録の出し分け（design D1）
+  const { hasPermission } = usePermission();
+  const canReadEstimateRequest = hasPermission('estimate_request:read');
+  const canRegisterReceivedQuotation = hasPermission('estimate_request:update');
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -414,6 +421,9 @@ export default function ProjectDetailPage() {
   const [estimateRequestSummary, setEstimateRequestSummary] =
     useState<ProjectEstimateRequestSummary | null>(null);
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
+  // 権限が無いと応答に鍵が無いので null のまま（design D2）
+  const [receivedQuotationSummary, setReceivedQuotationSummary] =
+    useState<ReceivedQuotationSectionSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
   const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
   const [constructionPhotoSummary, setConstructionPhotoSummary] =
@@ -454,6 +464,8 @@ export default function ProjectDetailPage() {
       setItemizedStatementSummary(data.sections.itemizedStatements);
       setEstimateRequestSummary(data.sections.estimateRequests);
       setEstimateSummary(data.sections.estimates);
+      // Task 77.5: 受領見積書（鍵が無ければ描かない。Requirements 42.2）
+      setReceivedQuotationSummary(data.sections.receivedQuotations ?? null);
 
       // Task 59.2: detail-summary APIから契約書サマリーを取得（個別API呼び出しを置換）
       // Requirements: 37.1, 37.2
@@ -570,6 +582,7 @@ export default function ProjectDetailPage() {
         setItemizedStatementSummary(data.sections.itemizedStatements);
         setEstimateRequestSummary(data.sections.estimateRequests);
         setEstimateSummary(data.sections.estimates);
+        setReceivedQuotationSummary(data.sections.receivedQuotations ?? null);
         setContractSummary(data.sections.contracts);
         setScheduleSummary(data.sections.schedules);
         setConstructionPhotoSummary(data.sections.constructionPhotos);
@@ -784,6 +797,18 @@ export default function ProjectDetailPage() {
         latestRequests={estimateRequestSummary?.latestRequests ?? []}
         isLoading={isLoading}
       />
+
+      {/* 受領見積書セクション (Task 77.5, Requirements 42.1, 42.2, 42.13, 28.1) */}
+      {/* 見積依頼と見積書の間に置く。応答に鍵が無ければ描かず、ロード中は閲覧権限があるときだけ骨組みを出す */}
+      {(receivedQuotationSummary || (isLoading && canReadEstimateRequest)) && (
+        <ReceivedQuotationSectionCard
+          projectId={project.id}
+          totalCount={receivedQuotationSummary?.totalCount ?? 0}
+          latestReceivedQuotations={receivedQuotationSummary?.latestReceivedQuotations ?? []}
+          isLoading={isLoading}
+          canRegister={canRegisterReceivedQuotation}
+        />
+      )}
 
       {/* 見積書セクション (Task 19.3, Requirements 16.1, 16.3, 16.4, 16.13) */}
       <EstimateSectionCard

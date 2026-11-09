@@ -38,10 +38,19 @@ import { ApiError } from '../../api/client';
 vi.mock('../../api/projects');
 
 // useAuthフックのモック
+// Task 77.5: 受領見積書セクションの出し分けのため権限を持たせる（テストごとに差し替えられる）
+const DEFAULT_PERMISSIONS = ['estimate_request:read', 'estimate_request:update'];
+const mockAuthState = vi.hoisted(() => ({ permissions: [] as string[] }));
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
-    user: { id: 'user-1', displayName: 'テストユーザー' },
+    user: {
+      id: 'user-1',
+      displayName: 'テストユーザー',
+      permissions: mockAuthState.permissions,
+    },
     isAuthenticated: true,
+    isLoading: false,
+    isInitialized: true,
   }),
 }));
 
@@ -140,6 +149,8 @@ function renderWithRouter(projectId: string = 'project-1') {
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Task 77.5: 既定は見積依頼の閲覧・更新の権限を持つ利用者
+    mockAuthState.permissions = [...DEFAULT_PERMISSIONS];
     // Task 49.2: getProjectDetailSummaryの一括取得モック（デフォルト）
     vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
   });
@@ -2149,6 +2160,139 @@ describe('ProjectDetailPage', () => {
       expect(screen.getByText('新規契約')).toBeInTheDocument();
       // getProjectDetailSummaryのみ呼ばれ、個別のgetContracts APIは呼ばれない
       expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(1);
+    });
+  });
+  // ==========================================================================
+  // Task 77.5: 受領見積書セクション（Requirements 42.1, 42.2, 42.13, 28.1）
+  // ==========================================================================
+  describe('受領見積書セクション（Task 77.5, Requirements 42.1, 42.2, 42.13, 28.1）', () => {
+    const receivedQuotations = {
+      totalCount: 3,
+      latestReceivedQuotations: [
+        {
+          id: 'rq-1',
+          name: '内装工事見積',
+          vendorName: '山田工務店',
+          submittedAt: '2026-10-01T00:00:00.000Z',
+          netAmount: 1200000,
+          createdAt: '2026-10-02T00:00:00.000Z',
+        },
+      ],
+    };
+
+    it('権限のある利用者には見積依頼セクションの直後、見積書セクションの直前に出る (42.1, 28.1)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(
+        within(section).getByRole('heading', { level: 3, name: '受領見積書' })
+      ).toBeInTheDocument();
+      expect(within(section).getByText('全3件')).toBeInTheDocument();
+      expect(within(section).getByTestId('received-quotation-card-rq-1')).toBeInTheDocument();
+
+      // 見積依頼 → 受領見積書 → 見積書 の順に隣り合う
+      const estimateRequestSection = screen.getByTestId('estimate-request-section');
+      const estimateSection = screen.getByTestId('estimate-section');
+      expect(estimateRequestSection.nextElementSibling).toBe(section);
+      expect(section.nextElementSibling).toBe(estimateSection);
+    });
+
+    it('更新の権限があれば「新規登録」を出す (D1)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(
+        within(section).getByRole('link', { name: '受領見積書を新規登録' })
+      ).toBeInTheDocument();
+    });
+
+    it('閲覧の権限だけで更新の権限が無ければ「新規登録」を出さない (D1)', async () => {
+      mockAuthState.permissions = ['estimate_request:read', 'estimate_request:create'];
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(within(section).getByText('全3件')).toBeInTheDocument();
+      expect(
+        within(section).queryByRole('link', { name: '受領見積書を新規登録' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('権限の無い利用者には出ず、見積書セクションが見積依頼セクションの直後に出る (42.2, 28.1)', async () => {
+      mockAuthState.permissions = [];
+      // 権限が無いとき応答に鍵が無い（D2）
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('received-quotation-section')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: '受領見積書' })).not.toBeInTheDocument();
+      const estimateRequestSection = screen.getByTestId('estimate-request-section');
+      expect(estimateRequestSection.nextElementSibling).toBe(
+        screen.getByTestId('estimate-section')
+      );
+    });
+
+    it('応答に受領見積書の鍵が無ければ、画面の権限があっても描かない (42.2, D2)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('received-quotation-section')).not.toBeInTheDocument();
+    });
+
+    it('状態遷移の後の取り直しで受領見積書のデータを更新する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.transitionStatus).mockResolvedValue({
+        ...mockProject,
+        status: 'SURVEYING',
+        statusLabel: '調査中',
+      });
+      vi.mocked(projectsApi.getProjectDetailSummary)
+        .mockResolvedValueOnce(
+          createMockSummary({
+            sections: { receivedQuotations: { totalCount: 0, latestReceivedQuotations: [] } },
+          })
+        )
+        .mockResolvedValueOnce(
+          createMockSummary({
+            project: { status: 'SURVEYING' as const, statusLabel: '調査中' },
+            sections: { receivedQuotations },
+          })
+        );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(within(section).getByText('全0件')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /調査中/ }));
+
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId('received-quotation-section')).getByText('全3件')
+        ).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('received-quotation-card-rq-1')).toBeInTheDocument();
     });
   });
 });
