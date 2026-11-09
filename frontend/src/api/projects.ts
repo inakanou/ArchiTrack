@@ -95,6 +95,39 @@ export interface ScheduleSectionSummary {
 }
 
 // ============================================================================
+// 受領見積書セクションサマリー型（detail-summary API用）
+// ============================================================================
+
+/**
+ * 受領見積書セクションの直近の一件
+ *
+ * Task 77.3: 受領見積書セクション
+ * Requirements: 42.5, 42.6, 43.2
+ */
+export interface ReceivedQuotationSectionItem {
+  id: string;
+  name: string;
+  vendorName: string;
+  /** 提出日（ISO 8601） */
+  submittedAt: string;
+  /** NET金額（未入力は null） */
+  netAmount: number | null;
+  /** 登録日時（ISO 8601） */
+  createdAt: string;
+}
+
+/**
+ * 受領見積書セクションサマリー
+ *
+ * Task 77.3: 受領見積書セクション
+ * Requirements: 42.4, 42.5, 43.2
+ */
+export interface ReceivedQuotationSectionSummary {
+  totalCount: number;
+  latestReceivedQuotations: ReceivedQuotationSectionItem[];
+}
+
+// ============================================================================
 // 工事写真セクションサマリー型（detail-summary API用）
 // ============================================================================
 
@@ -480,6 +513,8 @@ export interface ProjectDetailSummary {
     executionBudget: ExecutionBudgetSectionInfo | null;
     /** 工事写真セクションサマリー（Task 7.2, construction-photo, Requirements 2.3） */
     constructionPhotos: ProjectConstructionPhotoSummary;
+    /** 受領見積書セクションサマリー（見積依頼の閲覧権限が無いときは無い。Requirements 42.2, 43.1, 43.4） */
+    receivedQuotations?: ReceivedQuotationSectionSummary;
   };
 }
 

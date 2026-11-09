@@ -1866,7 +1866,7 @@
   - _Requirements: 43.1, 43.4, 43.5_
   - _Boundary: ProjectsRoutes_
 
-- [ ] 77.3 (P) 受領見積書セクションの部品を作る
+- [x] 77.3 (P) 受領見積書セクションの部品を作る
   - design.md の同章の ReceivedQuotationSectionCard のとおり、見出し「受領見積書」・全N件・直近のカード（受領見積書名・業者名・提出日・NET 金額）・すべて見る・新規登録（登録の権限のあるときだけ）・空の表示「受領見積書はまだありません」・骨組みを、工程表セクションと同じ形で作る。カードとすべて見るは案件の受領見積書の一覧へ、新規登録は同じ画面へ登録フォームを開く遷移の状態を付けて移る
   - 応答の型（受領見積書のデータ）を画面の API の型に足す
   - 単体と stories を足す（Storybook の被覆）。単体で表示・空・骨組み・新規登録の出し分け・遷移先と遷移の状態を主張する
@@ -2033,3 +2033,7 @@
   - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-measurement-freshness` などの spec の関門を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す
   - spec の関門がすべて緑の状態になる
   - _Requirements: 43.5, 46.1, 46.3, 46.5, 46.6, 46.7, 46.8, 46.9_
+
+## Implementation Notes
+
+- frontend の単体は `npm --prefix frontend run test -- <file>` で流す。`npm --prefix frontend exec vitest run` は作業ディレクトリが根になり、frontend の設定を読まない（77.3）
