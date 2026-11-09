@@ -304,9 +304,9 @@ export interface FindByProjectIdOptions {
 
 /**
  * 案件の配下の受領見積書の条件（D2）。一覧と受領見積書セクションの総数・直近が同じ条件を使う
- * （project-management の 43.3。タスク77.1）
+ * （project-management の 43.3。タスク77.1）。関連データの件数（9.5。タスク80.1）も使う
  */
-function projectQuotationWhere(
+export function projectQuotationWhere(
   projectId: string,
   include: FindByProjectIdOptions['include']
 ): Prisma.ReceivedQuotationWhereInput {
