@@ -92,7 +92,7 @@
 
 ## Existing Spec Updates
 
-- [ ] estimate-request -- 受領見積の見積依頼を任意にし（14.1 の改訂）、明細行に区分（諸経費・交通費・産廃・値引き・法定福利費・別途）・条件・換算・分類キー・数量表の行のキー、受領見積に案件の条件・参考の印・読取の確認・採否・業者名（文字）・原本の指紋（sha256）・見積の区別を持たせ、指紋と区別で二重登録を検出する。同じ回に IPA の是正項目（5.5）も行う。Dependencies: IPA の user-authentication の完了
+- [x] estimate-request -- 受領見積の見積依頼を任意にし（14.1 の改訂）、明細行に区分（諸経費・交通費・産廃・値引き・法定福利費・別途）・条件・換算・分類キー・数量表の行のキー、受領見積に案件の条件・参考の印・読取の確認・採否・業者名（文字）・原本の指紋（sha256）・見積の区別を持たせ、指紋と区別で二重登録を検出する。同じ回に IPA の是正項目（5.5）も行う。Dependencies: IPA の user-authentication の完了
 - [ ] project-management -- 案件の詳細画面に「受領見積書」の欄を置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（同 spec の Requirement 27・38・40 の先例）。同じ回に IPA の是正項目（5.3）も行う。Dependencies: estimate-request の拡張
 - [ ] estimate-creation -- 明細行ごとに似た過去単価を表示し（単価＋諸経費按分−値引き按分、業者名つき）、実行金額の行へ反映して出典を記録する（4.5 の改訂、実行金額行の出典欄）。同じ回に IPA の是正項目（5.8）も行う。Dependencies: unit-price-ledger
 - [ ] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）
@@ -116,7 +116,7 @@
 ## 実施順（本計画と IPA の是正の合わせた順）
 
 1. IPA の是正：user-authentication（完了。2026-10-30・10-31 に機能ごとの実装の総合検証が GO）
-2. estimate-request の拡張と IPA の是正（5.5）。#869 の受領見積の欄（分類キー・数量表の行のキー・原本の指紋・見積の区別）を含む
+2. estimate-request の拡張と IPA の是正（5.5）。#869 の受領見積の欄（分類キー・数量表の行のキー・原本の指紋・見積の区別）を含む（完了。2026-11-08 に機能ごとの実装の総合検証が GO、2026-11-09 に develop へ統合）
 3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）
 4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）
 5. estimate-creation の拡張と IPA の是正（5.8）
