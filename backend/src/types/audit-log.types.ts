@@ -142,6 +142,8 @@ export type AuditLogAction =
   | 'PROJECT_UPDATED'
   | 'PROJECT_DELETED'
   | 'PROJECT_STATUS_CHANGED'
+  // 論理削除から保持期間を過ぎたプロジェクトの完全削除（project-management 要件46.6。件数と日時だけを持つ）
+  | 'PROJECT_PURGED'
   // 取引先管理
   | 'TRADING_PARTNER_CREATED'
   | 'TRADING_PARTNER_UPDATED'

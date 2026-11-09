@@ -2,10 +2,15 @@
  * @fileoverview ProjectPurgeService の単体テスト
  *
  * Task 81.1: 完全削除の対象と、ファイルのキー・種類ごとの件数を集める
+ * Task 81.2: ファイル→DB の順で完全に削除し、監査に記録する
  *
  * Requirements (project-management):
  * - 46.1: 論理削除の日時から 90 日間は保持する（89 日は対象外、90 日を過ぎたものは対象）
  * - 46.8: 導入の前に論理削除されたプロジェクトにも同じ保持期間を当てる
+ * - 9.6: 関連データを保持期間の後に共に削除する
+ * - 46.6: 完全削除を件数と日時で監査に記録する（名前とキーを含まない。D8）
+ * - 46.7: 失敗したプロジェクトは消さずに記録し、次のプロジェクトへ進む
+ * - 46.9: 監査ログは消さない
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -16,6 +21,7 @@ vi.mock('../../../utils/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+import logger from '../../../utils/logger.js';
 import {
   ProjectPurgeService,
   PROJECT_PURGE_BATCH_SIZE,
@@ -319,5 +325,301 @@ describe('ProjectPurgeService', () => {
       expect(Object.values(result.counts).every((n) => n === 0)).toBe(true);
       expect(Object.keys(result.counts)).toHaveLength(13);
     });
+  });
+});
+
+describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
+  /** ストレージの削除とトランザクションの中の呼び出しを一つの並びに記録する */
+  let calls: string[];
+  let prisma: ReturnType<typeof createPurgePrisma>;
+  let storageDelete: Mock;
+
+  /** トランザクションの中で消す順に並べたモデル（deleteMany を持つもの） */
+  const TX_DELETE_MANY_MODELS = [
+    'progressRecordItem',
+    'orderItem',
+    'progressRecord',
+    'order',
+    'monthlyCloseHistory',
+    'amendmentApplyHistory',
+    'executionBudgetItem',
+    'executionBudget',
+    'receivedQuotation',
+    'estimateRequestItem',
+    'estimateRequestStatusHistory',
+    'estimateRequest',
+  ] as const;
+
+  function createTx() {
+    const tx: Record<string, Record<string, Mock>> = {};
+    for (const model of TX_DELETE_MANY_MODELS) {
+      tx[model] = {
+        deleteMany: vi.fn(async (args: unknown) => {
+          calls.push(`${model}.deleteMany`);
+          void args;
+          return { count: 0 };
+        }),
+      };
+    }
+    tx.project = {
+      delete: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push('project.delete');
+        return { id: args.where.id };
+      }),
+    };
+    tx.auditLog = {
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => {
+        calls.push('auditLog.create');
+        return { id: 'audit-1', createdAt: NOW, ...args.data };
+      }),
+    };
+    tx.user = { findUnique: vi.fn().mockResolvedValue(null) };
+    return tx;
+  }
+
+  /** プロジェクトごとのキーを返す偽の prisma（トランザクションは tx を渡して呼ぶ） */
+  function createPurgePrisma(projects: ProjectRow[], keysByProject: Record<string, string[]>) {
+    const base = createMockPrisma(projects);
+    base.surveyImage.findMany.mockImplementation(
+      async (args: { where: { survey: { projectId: string } } }) =>
+        (keysByProject[args.where.survey.projectId] ?? []).map((key) => ({
+          originalPath: key,
+          thumbnailPath: null,
+          annotatedThumbnailPath: null,
+        }))
+    );
+    const txs: ReturnType<typeof createTx>[] = [];
+    const $transaction = vi.fn(
+      async (fn: (tx: unknown) => Promise<unknown>, _options?: unknown) => {
+        calls.push('$transaction');
+        const tx = createTx();
+        txs.push(tx);
+        return fn(tx);
+      }
+    );
+    return { ...base, $transaction, txs };
+  }
+
+  function createPurgeService() {
+    storageDelete = vi.fn(async (key: string) => {
+      calls.push(`storage.delete:${key}`);
+    });
+    const storageProvider = { type: 'local', delete: storageDelete } as unknown as StorageProvider;
+    return new ProjectPurgeService({
+      prisma: prisma as unknown as PrismaClient,
+      storageProvider,
+    });
+  }
+
+  beforeEach(() => {
+    calls = [];
+    vi.mocked(logger.error).mockClear();
+  });
+
+  it('ファイルを 1 件ずつ消してから、トランザクションで Restrict の行を葉から消し、プロジェクトを消して記録する（D6）', async () => {
+    prisma = createPurgePrisma([{ id: 'p-1', deletedAt: daysAgo(100) }], {
+      'p-1': ['k-1', 'k-2'],
+    });
+    const service = createPurgeService();
+
+    await service.purgeExpired(NOW);
+
+    expect(calls).toEqual([
+      'storage.delete:k-1',
+      'storage.delete:k-2',
+      '$transaction',
+      // 出来高の項目 → 発注の項目（実行予算の項目を Restrict で参照する）
+      'progressRecordItem.deleteMany',
+      'orderItem.deleteMany',
+      // 出来高・発注・月次の締め・改定の履歴
+      'progressRecord.deleteMany',
+      'order.deleteMany',
+      'monthlyCloseHistory.deleteMany',
+      'amendmentApplyHistory.deleteMany',
+      // 実行予算の項目 → 実行予算（契約書を Restrict で参照する）
+      'executionBudgetItem.deleteMany',
+      'executionBudget.deleteMany',
+      // 受領見積書（プロジェクトを Restrict で参照する）
+      'receivedQuotation.deleteMany',
+      // 見積依頼の項目・状態の履歴 → 見積依頼（内訳書・内訳書の項目を Restrict で参照する）
+      'estimateRequestItem.deleteMany',
+      'estimateRequestStatusHistory.deleteMany',
+      'estimateRequest.deleteMany',
+      // 残りは連鎖に任せる
+      'project.delete',
+      'auditLog.create',
+    ]);
+  });
+
+  it('トランザクションの中の削除はそのプロジェクトの行に絞る', async () => {
+    prisma = createPurgePrisma([{ id: 'p-1', deletedAt: daysAgo(100) }], {});
+    const service = createPurgeService();
+
+    await service.purgeExpired(NOW);
+
+    const tx = prisma.txs[0]!;
+    const byBudget = { executionBudget: { projectId: 'p-1' } };
+    const byRequest = { estimateRequest: { projectId: 'p-1' } };
+    const expected: Record<string, unknown> = {
+      progressRecordItem: { progressRecord: byBudget },
+      orderItem: { order: byBudget },
+      progressRecord: byBudget,
+      order: byBudget,
+      monthlyCloseHistory: byBudget,
+      amendmentApplyHistory: byBudget,
+      executionBudgetItem: byBudget,
+      executionBudget: { projectId: 'p-1' },
+      receivedQuotation: { OR: [{ projectId: 'p-1' }, byRequest] },
+      estimateRequestItem: byRequest,
+      estimateRequestStatusHistory: byRequest,
+      estimateRequest: { projectId: 'p-1' },
+    };
+    for (const model of TX_DELETE_MANY_MODELS) {
+      expect(tx[model]!.deleteMany).toHaveBeenCalledWith({ where: expected[model] });
+    }
+    expect(tx.project!.delete).toHaveBeenCalledWith({ where: { id: 'p-1' } });
+  });
+
+  it('監査には件数と日時だけを記録し、プロジェクト名とファイルのキーを含めない（46.6、D8）', async () => {
+    const deletedAt = daysAgo(100);
+    prisma = createPurgePrisma([{ id: 'p-1', deletedAt }], {
+      'p-1': ['surveys/secret-name/original.jpg'],
+    });
+    prisma.siteSurvey.count.mockResolvedValue(2);
+    prisma.executionBudget.count.mockResolvedValue(1);
+    const service = createPurgeService();
+
+    await service.purgeExpired(NOW);
+
+    const tx = prisma.txs[0]!;
+    expect(tx.auditLog!.create).toHaveBeenCalledTimes(1);
+    const data = tx.auditLog!.create!.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data).toMatchObject({
+      action: 'PROJECT_PURGED',
+      actorId: null,
+      actorEmail: null,
+      actorDisplayName: null,
+      targetType: 'Project',
+      targetId: 'p-1',
+    });
+    expect(data.metadata).toEqual({
+      deletedAt: deletedAt.toISOString(),
+      purgedAt: NOW.toISOString(),
+      counts: {
+        siteSurveys: 2,
+        surveyImages: 1,
+        quantityTables: 0,
+        itemizedStatements: 0,
+        estimateRequests: 0,
+        receivedQuotations: 0,
+        estimates: 0,
+        contracts: 0,
+        schedules: 0,
+        executionBudgets: 1,
+        constructionPhotoAlbums: 0,
+        constructionPhotos: 0,
+        files: 1,
+      },
+    });
+    const serialized = JSON.stringify(data);
+    expect(serialized).not.toContain('surveys/secret-name/original.jpg');
+    expect(serialized).not.toContain('"name"');
+    expect(serialized).not.toContain('projectName');
+  });
+
+  it('ファイルの削除が一つでも失敗したら、残りのファイルも DB も消さずに記録し、次のプロジェクトへ進む（46.7）', async () => {
+    prisma = createPurgePrisma(
+      [
+        { id: 'p-1', deletedAt: daysAgo(120) },
+        { id: 'p-2', deletedAt: daysAgo(110) },
+      ],
+      { 'p-1': ['k-1', 'k-fail', 'k-3'], 'p-2': ['k-4'] }
+    );
+    const service = createPurgeService();
+    storageDelete.mockImplementation(async (key: string) => {
+      calls.push(`storage.delete:${key}`);
+      if (key === 'k-fail') throw new Error('storage unavailable: k-fail');
+    });
+
+    const result = await service.purgeExpired(NOW);
+
+    // p-1 は失敗した後のキーを消さず、DB も消さない。p-2 へ進む
+    expect(calls.slice(0, 4)).toEqual([
+      'storage.delete:k-1',
+      'storage.delete:k-fail',
+      'storage.delete:k-4',
+      '$transaction',
+    ]);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.txs[0]!.project!.delete).toHaveBeenCalledWith({ where: { id: 'p-2' } });
+    expect(result.failedProjectIds).toEqual(['p-1']);
+    expect(result.purgedProjectIds).toEqual(['p-2']);
+    // 記録はプロジェクト ID と段階（キーを含めない）
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [logged] = vi.mocked(logger.error).mock.calls[0]! as unknown as [Record<string, unknown>];
+    expect(logged).toMatchObject({ projectId: 'p-1', stage: 'files' });
+    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('k-fail');
+  });
+
+  it('DB の削除が失敗したら記録して次のプロジェクトへ進む（46.7）', async () => {
+    prisma = createPurgePrisma(
+      [
+        { id: 'p-1', deletedAt: daysAgo(120) },
+        { id: 'p-2', deletedAt: daysAgo(110) },
+      ],
+      {}
+    );
+    // 他のプロジェクトの見積依頼が内訳書を参照しているときの Restrict の失敗を模す
+    prisma.$transaction.mockImplementationOnce(async () => {
+      calls.push('$transaction');
+      throw Object.assign(new Error('Foreign key constraint violated'), { code: 'P2003' });
+    });
+    const service = createPurgeService();
+
+    const result = await service.purgeExpired(NOW);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(result.failedProjectIds).toEqual(['p-1']);
+    expect(result.purgedProjectIds).toEqual(['p-2']);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [logged] = vi.mocked(logger.error).mock.calls[0]! as unknown as [Record<string, unknown>];
+    expect(logged).toMatchObject({ projectId: 'p-1', stage: 'database' });
+  });
+
+  it('監査ログを消さない（46.9）', async () => {
+    prisma = createPurgePrisma([{ id: 'p-1', deletedAt: daysAgo(100) }], {});
+    const service = createPurgeService();
+
+    await service.purgeExpired(NOW);
+
+    expect(calls.some((c) => c.startsWith('auditLog.') && c !== 'auditLog.create')).toBe(false);
+  });
+
+  it('結果に完全削除したもの・失敗したもの・残りの件数を返す', async () => {
+    const rows: ProjectRow[] = Array.from({ length: 23 }, (_, i) => ({
+      id: `p-${String(i).padStart(2, '0')}`,
+      deletedAt: daysAgo(200 - i),
+    }));
+    prisma = createPurgePrisma(rows, {});
+    const service = createPurgeService();
+
+    const result = await service.purgeExpired(NOW);
+
+    expect(result).toEqual({
+      purgedProjectIds: Array.from({ length: 20 }, (_, i) => `p-${String(i).padStart(2, '0')}`),
+      failedProjectIds: [],
+      remainingCandidates: 3,
+    });
+  });
+
+  it('対象が無ければ何も消さない', async () => {
+    prisma = createPurgePrisma([{ id: 'p-young', deletedAt: daysAgo(89) }], {});
+    const service = createPurgeService();
+
+    const result = await service.purgeExpired(NOW);
+
+    expect(result).toEqual({ purgedProjectIds: [], failedProjectIds: [], remainingCandidates: 0 });
+    expect(storageDelete).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

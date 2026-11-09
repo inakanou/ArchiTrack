@@ -1972,7 +1972,7 @@
   - _Requirements: 46.1, 46.8_
   - _Boundary: ProjectPurgeService_
 
-- [ ] 81.2 ファイル→DB の順で完全に削除し、監査に記録する
+- [x] 81.2 ファイル→DB の順で完全に削除し、監査に記録する
   - design.md の同章の ProjectPurgeService と D6・D8 のとおり、キーを 1 件ずつ消し、一つでも失敗したらそのプロジェクトの DB を残して記録し次へ進む。すべて消せたら一つのトランザクションで `Restrict` の行を葉から消してからプロジェクトの削除で残りを連鎖に任せ、同じトランザクションで監査の種別（backend の型に足す）を件数と日時だけで記録する。DB の失敗も記録して次へ進む
   - 単体（81.1 と同じファイル）で、ファイルの削除の失敗で DB を消さないこと、DB の失敗の記録、削除の順、監査の中身（名前とキーを含まない）、結果の件数を主張する。改修の前に赤になることを先に示す
   - 単体で、上の振る舞いが主張どおりになる状態になる
@@ -2041,3 +2041,4 @@
 - 関連データの件数の型 RelatedCounts の鍵は siteSurveys, quantityTables, itemizedStatements, estimateRequests, receivedQuotations, estimates, contracts, schedules, executionBudgets, constructionPhotos（80.1。80.3 の画面の型はこれに揃える）
 - `@swagger` の注釈の中に「Task N: …」のような `key: value` の行を書くと、OpenAPI の生成物の paths に不正な鍵が入る。作業の記録は注釈の外の `//` に書く。既存の `"Task 46.3"` の鍵は未対処（80.2）
 - 関連データの件数の経路は `{ counts }` で包まず RelatedCounts をそのまま返す（80.2。80.4 の画面の型はこれに合わせる）
+- 他のプロジェクトの行が対象の木を参照していると、DB の削除が毎回 Restrict で失敗する。古い順の 20 件がそのようなプロジェクトで埋まると、新しい対象が進まない（81.2 のレビューの指摘。仕様の判断は利用者に委ねる）
