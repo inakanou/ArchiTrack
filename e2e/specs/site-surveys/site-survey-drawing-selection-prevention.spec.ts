@@ -857,9 +857,10 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
       await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
       await projectDeleteButton.click();
 
+      // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
       const projectConfirmButton = page
         .getByTestId('focus-manager-overlay')
-        .getByRole('button', { name: /^削除$/i });
+        .getByRole('button', { name: /^削除(する)?$/i });
       await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
       await projectConfirmButton.click();
 

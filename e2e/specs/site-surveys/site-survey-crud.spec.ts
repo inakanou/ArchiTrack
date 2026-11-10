@@ -839,9 +839,10 @@ test.describe('現場調査CRUD操作', () => {
         if (await deleteButton.isVisible()) {
           await deleteButton.click();
           // ダイアログ内の削除ボタンをクリック
+          // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
+            .getByRole('button', { name: /^削除(する)?$/i });
           if (await confirmButton.isVisible()) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

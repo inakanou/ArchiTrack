@@ -204,9 +204,10 @@ test.describe('現場調査注釈エディタ', () => {
       const projectDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
       await expect(projectDeleteButton).toBeVisible({ timeout: 5000 });
       await projectDeleteButton.click();
+      // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
       const projectConfirmButton = cleanupPage
         .getByTestId('focus-manager-overlay')
-        .getByRole('button', { name: /^削除$/i });
+        .getByRole('button', { name: /^削除(する)?$/i });
       await expect(projectConfirmButton).toBeVisible({ timeout: 5000 });
       await projectConfirmButton.click();
       await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

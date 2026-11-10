@@ -386,7 +386,8 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
           response.request().method() === 'DELETE',
         { timeout: getTimeout(30000) }
       );
-      await dialog.getByRole('button', { name: '削除', exact: true }).click();
+      // 事前準備で数量表を作っており関連データがあるため、確定ボタンは「削除する」になる（REQ-9.5）
+      await dialog.getByRole('button', { name: '削除する', exact: true }).click();
       const deleteResponse = await deletePromise;
       expect(deleteResponse.status(), 'テスト用プロジェクトの削除が成功する').toBe(204);
 

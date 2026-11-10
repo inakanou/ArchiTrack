@@ -2282,9 +2282,10 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
         if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
+          // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
+            .getByRole('button', { name: /^削除(する)?$/i });
           await confirmButton.click();
           await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
         }
@@ -2925,9 +2926,10 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
         if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
+          // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
+            .getByRole('button', { name: /^削除(する)?$/i });
           await confirmButton.click();
           await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
         }
@@ -3423,9 +3425,10 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
         if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
+          // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i });
+            .getByRole('button', { name: /^削除(する)?$/i });
           await confirmButton.click();
           await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
         }
