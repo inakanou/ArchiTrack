@@ -2038,7 +2038,7 @@
 
 **経緯**: 機能レベルの検証（2026-11-11）で、完全削除が毎回失敗するプロジェクトが 20 件たまると新しい対象が進まないことを確かめた。利用者の判断（2026-11-11「提案の方法で進める」）で Requirement 46.10〜46.15 を加えた。design.md の章「Requirements 46.10-46.15: 完全削除の失敗の扱い」の ProjectPurgeService（変更）・ProjectPurgeState・RequeueProjectPurgeScript と D9〜D14 を実装する
 
-- [ ] 83.1 完全削除の失敗の記録の表を足す
+- [x] 83.1 完全削除の失敗の記録の表を足す
   - design.md の同章の ProjectPurgeState のとおり、`backend/prisma/schema.prisma` にモデルと `Project` からの 1 対 1 の関係を足し、新設の migration（backend/prisma/migrations/20261111000000_project_purge_states/migration.sql）で表と索引を作る。プロジェクトの削除で記録が連鎖して消える
   - `prisma migrate deploy` をテスト用の DB に当てて通り、Prisma の生成物を作り直して `npm --prefix backend run type-check` が緑になる状態になる（記録の連鎖の削除は 83.7 の統合で主張する）
   - _Requirements: 46.10, 46.11, 46.14_
