@@ -218,6 +218,22 @@ describe('main', () => {
     expect(USAGE).toBe('使い方: npm run project:purge-requeue -- --project-id <プロジェクト ID>');
   });
 
+  it('出力先を渡さないときは引数の誤りと使い方を標準エラーへ出し、標準出力には出さない', async () => {
+    const createContextFn = vi.fn();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await expect(main(['--unknown'], createContextFn)).resolves.toBe(EXIT_CODE.USAGE);
+
+      expect(createContextFn).not.toHaveBeenCalled();
+      expect(error.mock.calls).toEqual([['不明な引数です: --unknown'], [USAGE]]);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   /**
    * @requirement project-management/REQ-46.14
    */
@@ -278,7 +294,12 @@ describe('createDefaultContext', () => {
 
     expect(ctx.service).toBeNull();
     await ctx.close();
+    expect(disconnectStorage).toHaveBeenCalledTimes(1);
     expect(disconnectPrisma).toHaveBeenCalledTimes(1);
+    // ストレージを閉じてからデータベースを閉じる
+    expect(disconnectStorage.mock.invocationCallOrder[0]).toBeLessThan(
+      disconnectPrisma.mock.invocationCallOrder[0]!
+    );
   });
 
   it('出力は標準出力と標準エラーへ出す', async () => {
