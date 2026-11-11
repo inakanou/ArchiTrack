@@ -2176,7 +2176,7 @@
   - _Requirements: 51.3_
   - _Boundary: FindCrossProjectEstimateRequestsScript_
 
-- [ ] 121.3 steering と除外の登録と spec の関門を通す
+- [x] 121.3 steering と除外の登録と spec の関門を通す
   - `.kiro/steering/structure.md` の `scripts/` の欄に、不整合を確かめる運用の手順を足す
   - E2E で確かめない 51.1・51.2（作成の画面は同じプロジェクトの内訳書しか候補に出さない）と 51.3（画面を持たない）を、本番に到達する被覆の印が無いものに限り、`e2e/requirement-exclusions.json` に代替の検証（121.1・121.2）つきで登録し、件数の宣言を実数に合わせる
   - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness`・`check:steering-refs`・`check:steering-idents`・`check:steering-dir-counts` を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す

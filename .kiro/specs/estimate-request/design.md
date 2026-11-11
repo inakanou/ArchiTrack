@@ -7760,7 +7760,7 @@ backend/
 
 #### Modified Files
 - `.kiro/steering/structure.md` の `scripts/` の欄に、不整合を確かめる運用の手順を足す
-- 上の欄に載せる名前は `find-cross-project-estimate-requests.ts`（新設予定）
+- 上の欄に載せる名前は `find-cross-project-estimate-requests.ts`
 
 ### Requirements Traceability
 
@@ -7792,7 +7792,7 @@ backend/
 | Intent | 別のプロジェクトの内訳書、または別のプロジェクトの内訳書の項目を参照する見積依頼を数え、ID を出す |
 | Requirements | 51.3 |
 
-`backend/src/scripts/find-cross-project-estimate-requests.ts`（新設予定）。`npm run estimate-request:find-cross-project`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/find-cross-project-estimate-requests.js` を node で動かす）。
+`backend/src/scripts/find-cross-project-estimate-requests.ts`。`npm run estimate-request:find-cross-project`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/find-cross-project-estimate-requests.js` を node で動かす）。
 
 - 対象: 論理削除の有無を問わず、(a) 見積依頼の内訳書の `projectId` が見積依頼の `projectId` と違うもの、(b) 見積依頼の項目が指す内訳書の項目の内訳書の `projectId` が見積依頼の `projectId` と違うもの。どちらも完全削除の `Restrict` の失敗の原因になるため両方を出す
 - 出力: 件数と、見積依頼 ID・見積依頼のプロジェクト ID・参照先のプロジェクト ID・(a)(b) の別の行。名前・宛先・金額は出さない
@@ -7815,6 +7815,7 @@ backend/
 - **単体（backend）**: `EstimateRequestService.create` に、別のプロジェクトの内訳書（項目あり・項目なし）を渡すと `ItemizedStatementNotFoundError` になり、見積依頼の作成と監査の記録が呼ばれないことを主張する。所在は `backend/src/__tests__/unit/services/estimate-request.service.test.ts`
 - **結合（backend）**: 既存の「作成の要求が範囲内の他のプロジェクトの内訳書を指すと…」の試験に 51.1・51.2 の印を付ける。確かめる手順を実際の DB で、(a)(b) の不整合と整合した見積依頼を作って実行し、件数と ID が (a)(b) だけであり、実行の前後で行が変わらないことを主張する。新設のファイルは backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts
 - **E2E**: 51.1・51.2 は作成の画面が同じプロジェクトの内訳書しか候補に出さないため画面から起こせず、51.3 は画面を持たない。実装のタスクで除外の台帳へ代替の検証（上の単体・結合）つきで登録する
+- **実装の記録（タスク121.3、2026-11-12）**: 除外の台帳（e2e/requirement-exclusions.json）へは 51.3 だけを登録した。代替の検証は結合（backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts）で、確かめる手順はサーバーの起動入口から取り込まれないため、その被覆の印は本番に到達する被覆と数えられない。51.1・51.2 は登録しない。単体（backend/src/__tests__/unit/services/estimate-request.service.test.ts）と結合（backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts）の被覆の印で、本番に到達する被覆と既に数えられているためである（project-management のタスク84.2 の 46.10〜46.15 と同じ扱い）
 - 挙動の変更は RED → GREEN で進める
 
 ### Security Considerations
