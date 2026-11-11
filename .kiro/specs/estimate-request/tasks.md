@@ -2169,7 +2169,7 @@
   - _Requirements: 51.1, 51.2_
   - _Boundary: EstimateRequestService_
 
-- [ ] 121.2 (P) 不整合な見積依頼を確かめる運用の手順を足す
+- [x] 121.2 (P) 不整合な見積依頼を確かめる運用の手順を足す
   - design.md の同章の FindCrossProjectEstimateRequestsScript と D16 のとおり、新設の backend/src/scripts/find-cross-project-estimate-requests.ts と `backend/package.json` の `estimate-request:find-cross-project` を、user-authentication の `backend/src/scripts/reactivate-user.ts` と同じ形で足す。論理削除の有無を問わず、内訳書の食い違い（a）と内訳書の項目の食い違い（b）を読むだけで数え、件数と見積依頼 ID・両方のプロジェクト ID・(a)(b) の別を出す。名前・宛先・金額は出さない。終了コード 0・1。ビルドで dist に入ることを確かめる。`backend/package.json` は project-management のタスク83.6 も触るため、並べて流さない
   - 結合（新設の backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts）で、(a)(b) の不整合（DB へ直接作る）と整合した見積依頼を作って実行し、件数と ID が (a)(b) だけであること、出力に名前が無いこと、実行の前後で行が変わらないことを主張する。改修の前に赤になることを先に示す
   - 結合で、システム管理者が不整合な見積依頼の件数と ID をデータを変えずに確かめられる状態になる
@@ -2784,3 +2784,4 @@
   - _Requirements: 44.9, 45.13, 48.8, 49.7, 50.1_
   - _Depends: 120.1, 120.2, 115.1, 113.5_
 - 見積依頼の作成で、別のプロジェクトの内訳書と存在しない内訳書はどちらも経路の層の汎用の 404（NOT_FOUND）で、応答は同じ。サービスの層の確認（D15）は経路を経ない呼び出しのための不変条件で、HTTP からは届かない。同じプロジェクトの論理削除された内訳書は経路を通り、サービスの ITEMIZED_STATEMENT_NOT_FOUND になる（存在しない ID の NOT_FOUND と符号が違う。Requirement 51 の範囲外で未対処）（121.1）
+- 運用の手順（backend/src/scripts）は本番の入口から到達しないため、結合の試験に印を置いても check:req-coverage は本番に到達しない被覆として数えない。51.3 は除外の台帳に代替の検証つきで登録する（121.2）
