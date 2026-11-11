@@ -2161,7 +2161,7 @@
 
 **経緯**: project-management の機能レベルの検証（2026-11-11）で、別のプロジェクトの内訳書を参照する見積依頼が完全削除（project-management の 46.5）を毎回失敗させることを確かめた。利用者の判断（2026-11-11「提案の方法で進める」）で Requirement 51 を加えた。51.1・51.2 の振る舞いは 2026-11-04 から経路の層にある。design.md の章「Requirement 51: 見積依頼が参照する内訳書のプロジェクト」の EstimateRequestService（変更）・FindCrossProjectEstimateRequestsScript と D15・D16 を実装する
 
-- [ ] 121.1 (P) 見積依頼の作成でサービスの層でも内訳書のプロジェクトを確かめる
+- [x] 121.1 (P) 見積依頼の作成でサービスの層でも内訳書のプロジェクトを確かめる
   - design.md の同章の EstimateRequestService（変更）と D15 のとおり、`create` の内訳書の読み出しの直後、項目の件数の検査より前で、内訳書のプロジェクトが見積依頼のプロジェクトと違えば内訳書の不在と同じエラーにする
   - 単体（`backend/src/__tests__/unit/services/estimate-request.service.test.ts`）で、別のプロジェクトの内訳書（項目あり・項目なし）を渡すと不在と同じエラーになり、見積依頼の作成と監査の記録が呼ばれないことを主張する。改修の前に赤になることを先に示す
   - 既存の結合の試験（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts` の「作成の要求が範囲内の他のプロジェクトの内訳書を指すと…」）に 51.1・51.2 の印を足す
@@ -2783,3 +2783,4 @@
   - estimate-request の要件 43〜50 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
   - _Requirements: 44.9, 45.13, 48.8, 49.7, 50.1_
   - _Depends: 120.1, 120.2, 115.1, 113.5_
+- 見積依頼の作成で、別のプロジェクトの内訳書と存在しない内訳書はどちらも経路の層の汎用の 404（NOT_FOUND）で、応答は同じ。サービスの層の確認（D15）は経路を経ない呼び出しのための不変条件で、HTTP からは届かない。同じプロジェクトの論理削除された内訳書は経路を通り、サービスの ITEMIZED_STATEMENT_NOT_FOUND になる（存在しない ID の NOT_FOUND と符号が違う。Requirement 51 の範囲外で未対処）（121.1）

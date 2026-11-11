@@ -611,6 +611,71 @@ describe('EstimateRequestService', () => {
         EmptyItemizedStatementItemsError
       );
     });
+
+    /**
+     * 別のプロジェクトの内訳書を指す作成は、項目の有無を問わず内訳書の不在と同じエラーにし、
+     * 見積依頼を作らず監査も記録しない（タスク121.1・design.md の D15）。
+     *
+     * @requirement estimate-request/REQ-51.1
+     * @requirement estimate-request/REQ-51.2
+     */
+    it.each([
+      { label: '項目あり', items: [{ id: 'isi-other-001', displayOrder: 1 }] },
+      { label: '項目なし', items: [] },
+    ])(
+      '別のプロジェクトの内訳書（$label）を指すと不在と同じエラーになり、作成も監査の記録もしない',
+      async ({ items }) => {
+        const actorId = 'user-001';
+        const input = {
+          name: 'テスト見積依頼',
+          projectId: 'proj-001',
+          tradingPartnerId: 'tp-001',
+          itemizedStatementId: 'is-other',
+        };
+        const estimateRequestCreate = vi.fn();
+        const estimateRequestItemCreateMany = vi.fn();
+
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            tradingPartner: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValue({ id: 'tp-001', name: 'テスト協力業者', deletedAt: null }),
+            },
+            tradingPartnerTypeMapping: {
+              findFirst: vi.fn().mockResolvedValue({
+                id: 'tpm-001',
+                tradingPartnerId: 'tp-001',
+                type: 'SUBCONTRACTOR',
+              }),
+            },
+            itemizedStatement: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'is-other',
+                name: '他の案件の内訳書',
+                projectId: 'proj-other',
+                deletedAt: null,
+                items,
+              }),
+            },
+            estimateRequest: { create: estimateRequestCreate },
+            estimateRequestItem: { createMany: estimateRequestItemCreateMany },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        const rejection = service.create(input, actorId);
+        await expect(rejection).rejects.toThrow(ItemizedStatementNotFoundError);
+        await expect(rejection).rejects.not.toThrow(EmptyItemizedStatementItemsError);
+        await expect(rejection).rejects.toMatchObject({
+          code: 'ITEMIZED_STATEMENT_NOT_FOUND',
+          message: new ItemizedStatementNotFoundError('is-other').message,
+        });
+        expect(estimateRequestCreate).not.toHaveBeenCalled();
+        expect(estimateRequestItemCreateMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('監査ログをトランザクションの中で書く（タスク109.1）', () => {
