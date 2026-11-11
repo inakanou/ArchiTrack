@@ -2157,6 +2157,34 @@
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、95.1、95.2、95.3_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
 
+## タスク121: 見積依頼が参照する内訳書のプロジェクト（利用者の判断で起票、2026-11-11）
+
+**経緯**: project-management の機能レベルの検証（2026-11-11）で、別のプロジェクトの内訳書を参照する見積依頼が完全削除（project-management の 46.5）を毎回失敗させることを確かめた。利用者の判断（2026-11-11「提案の方法で進める」）で Requirement 51 を加えた。51.1・51.2 の振る舞いは 2026-11-04 から経路の層にある。design.md の章「Requirement 51: 見積依頼が参照する内訳書のプロジェクト」の EstimateRequestService（変更）・FindCrossProjectEstimateRequestsScript と D15・D16 を実装する
+
+- [ ] 121.1 (P) 見積依頼の作成でサービスの層でも内訳書のプロジェクトを確かめる
+  - design.md の同章の EstimateRequestService（変更）と D15 のとおり、`create` の内訳書の読み出しの直後、項目の件数の検査より前で、内訳書のプロジェクトが見積依頼のプロジェクトと違えば内訳書の不在と同じエラーにする
+  - 単体（`backend/src/__tests__/unit/services/estimate-request.service.test.ts`）で、別のプロジェクトの内訳書（項目あり・項目なし）を渡すと不在と同じエラーになり、見積依頼の作成と監査の記録が呼ばれないことを主張する。改修の前に赤になることを先に示す
+  - 既存の結合の試験（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts` の「作成の要求が範囲内の他のプロジェクトの内訳書を指すと…」）に 51.1・51.2 の印を足す
+  - 単体と結合で、別のプロジェクトの内訳書を指す作成が経路とサービスの両方の層で不在と同じ 404 として拒まれる状態になる
+  - _Requirements: 51.1, 51.2_
+  - _Boundary: EstimateRequestService_
+
+- [ ] 121.2 (P) 不整合な見積依頼を確かめる運用の手順を足す
+  - design.md の同章の FindCrossProjectEstimateRequestsScript と D16 のとおり、新設の backend/src/scripts/find-cross-project-estimate-requests.ts と `backend/package.json` の `estimate-request:find-cross-project` を、user-authentication の `backend/src/scripts/reactivate-user.ts` と同じ形で足す。論理削除の有無を問わず、内訳書の食い違い（a）と内訳書の項目の食い違い（b）を読むだけで数え、件数と見積依頼 ID・両方のプロジェクト ID・(a)(b) の別を出す。名前・宛先・金額は出さない。終了コード 0・1。ビルドで dist に入ることを確かめる。`backend/package.json` は project-management のタスク83.6 も触るため、並べて流さない
+  - 結合（新設の backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts）で、(a)(b) の不整合（DB へ直接作る）と整合した見積依頼を作って実行し、件数と ID が (a)(b) だけであること、出力に名前が無いこと、実行の前後で行が変わらないことを主張する。改修の前に赤になることを先に示す
+  - 結合で、システム管理者が不整合な見積依頼の件数と ID をデータを変えずに確かめられる状態になる
+  - _Requirements: 51.3_
+  - _Boundary: FindCrossProjectEstimateRequestsScript_
+
+- [ ] 121.3 steering と除外の登録と spec の関門を通す
+  - `.kiro/steering/structure.md` の `scripts/` の欄に、不整合を確かめる運用の手順を足す
+  - E2E で確かめない 51.1・51.2（作成の画面は同じプロジェクトの内訳書しか候補に出さない）と 51.3（画面を持たない）を、本番に到達する被覆の印が無いものに限り、`e2e/requirement-exclusions.json` に代替の検証（121.1・121.2）つきで登録し、件数の宣言を実数に合わせる
+  - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness`・`check:steering-refs`・`check:steering-idents`・`check:steering-dir-counts` を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す
+  - project-management のタスク84.1・84.2 と同じファイル（`.kiro/steering/structure.md` の木、除外の台帳の件数の宣言、鮮度の錨）を触るため、その後に流し、木の印・件数・錨を貼り直す
+  - estimate-request の要件 51 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
+  - _Requirements: 51.1, 51.2, 51.3_
+  - _Depends: 121.1, 121.2（project-management の 84.1・84.2 の後）_
+
 ## Implementation Notes
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
