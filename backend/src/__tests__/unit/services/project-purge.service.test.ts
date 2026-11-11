@@ -11,6 +11,8 @@
  * - 46.6: 完全削除を件数と日時で監査に記録する（名前とキーを含まない。D8）
  * - 46.7: 失敗したプロジェクトは消さずに記録し、次のプロジェクトへ進む
  * - 46.9: 監査ログは消さない
+ * - 46.10: 失敗したものは記録し、試みていないものと試みた日時の古いものの後に回す（Task 83.2）
+ * - 46.13: 対象から外したものは選ばない（Task 83.2）
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -36,13 +38,16 @@ function daysAgo(days: number, ms = 0): Date {
   return new Date(NOW.getTime() - days * DAY_MS - ms);
 }
 
-type ProjectRow = { id: string; deletedAt: Date | null };
+type PurgeStateRow = { failureCount: number; lastAttemptAt: Date | null; excludedAt: Date | null };
+type ProjectRow = { id: string; deletedAt: Date | null; purgeState?: PurgeStateRow | null };
+
+type ProjectWhere = {
+  deletedAt?: { lt?: Date; lte?: Date; not?: null } | null;
+  OR?: Array<{ purgeState?: { is: { excludedAt: null } | null } }>;
+};
 
 /** where の deletedAt の条件で絞る（lt / lte / not: null だけを解す） */
-function matchDeletedAt(
-  row: ProjectRow,
-  cond: { lt?: Date; lte?: Date; not?: null } | null | undefined
-): boolean {
+function matchDeletedAt(row: ProjectRow, cond: ProjectWhere['deletedAt']): boolean {
   if (cond === undefined) return true;
   if (cond === null) return row.deletedAt === null;
   if (row.deletedAt === null) return false;
@@ -51,36 +56,110 @@ function matchDeletedAt(
   return true;
 }
 
+/** where の OR の purgeState の条件で絞る（記録が無い / excludedAt が空 だけを解す） */
+function matchPurgeStateOr(row: ProjectRow, or: ProjectWhere['OR']): boolean {
+  if (or === undefined) return true;
+  return or.some((cond) => {
+    const is = cond.purgeState?.is;
+    if (is === undefined) throw new Error(`unsupported OR condition: ${JSON.stringify(cond)}`);
+    if (is === null) return !row.purgeState;
+    return !!row.purgeState && row.purgeState.excludedAt === null;
+  });
+}
+
+type SortDir = 'asc' | 'desc';
+type OrderEntry =
+  | { deletedAt: SortDir }
+  | { id: SortDir }
+  | { purgeState: { lastAttemptAt: { sort: SortDir; nulls: 'first' | 'last' } } };
+
+/** 1 つの並びの項目で 2 行を比べる（purgeState は記録の無いものを空として扱う） */
+function compareBy(a: ProjectRow, b: ProjectRow, order: OrderEntry): number {
+  const [key, spec] = Object.entries(order)[0] as [string, unknown];
+  let av: number | string | null;
+  let bv: number | string | null;
+  let dir: SortDir;
+  let nulls: 'first' | 'last' = 'last';
+  if (key === 'purgeState') {
+    const s = (spec as { lastAttemptAt: { sort: SortDir; nulls: 'first' | 'last' } }).lastAttemptAt;
+    dir = s.sort;
+    nulls = s.nulls;
+    av = a.purgeState?.lastAttemptAt?.getTime() ?? null;
+    bv = b.purgeState?.lastAttemptAt?.getTime() ?? null;
+  } else if (key === 'deletedAt' || key === 'id') {
+    dir = spec as SortDir;
+    av = key === 'id' ? a.id : (a.deletedAt?.getTime() ?? null);
+    bv = key === 'id' ? b.id : (b.deletedAt?.getTime() ?? null);
+  } else {
+    throw new Error(`unsupported orderBy: ${key}`);
+  }
+  if (av === null && bv === null) return 0;
+  if (av === null) return nulls === 'first' ? -1 : 1;
+  if (bv === null) return nulls === 'first' ? 1 : -1;
+  if (av < bv) return dir === 'asc' ? -1 : 1;
+  if (av > bv) return dir === 'asc' ? 1 : -1;
+  return 0;
+}
+
 /** プロジェクトの行を持つ偽の prisma（findMany と count が where・orderBy・take を解す） */
 function createProjectTable(rows: ProjectRow[]) {
-  const filter = (args: { where?: { deletedAt?: never } } | undefined) =>
-    rows.filter((r) => matchDeletedAt(r, args?.where?.deletedAt));
+  const filter = (args: { where?: ProjectWhere } | undefined) =>
+    rows.filter(
+      (r) => matchDeletedAt(r, args?.where?.deletedAt) && matchPurgeStateOr(r, args?.where?.OR)
+    );
   return {
-    findMany: vi.fn(
-      async (args: { where?: { deletedAt?: never }; orderBy?: unknown; take?: number }) => {
-        const orders = Array.isArray(args.orderBy) ? args.orderBy : [args.orderBy];
-        const sorted = [...filter(args)].sort((a, b) => {
-          for (const o of orders as Array<Record<string, 'asc' | 'desc'>>) {
-            if (!o) continue;
-            const [key, dir] = Object.entries(o)[0] as ['deletedAt' | 'id', 'asc' | 'desc'];
-            const av = key === 'deletedAt' ? (a.deletedAt?.getTime() ?? 0) : a.id;
-            const bv = key === 'deletedAt' ? (b.deletedAt?.getTime() ?? 0) : b.id;
-            if (av < bv) return dir === 'asc' ? -1 : 1;
-            if (av > bv) return dir === 'asc' ? 1 : -1;
-          }
-          return 0;
-        });
-        const taken = args.take === undefined ? sorted : sorted.slice(0, args.take);
-        return taken.map((r) => ({ id: r.id, deletedAt: r.deletedAt }));
+    findMany: vi.fn(async (args: { where?: ProjectWhere; orderBy?: unknown; take?: number }) => {
+      const orders = (Array.isArray(args.orderBy) ? args.orderBy : [args.orderBy]).filter(
+        Boolean
+      ) as OrderEntry[];
+      const sorted = [...filter(args)].sort((a, b) => {
+        for (const o of orders) {
+          const c = compareBy(a, b, o);
+          if (c !== 0) return c;
+        }
+        return 0;
+      });
+      const taken = args.take === undefined ? sorted : sorted.slice(0, args.take);
+      return taken.map((r) => ({ id: r.id, deletedAt: r.deletedAt }));
+    }),
+    count: vi.fn(async (args: { where?: ProjectWhere }) => filter(args).length),
+  };
+}
+
+type PurgeStateUpsertArgs = {
+  where: { projectId: string };
+  create: { projectId: string; failureCount: number; lastAttemptAt: Date };
+  update: { failureCount: { increment: number }; lastAttemptAt: Date };
+};
+
+/** 失敗の記録の偽の表（upsert でプロジェクトの行の purgeState を書き換える） */
+function createPurgeStateTable(rows: ProjectRow[]) {
+  return {
+    upsert: vi.fn(async (args: PurgeStateUpsertArgs) => {
+      const row = rows.find((r) => r.id === args.where.projectId);
+      if (!row) throw new Error(`no project: ${args.where.projectId}`);
+      if (row.purgeState) {
+        row.purgeState = {
+          ...row.purgeState,
+          failureCount: row.purgeState.failureCount + args.update.failureCount.increment,
+          lastAttemptAt: args.update.lastAttemptAt,
+        };
+      } else {
+        row.purgeState = {
+          failureCount: args.create.failureCount,
+          lastAttemptAt: args.create.lastAttemptAt,
+          excludedAt: null,
+        };
       }
-    ),
-    count: vi.fn(async (args: { where?: { deletedAt?: never } }) => filter(args).length),
+      return { projectId: row.id, ...row.purgeState };
+    }),
   };
 }
 
 function createMockPrisma(projects: ProjectRow[] = []) {
   return {
     project: createProjectTable(projects),
+    projectPurgeState: createPurgeStateTable(projects),
     siteSurvey: { count: vi.fn().mockResolvedValue(0) },
     surveyImage: { findMany: vi.fn().mockResolvedValue([]) },
     quantityTable: { count: vi.fn().mockResolvedValue(0) },
@@ -165,7 +244,7 @@ describe('ProjectPurgeService', () => {
       expect(result.remainingCandidates).toBe(5);
     });
 
-    it('対象の条件と件数の条件は同じで、締めの日時は now の 90 日前である', async () => {
+    it('対象の条件と件数の条件は同じで、締めの日時は now の 90 日前、対象から外したものを除く', async () => {
       const prisma = createMockPrisma([]);
       const service = createService(prisma);
 
@@ -174,7 +253,10 @@ describe('ProjectPurgeService', () => {
       const cutoff = new Date(NOW.getTime() - 90 * DAY_MS);
       const findArgs = prisma.project.findMany.mock.calls[0]![0];
       const countArgs = prisma.project.count.mock.calls[0]![0];
-      expect(findArgs.where).toEqual({ deletedAt: { not: null, lt: cutoff } });
+      expect(findArgs.where).toEqual({
+        deletedAt: { not: null, lt: cutoff },
+        OR: [{ purgeState: { is: null } }, { purgeState: { is: { excludedAt: null } } }],
+      });
       expect(countArgs.where).toEqual(findArgs.where);
       expect(findArgs.take).toBe(20);
     });
@@ -621,5 +703,221 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
     expect(result).toEqual({ purgedProjectIds: [], failedProjectIds: [], remainingCandidates: 0 });
     expect(storageDelete).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  describe('失敗の記録と後ろへ回す選び方（46.10・46.13、D10・D11）', () => {
+    const LATER = new Date(NOW.getTime() + DAY_MS);
+
+    /** 指定したプロジェクトの DB の削除を毎回失敗させる（Restrict の失敗を模す） */
+    function failDatabaseFor(failing: Set<string>) {
+      prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+        calls.push('$transaction');
+        const tx = createTx();
+        prisma.txs.push(tx);
+        const project = tx.project!;
+        const originalDelete = project.delete!;
+        project.delete = vi.fn(async (args: { where: { id: string } }) => {
+          if (failing.has(args.where.id)) {
+            throw Object.assign(new Error('Foreign key constraint violated'), { code: 'P2003' });
+          }
+          return originalDelete(args);
+        });
+        return fn(tx);
+      });
+    }
+
+    it('毎回失敗するものが 20 件あっても、次の回は試みていないものを先に選ぶ（46.10、D10）', async () => {
+      const failingRows: ProjectRow[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `p-fail-${String(i).padStart(2, '0')}`,
+        deletedAt: daysAgo(300 - i),
+      }));
+      const rows: ProjectRow[] = [...failingRows, { id: 'p-new', deletedAt: daysAgo(95) }];
+      prisma = createPurgePrisma(rows, {});
+      failDatabaseFor(new Set(failingRows.map((r) => r.id)));
+      const service = createPurgeService();
+
+      const first = await service.purgeExpired(NOW);
+      expect(first.failedProjectIds).toEqual(failingRows.map((r) => r.id));
+      expect(first.purgedProjectIds).toEqual([]);
+      expect(first.remainingCandidates).toBe(1);
+
+      const second = await service.purgeExpired(LATER);
+      // 試みていない p-new が先で、失敗したものはその後
+      expect(second.purgedProjectIds).toEqual(['p-new']);
+      expect(second.failedProjectIds).toEqual(failingRows.slice(0, 19).map((r) => r.id));
+    });
+
+    it('試みていないもの → 最後に試みた日時の古いもの → 論理削除の古い順に選ぶ（46.10）', async () => {
+      prisma = createPurgePrisma(
+        [
+          {
+            id: 'p-tried-recent',
+            deletedAt: daysAgo(400),
+            purgeState: { failureCount: 1, lastAttemptAt: daysAgo(1), excludedAt: null },
+          },
+          {
+            id: 'p-tried-old',
+            deletedAt: daysAgo(100),
+            purgeState: { failureCount: 2, lastAttemptAt: daysAgo(3), excludedAt: null },
+          },
+          { id: 'p-untried-b', deletedAt: daysAgo(150) },
+          { id: 'p-untried-a', deletedAt: daysAgo(200) },
+          {
+            // 記録はあるが試みた日時が空（対象に戻したもの）は試みていないものと同じ扱い
+            id: 'p-requeued',
+            deletedAt: daysAgo(180),
+            purgeState: { failureCount: 0, lastAttemptAt: null, excludedAt: null },
+          },
+        ],
+        {}
+      );
+      const service = createPurgeService();
+
+      const result = await service.selectTargets(NOW);
+
+      expect(result.targets.map((t) => t.id)).toEqual([
+        'p-untried-a',
+        'p-requeued',
+        'p-untried-b',
+        'p-tried-old',
+        'p-tried-recent',
+      ]);
+      const findArgs = prisma.project.findMany.mock.calls[0]![0];
+      expect(findArgs.orderBy).toEqual([
+        { purgeState: { lastAttemptAt: { sort: 'asc', nulls: 'first' } } },
+        { deletedAt: 'asc' },
+        { id: 'asc' },
+      ]);
+    });
+
+    it('対象から外したものは選ばず、残りの件数にも数えない（46.13）', async () => {
+      const rows: ProjectRow[] = Array.from({ length: 22 }, (_, i) => ({
+        id: `p-${String(i).padStart(2, '0')}`,
+        deletedAt: daysAgo(200 - i),
+      }));
+      rows.push({
+        id: 'p-excluded',
+        deletedAt: daysAgo(500),
+        purgeState: { failureCount: 5, lastAttemptAt: daysAgo(1), excludedAt: daysAgo(1) },
+      });
+      prisma = createPurgePrisma(rows, {});
+      const service = createPurgeService();
+
+      const selection = await service.selectTargets(NOW);
+      expect(selection.targets.map((t) => t.id)).not.toContain('p-excluded');
+      expect(selection.targets).toHaveLength(20);
+      expect(selection.remainingCandidates).toBe(2);
+
+      const result = await service.purgeExpired(NOW);
+      expect(result.purgedProjectIds).not.toContain('p-excluded');
+      expect(result.failedProjectIds).not.toContain('p-excluded');
+      expect(result.remainingCandidates).toBe(2);
+      // 対象から外したものには何もしない
+      expect(prisma.projectPurgeState.upsert).not.toHaveBeenCalled();
+    });
+
+    it.each([['collect' as const], ['files' as const], ['database' as const]])(
+      '%s の段で失敗したら、トランザクションの外で回数を 1 増やし最後に試みた日時を付ける（46.10）',
+      async (stage) => {
+        prisma = createPurgePrisma([{ id: 'p-1', deletedAt: daysAgo(100) }], { 'p-1': ['k-1'] });
+        const service = createPurgeService();
+        if (stage === 'collect') {
+          prisma.siteSurvey.count.mockRejectedValue(new Error('db down'));
+        } else if (stage === 'files') {
+          storageDelete.mockRejectedValue(new Error('storage unavailable: k-1'));
+        } else {
+          failDatabaseFor(new Set(['p-1']));
+        }
+
+        const result = await service.purgeExpired(NOW);
+
+        expect(result.failedProjectIds).toEqual(['p-1']);
+        expect(prisma.projectPurgeState.upsert).toHaveBeenCalledTimes(1);
+        expect(prisma.projectPurgeState.upsert).toHaveBeenCalledWith({
+          where: { projectId: 'p-1' },
+          create: { projectId: 'p-1', failureCount: 1, lastAttemptAt: NOW },
+          update: { failureCount: { increment: 1 }, lastAttemptAt: NOW },
+        });
+        // 削除のトランザクションの中では書かない（ロールバックで消えないように）
+        for (const tx of prisma.txs) {
+          expect(tx.projectPurgeState).toBeUndefined();
+        }
+        const logged = vi.mocked(logger.error).mock.calls[0]![0] as unknown as Record<
+          string,
+          unknown
+        >;
+        expect(logged).toMatchObject({ projectId: 'p-1', stage });
+      }
+    );
+
+    it('続けて失敗すると回数が増え、最後に試みた日時が新しくなる（D11）', async () => {
+      const rows: ProjectRow[] = [{ id: 'p-1', deletedAt: daysAgo(100) }];
+      prisma = createPurgePrisma(rows, {});
+      failDatabaseFor(new Set(['p-1']));
+      const service = createPurgeService();
+
+      await service.purgeExpired(NOW);
+      expect(rows[0]!.purgeState).toEqual({
+        failureCount: 1,
+        lastAttemptAt: NOW,
+        excludedAt: null,
+      });
+
+      await service.purgeExpired(LATER);
+      expect(rows[0]!.purgeState).toEqual({
+        failureCount: 2,
+        lastAttemptAt: LATER,
+        excludedAt: null,
+      });
+    });
+
+    it('成功したものには記録を書かない（記録は Cascade でプロジェクトと共に消える）', async () => {
+      prisma = createPurgePrisma([{ id: 'p-1', deletedAt: daysAgo(100) }], {});
+      const service = createPurgeService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.purgedProjectIds).toEqual(['p-1']);
+      expect(prisma.projectPurgeState.upsert).not.toHaveBeenCalled();
+    });
+
+    it('記録の書き込みが失敗しても記録して、次のプロジェクトへ進む', async () => {
+      prisma = createPurgePrisma(
+        [
+          { id: 'p-1', deletedAt: daysAgo(120) },
+          { id: 'p-2', deletedAt: daysAgo(110) },
+          { id: 'p-3', deletedAt: daysAgo(105) },
+        ],
+        {}
+      );
+      failDatabaseFor(new Set(['p-1', 'p-2']));
+      prisma.projectPurgeState.upsert.mockRejectedValueOnce(
+        Object.assign(new Error('connection lost: secret-key'), { code: 'P1001' })
+      );
+      const service = createPurgeService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.failedProjectIds).toEqual(['p-1', 'p-2']);
+      expect(result.purgedProjectIds).toEqual(['p-3']);
+      // p-1 の書き込みは失敗、p-2 の書き込みは進む
+      expect(prisma.projectPurgeState.upsert).toHaveBeenCalledTimes(2);
+      expect(prisma.projectPurgeState.upsert.mock.calls[1]![0].where).toEqual({
+        projectId: 'p-2',
+      });
+      const errorLogs = vi
+        .mocked(logger.error)
+        .mock.calls.map((c) => c as unknown as [Record<string, unknown>, string]);
+      const recordFailure = errorLogs.filter(
+        ([, message]) => message === 'Failed to record project purge failure'
+      );
+      expect(recordFailure).toHaveLength(1);
+      expect(recordFailure[0]![0]).toEqual({
+        projectId: 'p-1',
+        errorName: 'Error',
+        errorCode: 'P1001',
+      });
+      expect(JSON.stringify(errorLogs)).not.toContain('secret-key');
+    });
   });
 });

@@ -6,6 +6,7 @@
  *
  * Task 81.1: 対象の選び方と、ファイルのキー・種類ごとの件数の集め方
  * Task 81.2: ファイル→DB の順の完全削除と監査の記録
+ * Task 83.2: 失敗の記録と、失敗したものを後ろへ回す選び方
  *
  * Requirements (project-management):
  * - 9.6: 関連データを保持期間の後に共に削除する
@@ -14,6 +15,8 @@
  * - 46.7: 失敗したプロジェクトは消さずに記録し、次の回でやり直す
  * - 46.8: 導入の前に論理削除されたプロジェクトにも同じ保持期間を当てる
  * - 46.9: 監査ログは消さない
+ * - 46.10: 失敗したものは記録し、試みていないものと試みた日時の古いものの後に回す（D10・D11）
+ * - 46.13: 対象から外したものは選ばない（論理削除のままのため表示・提供もされない）
  *
  * @module services/project-purge
  */
@@ -130,6 +133,7 @@ export class ProjectPurgeService {
     for (const target of targets) {
       const ok = await this.purgeProject(target, now);
       (ok ? purgedProjectIds : failedProjectIds).push(target.id);
+      if (!ok) await this.recordFailure(target.id, now);
     }
 
     return { purgedProjectIds, failedProjectIds, remainingCandidates };
@@ -182,6 +186,27 @@ export class ProjectPurgeService {
   }
 
   /**
+   * 失敗の回数を 1 増やし、最後に試みた日時を付ける（46.10、D11）
+   *
+   * 削除のトランザクションの外で書く（ロールバックで記録が消えないように）。
+   * 書き込みの失敗は記録して次のプロジェクトへ進む（その回の失敗は数えないが、次の回にまた試みる）。
+   */
+  private async recordFailure(projectId: string, now: Date): Promise<void> {
+    try {
+      await this.deps.prisma.projectPurgeState.upsert({
+        where: { projectId },
+        create: { projectId, failureCount: 1, lastAttemptAt: now },
+        update: { failureCount: { increment: 1 }, lastAttemptAt: now },
+      });
+    } catch (error) {
+      logger.error(
+        { projectId, ...describeError(error) },
+        'Failed to record project purge failure'
+      );
+    }
+  }
+
+  /**
    * Restrict の外部キーを持つ行を葉から先に消す（D6）
    *
    * Restrict は即時に検査されるため、連鎖の順に任せると参照の残る行で失敗する。
@@ -211,19 +236,31 @@ export class ProjectPurgeService {
   }
 
   /**
-   * 論理削除から 90 日を過ぎたプロジェクトを古い順に最大 20 件選び、残りの件数を数える
+   * 論理削除から 90 日を過ぎたプロジェクトを最大 20 件選び、残りの件数を数える
    *
+   * 対象から外したものは除く（46.13）。並びは、試みていないもの（記録が無い・最後に試みた日時が空）
+   * → 最後に試みた日時の古いもの → 論理削除の古い順（46.10、D10）。
    * 導入の前に論理削除されたものも同じ条件で選ぶ（46.8）。
    *
    * @param now - 現在の時刻
    */
   async selectTargets(now: Date): Promise<ProjectPurgeSelection> {
-    const where = { deletedAt: { not: null, lt: getProjectPurgeCutoff(now) } };
+    // 対象から外したもの（記録の excludedAt が空でないもの）を除く
+    const where: Prisma.ProjectWhereInput = {
+      deletedAt: { not: null, lt: getProjectPurgeCutoff(now) },
+      OR: [{ purgeState: { is: null } }, { purgeState: { is: { excludedAt: null } } }],
+    };
+    // 記録の無いものは試みた日時が空として先に並ぶ（1 対 1 の関係の外部結合）
+    const orderBy: Prisma.ProjectOrderByWithRelationInput[] = [
+      { purgeState: { lastAttemptAt: { sort: 'asc', nulls: 'first' } } },
+      { deletedAt: 'asc' },
+      { id: 'asc' },
+    ];
     const [rows, total] = await Promise.all([
       this.deps.prisma.project.findMany({
         where,
         select: { id: true, deletedAt: true },
-        orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+        orderBy,
         take: PROJECT_PURGE_BATCH_SIZE,
       }),
       this.deps.prisma.project.count({ where }),
