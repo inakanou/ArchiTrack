@@ -2081,7 +2081,7 @@
   - _Depends: 83.4_
   - _Boundary: ProjectPurgeService_
 
-- [ ] 83.6 対象に戻す運用の手順を足す
+- [x] 83.6 対象に戻す運用の手順を足す
   - design.md の同章の RequeueProjectPurgeScript のとおり、新設の backend/src/scripts/requeue-project-purge.ts と `backend/package.json` の `project:purge-requeue` を、`backend/src/scripts/reactivate-user.ts` と同じ形（ソースがあれば tsx、無ければビルド済みの dist を node）で足す。引数 `--project-id`、終了コード 0・1・2、出力にプロジェクト名を出さない。部品は定期処理と同じ本番の組み立て（`createProjectPurgeServiceForJob`。ストレージの設定が要る）で作り、通知の部品は渡さない（戻したことは監査に残す）。ストレージが設定されていないときは終了コード 1 と理由を出す。ビルドで dist に入ることを確かめる。`backend/package.json` は estimate-request のタスク121.2 も触るため、並べて流さない
   - 単体（新設の backend/src/__tests__/unit/scripts/requeue-project-purge.test.ts）で、引数の誤り（UUID でない ID を含む）・3 つの結果ごとの終了コードと出力を主張する。改修の前に赤になることを先に示す
   - 単体で、サーバー上でプロジェクト ID を指定して対象に戻せる状態になる
