@@ -846,4 +846,49 @@ describe('AuditLogs Component', () => {
       });
     });
   });
+
+  describe('プロジェクトの完全削除の監査の種別（project-management 要件46.6）', () => {
+    it('完全削除の記録を一覧で表示名により表示し、種別のコードを出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'purged-1',
+          actorId: null,
+          action: 'PROJECT_PURGED',
+          targetType: 'Project',
+          targetId: 'purged-project-1',
+          metadata: { counts: { files: 2 } },
+          createdAt: '2026-11-10T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('purged-project-1').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^プロジェクトの完全削除$/);
+      expect(within(table).queryByText('PROJECT_PURGED')).not.toBeInTheDocument();
+    });
+
+    it('イベント種別の絞り込みに完全削除を表示名で並べ、選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+      await screen.findByText('監査ログがありません');
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', { name: 'プロジェクトの完全削除' });
+      expect(option).toHaveValue('PROJECT_PURGED');
+
+      await user.selectOptions(actionFilter, 'プロジェクトの完全削除');
+
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(
+          expect.stringContaining('action=PROJECT_PURGED')
+        );
+      });
+    });
+  });
 });

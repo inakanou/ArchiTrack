@@ -47,7 +47,9 @@ export type AuditLogAction =
   | 'AUDIT_ARCHIVE_FAILED'
   | 'AUDIT_ARCHIVE_RESTORED'
   // 外部の AI での読み取り（Claude Vision）の送信（estimate-request の 49.7。表示名は utils/audit-log-actions.ts）
-  | 'CLAUDE_VISION_SENT';
+  | 'CLAUDE_VISION_SENT'
+  // 論理削除から保持期間を過ぎたプロジェクトの完全削除（project-management 要件46.6。表示名は utils/audit-log-actions.ts）
+  | 'PROJECT_PURGED';
 
 /**
  * 監査ログ情報

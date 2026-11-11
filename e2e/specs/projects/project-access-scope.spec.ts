@@ -3,8 +3,10 @@
  *
  * user-authentication タスク52.4。design.md の ProjectScopeService・ProjectScopeGuard の節。案件の一覧・
  * 状態ごとの件数は閲覧範囲内に絞られ、ID 指定の詳細は範囲外と不在（存在しない・論理削除）を同じ 404 にし、
- * 範囲外のときだけ監査（`PROJECT_SCOPE_DENIED`）に記録する。画面は詳細の 404 で「404 - ページが
- * 見つかりません」へ移る（frontend/src/pages/ProjectDetailPage.tsx）。
+ * 範囲外のときだけ監査（`PROJECT_SCOPE_DENIED`）に記録する。画面は詳細・編集の 404 で、開いた URL のまま
+ * 「プロジェクトが見つかりません」とプロジェクト一覧への戻るリンク（共通部品 ResourceNotFound）を出す
+ * （project-management の design.md「Requirements 42-46」D3。frontend/src/pages/ProjectDetailPage.tsx・
+ * ProjectEditPage.tsx）。
  *
  * Requirements (user-authentication):
  * - REQ-39.1: 案件の営業担当者・工事担当者・作成者のいずれか、または全案件閲覧の権限（`project:read_all`）を
@@ -16,6 +18,12 @@
  *   一覧・件数・詳細で見られる。一般ユーザーロールは持たない
  * - REQ-39.6: 工事担当者・営業担当者に設定すると次の要求から見え、担当から外すと見えなくなる
  * - REQ-39.7: 範囲外のアクセスが、利用者・対象・日時とともに監査ログ画面に出る（「案件範囲外のアクセス」）
+ *
+ * Requirements (project-management):
+ * - REQ-44.1: プロジェクト一覧の一覧・検索結果とステータス別件数に閲覧範囲外の案件を含めない
+ * - REQ-44.2: 範囲外の案件の詳細画面の URL は、存在しない ID と同じ表示（21.13）になり、名称その他の内容を出さない
+ * - REQ-44.3: 範囲外の案件の編集画面の URL は、存在しない ID と同じ表示になり、名称その他の内容と編集フォームを出さない
+ * - REQ-44.4: 範囲外・存在しない・論理削除済みの案件の詳細画面・編集画面の表示は互いに区別できない
  *
  * 検証に使う案件はテストの中で作り（名前の接頭辞 `PROJECT_NAME_PREFIX`）、担当者の付け替えはその案件に
  * だけ行う。利用者はテストの中で作る一意のメールアドレスの利用者（`SESSION_USER_EMAIL_PREFIX`）とし、
@@ -230,18 +238,62 @@ async function openProjectDetail(page: Page, projectId: string): Promise<Respons
   return loaded;
 }
 
-/** 詳細の URL を開くと 404 になり、画面が「見つかりません」を出すことを確かめ、応答の本文を返す */
+/** 不在の表示を確かめた結果（応答の本文と、画面の内容の領域の文面） */
+interface NotFoundView {
+  body: Record<string, unknown>;
+  view: string;
+}
+
+/**
+ * 開いた URL のまま不在の表示（「プロジェクトが見つかりません」と一覧への戻るリンク）が出て、指定の案件の
+ * 名前と編集フォームを出さないことを確かめ、画面の内容の領域（ProtectedLayout の main）の文面を返す
+ */
+async function expectNotFoundView(page: Page, path: string, hiddenName: string): Promise<string> {
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'プロジェクトが見つかりません' })
+  ).toBeVisible({ timeout: getTimeout(15000) });
+  // 汎用の 404 の画面（/404）へは移らず、開いた URL のまま（design.md「Requirements 42-46」D3）
+  await expect(page).toHaveURL((url) => url.pathname === path);
+  await expect(
+    page.getByRole('heading', { name: '404 - ページが見つかりません', exact: true })
+  ).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  // 編集フォームを出さない
+  await expect(page.getByRole('textbox', { name: 'プロジェクト名' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '保存' })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText(hiddenName);
+  return page.getByRole('main').first().innerText();
+}
+
+/** 詳細の URL を開くと 404 になり、画面が「見つかりません」を出すことを確かめ、応答の本文と画面の文面を返す */
 async function expectDetailNotFound(
   page: Page,
-  projectId: string
-): Promise<Record<string, unknown>> {
+  projectId: string,
+  hiddenName: string
+): Promise<NotFoundView> {
   const response = await openProjectDetail(page, projectId);
   expect(response.status()).toBe(404);
-  await expect(page).toHaveURL(/\/404$/, { timeout: getTimeout(15000) });
-  await expect(
-    page.getByRole('heading', { level: 1, name: '404 - ページが見つかりません' })
-  ).toBeVisible();
-  return (await response.json()) as Record<string, unknown>;
+  const view = await expectNotFoundView(page, `/projects/${projectId}`, hiddenName);
+  return { body: (await response.json()) as Record<string, unknown>, view };
+}
+
+/** 編集の URL を開くと案件の取得が 404 になり、詳細と同じ不在の表示が出ることを確かめ、応答の本文と画面の文面を返す */
+async function expectEditNotFound(
+  page: Page,
+  projectId: string,
+  hiddenName: string
+): Promise<NotFoundView> {
+  const loaded = page.waitForResponse((r) => isGet(r, `${PROJECTS_PATH}/${projectId}`), {
+    timeout: getTimeout(30000),
+  });
+  await page.goto(`/projects/${projectId}/edit`);
+  const response = await loaded;
+  expect(response.status()).toBe(404);
+  const view = await expectNotFoundView(page, `/projects/${projectId}/edit`, hiddenName);
+  return { body: (await response.json()) as Record<string, unknown>, view };
 }
 
 /** 詳細の URL を開くと案件の名前の見出しが出ることを確かめる */
@@ -284,6 +336,10 @@ test.describe('案件の閲覧範囲', () => {
    * @requirement user-authentication/REQ-39.3
    * @requirement user-authentication/REQ-39.6
    * @requirement user-authentication/REQ-39.7
+   * @requirement project-management/REQ-44.1
+   * @requirement project-management/REQ-44.2
+   * @requirement project-management/REQ-44.3
+   * @requirement project-management/REQ-44.4
    */
   test('担当外の利用者には一覧・件数・詳細で案件が見えず、範囲外のアクセスが監査ログ画面に出て、担当者に設定すると見え、外すと見えなくなる', async ({
     page,
@@ -310,20 +366,42 @@ test.describe('案件の閲覧範囲', () => {
 
     await loginAsUser(page, outsider);
 
-    // 要件39.3: 一覧（検索）と状態ごとの件数に案件が出ない
+    // 要件39.3・44.1: 一覧（検索）と状態ごとの件数に案件が出ない
     const before = await openProjectList(page, project.name);
     expect(before.listedIds).toEqual([]);
     await expectEmptyList(page);
     expect(before.statusCounts).toMatchObject({ total: 0, counts: { PREPARING: 0 } });
 
-    // 要件39.2: 詳細の URL を直接開くと「見つかりません」になり、本文は不在・論理削除と同じ
-    const outOfScopeBody = await expectDetailNotFound(page, project.id);
-    const missingBody = await expectDetailNotFound(page, MISSING_PROJECT_ID);
-    const deletedBody = await expectDetailNotFound(page, deletedProject.id);
+    // 対照: 経路の無い URL は汎用の 404 の画面になる。案件の不在の表示がこれと別であることを
+    // 下の expectNotFoundView が否定で確かめるため、その見出しが実在することを肯定側から確かめておく
+    await page.goto(`/projects/${MISSING_PROJECT_ID}/no-such-page`);
+    await expect(
+      page.getByRole('heading', { level: 1, name: '404 - ページが見つかりません', exact: true })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+
+    // 要件39.2・44.2: 詳細の URL を直接開くと「見つかりません」になり、本文は不在・論理削除と同じ
+    const outOfScopeDetail = await expectDetailNotFound(page, project.id, project.name);
+    const missingDetail = await expectDetailNotFound(page, MISSING_PROJECT_ID, project.name);
+    const deletedDetail = await expectDetailNotFound(page, deletedProject.id, deletedProject.name);
+    const outOfScopeBody = outOfScopeDetail.body;
     expect(outOfScopeBody).toMatchObject({ status: 404 });
-    expect(withoutInstance(outOfScopeBody)).toEqual(withoutInstance(missingBody));
-    expect(withoutInstance(outOfScopeBody)).toEqual(withoutInstance(deletedBody));
+    expect(withoutInstance(outOfScopeBody)).toEqual(withoutInstance(missingDetail.body));
+    expect(withoutInstance(outOfScopeBody)).toEqual(withoutInstance(deletedDetail.body));
     expect(JSON.stringify(withoutInstance(outOfScopeBody))).not.toContain(project.id);
+
+    // 要件44.3: 編集の URL を直接開いても「見つかりません」になり、編集フォームと名前を出さない
+    const outOfScopeEdit = await expectEditNotFound(page, project.id, project.name);
+    const missingEdit = await expectEditNotFound(page, MISSING_PROJECT_ID, project.name);
+    const deletedEdit = await expectEditNotFound(page, deletedProject.id, deletedProject.name);
+    expect(withoutInstance(outOfScopeEdit.body)).toEqual(withoutInstance(missingEdit.body));
+    expect(withoutInstance(outOfScopeEdit.body)).toEqual(withoutInstance(deletedEdit.body));
+    expect(JSON.stringify(withoutInstance(outOfScopeEdit.body))).not.toContain(project.id);
+
+    // 要件44.4: 範囲外・不在・論理削除済みの詳細・編集の表示は、内容の領域の文面まで同じ
+    expect(outOfScopeDetail.view).toContain('プロジェクトが見つかりません');
+    for (const other of [missingDetail, deletedDetail, outOfScopeEdit, missingEdit, deletedEdit]) {
+      expect(other.view).toBe(outOfScopeDetail.view);
+    }
 
     // 要件39.7: 範囲外のアクセスだけが記録され、不在・論理削除は記録されない
     const denied = await scopeDeniedRecords(outsider.id, [
@@ -354,7 +432,7 @@ test.describe('案件の閲覧範囲', () => {
     expect(removed.listedIds).toEqual([]);
     expect(removed.statusCounts).toMatchObject({ total: 0, counts: { PREPARING: 0 } });
     await expectEmptyList(page);
-    await expectDetailNotFound(page, project.id);
+    await expectDetailNotFound(page, project.id, project.name);
     // 外した後の範囲外のアクセスも記録される
     const deniedAfterRemoval = await scopeDeniedRecords(outsider.id, [project.id]);
     expect(deniedAfterRemoval.length).toBeGreaterThan(denied.length);

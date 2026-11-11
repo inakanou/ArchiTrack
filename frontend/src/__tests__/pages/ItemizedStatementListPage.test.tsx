@@ -145,6 +145,7 @@ describe('ItemizedStatementListPage', () => {
       description: '',
       status: 'SURVEYING' as const,
       statusLabel: '調査中',
+      createdById: 'user-1',
       siteAddress: '',
       tradingPartnerId: null,
       tradingPartner: null,

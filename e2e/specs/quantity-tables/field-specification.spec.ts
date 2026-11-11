@@ -804,7 +804,8 @@ test.describe('フィールド仕様', () => {
 
         if (dialogVisible) {
           // 確認ダイアログ内の削除確定ボタンをクリック
-          const confirmButton = dialog.getByRole('button', { name: /^削除$/i });
+          // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
+          const confirmButton = dialog.getByRole('button', { name: /^削除(する)?$/i });
 
           // APIレスポンスを待ちながら削除ボタンをクリック
           const deletePromise = page.waitForResponse(

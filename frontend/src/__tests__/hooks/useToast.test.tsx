@@ -235,6 +235,21 @@ describe('useToast', () => {
       expect(toast.message).toBe('プロジェクトを更新しました');
     });
 
+    it('projectUpdatedWithoutAccess()で担当者から外れたときの更新成功メッセージ（45.3）を表示できる', () => {
+      const { result } = renderHook(() => useToast(), { wrapper });
+
+      act(() => {
+        result.current.projectUpdatedWithoutAccess();
+      });
+
+      expect(result.current.toasts).toHaveLength(1);
+      const toast = result.current.toasts[0]!;
+      expect(toast.type).toBe('success');
+      expect(toast.message).toBe(
+        'プロジェクトを更新しました。担当者から外れたため、このプロジェクトは閲覧できなくなりました'
+      );
+    });
+
     it('projectDeleted()でプロジェクト削除成功メッセージを表示できる', () => {
       const { result } = renderHook(() => useToast(), { wrapper });
 

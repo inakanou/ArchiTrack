@@ -112,7 +112,7 @@ export default function ProjectCreatePage() {
           name: data.name,
           tradingPartnerId: data.tradingPartnerId,
           salesPersonId: data.salesPersonId,
-          constructionPersonId: data.constructionPersonId,
+          constructionPersonId: data.constructionPersonId ?? undefined,
           siteAddress: data.siteAddress || undefined,
           description: data.description || undefined,
         });

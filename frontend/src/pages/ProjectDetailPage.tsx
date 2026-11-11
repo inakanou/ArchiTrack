@@ -33,9 +33,16 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
+import {
+  deleteProject,
+  transitionStatus,
+  getProjectDetailSummary,
+  getProjectRelatedCounts,
+} from '../api/projects';
+import type { RelatedCounts } from '../api/projects';
 import type {
   ContractSectionSummary,
+  ReceivedQuotationSectionSummary,
   ScheduleSectionSummary,
   ProjectConstructionPhotoSummary,
 } from '../api/projects';
@@ -61,6 +68,8 @@ import { QuantityTableSectionCard } from '../components/projects/QuantityTableSe
 import { ItemizedStatementSectionCard } from '../components/projects/ItemizedStatementSectionCard';
 import { EstimateRequestSectionCard } from '../components/projects/EstimateRequestSectionCard';
 import { EstimateSectionCard } from '../components/projects/EstimateSectionCard';
+import { ReceivedQuotationSectionCard } from '../components/projects/ReceivedQuotationSectionCard';
+import { usePermission } from '../hooks/usePermission';
 import { ContractSectionCard } from '../components/projects/ContractSectionCard';
 import { ScheduleSectionCard } from '../components/projects/ScheduleSectionCard';
 import { ConstructionPhotoSectionCard } from '../components/projects/ConstructionPhotoSectionCard';
@@ -68,7 +77,7 @@ import {
   ExecutionBudgetSectionCard,
   type ExecutionBudgetSectionInfo,
 } from '../components/projects/ExecutionBudgetSectionCard';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 
 // ============================================================================
 // 定数定義
@@ -402,6 +411,10 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  // Task 77.5: 受領見積書セクションの骨組みと新規登録の出し分け（design D1）
+  const { hasPermission } = usePermission();
+  const canReadEstimateRequest = hasPermission('estimate_request:read');
+  const canRegisterReceivedQuotation = hasPermission('estimate_request:update');
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -414,6 +427,9 @@ export default function ProjectDetailPage() {
   const [estimateRequestSummary, setEstimateRequestSummary] =
     useState<ProjectEstimateRequestSummary | null>(null);
   const [estimateSummary, setEstimateSummary] = useState<EstimateSummary | null>(null);
+  // 権限が無いと応答に鍵が無いので null のまま（design D2）
+  const [receivedQuotationSummary, setReceivedQuotationSummary] =
+    useState<ReceivedQuotationSectionSummary | null>(null);
   const [contractSummary, setContractSummary] = useState<ContractSectionSummary | null>(null);
   const [scheduleSummary, setScheduleSummary] = useState<ScheduleSectionSummary | null>(null);
   const [constructionPhotoSummary, setConstructionPhotoSummary] =
@@ -428,9 +444,15 @@ export default function ProjectDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  // Task 80.4: 削除の前に取る関連データの件数と、取得中の状態
+  const [relatedCounts, setRelatedCounts] = useState<RelatedCounts | null>(null);
+  const [isLoadingRelatedCounts, setIsLoadingRelatedCounts] = useState(false);
 
   // エラー状態
   const [error, setError] = useState<string | null>(null);
+
+  // Task 78.1: 不在（404）の状態。編集画面と同じ表示をその場に出す（44.2, 44.4）
+  const [isNotFound, setIsNotFound] = useState(false);
 
   /**
    * プロジェクトデータを一括取得
@@ -444,6 +466,7 @@ export default function ProjectDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const data = await getProjectDetailSummary(id);
@@ -454,6 +477,8 @@ export default function ProjectDetailPage() {
       setItemizedStatementSummary(data.sections.itemizedStatements);
       setEstimateRequestSummary(data.sections.estimateRequests);
       setEstimateSummary(data.sections.estimates);
+      // Task 77.5: 受領見積書（鍵が無ければ描かない。Requirements 42.2）
+      setReceivedQuotationSummary(data.sections.receivedQuotations ?? null);
 
       // Task 59.2: detail-summary APIから契約書サマリーを取得（個別API呼び出しを置換）
       // Requirements: 37.1, 37.2
@@ -474,7 +499,8 @@ export default function ProjectDetailPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
-          navigate('/404', { replace: true });
+          // 汎用の 404 の画面へは移らず、その場で不在を出す
+          setIsNotFound(true);
           return;
         }
         if (err.statusCode === 403) {
@@ -514,6 +540,30 @@ export default function ProjectDetailPage() {
       navigate(`/projects/${project.id}/edit`);
     }
   }, [project, navigate]);
+
+  /**
+   * 削除のボタン（Task 80.4, Requirements 9.5）
+   *
+   * 関連データの件数を取ってからダイアログを開く。
+   * 取得に失敗したら通知を出し、件数を示さずに消させないためダイアログを開かない。
+   */
+  const handleOpenDeleteDialog = useCallback(async () => {
+    if (!id || isLoadingRelatedCounts) return;
+
+    setIsLoadingRelatedCounts(true);
+    try {
+      const counts = await getProjectRelatedCounts(id);
+      setRelatedCounts(counts);
+      setShowDeleteDialog(true);
+    } catch (err) {
+      const defaultErrorMessage = '関連データの件数を取得できませんでした';
+      const errorMessage =
+        err instanceof ApiError ? err.message || defaultErrorMessage : defaultErrorMessage;
+      toast.operationFailed(errorMessage);
+    } finally {
+      setIsLoadingRelatedCounts(false);
+    }
+  }, [id, isLoadingRelatedCounts, toast]);
 
   /**
    * プロジェクト削除
@@ -570,6 +620,7 @@ export default function ProjectDetailPage() {
         setItemizedStatementSummary(data.sections.itemizedStatements);
         setEstimateRequestSummary(data.sections.estimateRequests);
         setEstimateSummary(data.sections.estimates);
+        setReceivedQuotationSummary(data.sections.receivedQuotations ?? null);
         setContractSummary(data.sections.contracts);
         setScheduleSummary(data.sections.schedules);
         setConstructionPhotoSummary(data.sections.constructionPhotos);
@@ -594,6 +645,19 @@ export default function ProjectDetailPage() {
     },
     [id, toast]
   );
+
+  // 存在しないプロジェクトの表示（編集画面と同じ）
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
 
   // ローディング表示
   if (isLoading) {
@@ -665,7 +729,9 @@ export default function ProjectDetailPage() {
           </button>
           <button
             type="button"
-            onClick={() => setShowDeleteDialog(true)}
+            onClick={handleOpenDeleteDialog}
+            disabled={isLoadingRelatedCounts}
+            aria-busy={isLoadingRelatedCounts}
             style={{ ...styles.button, ...styles.deleteButton }}
           >
             削除
@@ -785,6 +851,18 @@ export default function ProjectDetailPage() {
         isLoading={isLoading}
       />
 
+      {/* 受領見積書セクション (Task 77.5, Requirements 42.1, 42.2, 42.13, 28.1) */}
+      {/* 見積依頼と見積書の間に置く。応答に鍵が無ければ描かず、ロード中は閲覧権限があるときだけ骨組みを出す */}
+      {(receivedQuotationSummary || (isLoading && canReadEstimateRequest)) && (
+        <ReceivedQuotationSectionCard
+          projectId={project.id}
+          totalCount={receivedQuotationSummary?.totalCount ?? 0}
+          latestReceivedQuotations={receivedQuotationSummary?.latestReceivedQuotations ?? []}
+          isLoading={isLoading}
+          canRegister={canRegisterReceivedQuotation}
+        />
+      )}
+
       {/* 見積書セクション (Task 19.3, Requirements 16.1, 16.3, 16.4, 16.13) */}
       <EstimateSectionCard
         projectId={project.id}
@@ -831,7 +909,10 @@ export default function ProjectDetailPage() {
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={handleDelete}
         projectName={project.name}
-        hasRelatedData={false}
+        hasRelatedData={
+          relatedCounts !== null && Object.values(relatedCounts).some((count) => count > 0)
+        }
+        relatedDataCounts={relatedCounts ?? undefined}
         isDeleting={isDeleting}
       />
     </main>

@@ -615,7 +615,18 @@ describe('DeleteConfirmationDialog スクリーンリーダー対応', () => {
           onConfirm={mockOnConfirm}
           projectName="テストプロジェクト"
           hasRelatedData={true}
-          relatedDataCounts={{ surveys: 3, estimates: 2 }}
+          relatedDataCounts={{
+            siteSurveys: 3,
+            quantityTables: 0,
+            itemizedStatements: 0,
+            estimateRequests: 0,
+            receivedQuotations: 0,
+            estimates: 2,
+            contracts: 0,
+            schedules: 0,
+            executionBudgets: 0,
+            constructionPhotos: 0,
+          }}
         />
       );
 

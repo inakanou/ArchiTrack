@@ -383,6 +383,73 @@ describe('ProjectForm', () => {
       });
     });
 
+    it('編集で工事担当者を空にして保存すると、紐づけを外す値（null）を渡す（45.4）', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="edit"
+          initialData={{
+            name: '既存プロジェクト',
+            salesPersonId: 'user-1',
+            constructionPersonId: 'user-2',
+          }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      const constructionSelect = screen.getByLabelText(/工事担当者/) as HTMLSelectElement;
+      await waitFor(() => {
+        expect(constructionSelect.value).toBe('user-2');
+      });
+      await user.selectOptions(constructionSelect, '');
+      expect(constructionSelect.value).toBe('');
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({ salesPersonId: 'user-1', constructionPersonId: null })
+        );
+      });
+    });
+
+    it('作成で工事担当者を空にして作成すると、工事担当者を渡さない（undefined のまま）', async () => {
+      const user = userEvent.setup();
+      render(
+        <ProjectForm
+          mode="create"
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          isSubmitting={false}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+      });
+
+      await user.type(screen.getByLabelText(/プロジェクト名/), 'テストプロジェクト');
+      const constructionSelect = screen.getByLabelText(/工事担当者/) as HTMLSelectElement;
+      await waitFor(() => {
+        expect(constructionSelect.value).toBe('current-user-id');
+      });
+      await user.selectOptions(constructionSelect, '');
+
+      await user.click(screen.getByRole('button', { name: '作成' }));
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+      });
+      const submitted = mockOnSubmit.mock.calls[0]?.[0] as ProjectFormData;
+      expect(submitted.constructionPersonId).toBeUndefined();
+    });
+
     it('送信中はボタンが無効化される', () => {
       render(
         <ProjectForm

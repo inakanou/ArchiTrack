@@ -274,6 +274,48 @@ describe('OpenAPI Specification - Project Management', () => {
     });
   });
 
+  // Task 80.2: 削除の確認に示す関連データの件数（9.5）
+  describe('Paths - /api/projects/{id}/related-counts', () => {
+    it('should define GET /api/projects/{id}/related-counts endpoint', () => {
+      const endpoint = apiSpec.paths['/api/projects/{id}/related-counts']?.get;
+      expect(endpoint).toBeDefined();
+      expect(endpoint.tags).toContain('Projects');
+      expect(endpoint.security).toEqual([{ bearerAuth: [] }]);
+
+      const idParam = endpoint.parameters?.find((p: { name: string }) => p.name === 'id');
+      expect(idParam).toBeDefined();
+      expect(idParam.in).toBe('path');
+      expect(idParam.schema.format).toBe('uuid');
+
+      // 種類ごとの件数を整数で返す
+      const schema = endpoint.responses['200'].content['application/json'].schema;
+      expect(schema.required).toEqual([
+        'siteSurveys',
+        'quantityTables',
+        'itemizedStatements',
+        'estimateRequests',
+        'receivedQuotations',
+        'estimates',
+        'contracts',
+        'schedules',
+        'executionBudgets',
+        'constructionPhotos',
+      ]);
+      for (const key of schema.required as string[]) {
+        expect(schema.properties[key].type).toBe('integer');
+      }
+
+      expect(endpoint.responses['400']).toBeDefined();
+      expect(endpoint.responses['401']).toBeDefined();
+      expect(endpoint.responses['403']).toBeDefined();
+      expect(endpoint.responses['404']).toBeDefined();
+    });
+
+    it('should not leak task notes as path keys', () => {
+      expect(apiSpec.paths['Task 80.2']).toBeUndefined();
+    });
+  });
+
   describe('Paths - /api/projects/{id}', () => {
     it('should define GET /api/projects/{id} endpoint', () => {
       const endpoint = apiSpec.paths['/api/projects/{id}']?.get;

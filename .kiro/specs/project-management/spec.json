@@ -1,10 +1,10 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-10-08T00:00:00Z",
+  "updated_at": "2026-11-09T17:30:00Z",
   "language": "ja",
-  "phase": "implementation-complete",
-  "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。プロジェクト詳細画面の工程表セクション追加：(12)工程表セクション表示（Requirement 38）。(13)detail-summary APIへの工程表セクション統合（Requirement 39）。プロジェクト詳細画面の実行予算セクション追加：(14)実行予算セクション表示（Requirement 40）。(15)detail-summary APIへの実行予算セクション統合（Requirement 41）。",
+  "phase": "tasks-generated",
+  "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。プロジェクト詳細画面の工程表セクション追加：(12)工程表セクション表示（Requirement 38）。(13)detail-summary APIへの工程表セクション統合（Requirement 39）。プロジェクト詳細画面の実行予算セクション追加：(14)実行予算セクション表示（Requirement 40）。(15)detail-summary APIへの実行予算セクション統合（Requirement 41）。受領見積書と IPA の是正（2026-11-09。roadmap の実施順 3、是正計画 §5.3）：(16)プロジェクト詳細画面の受領見積書セクション（Requirement 42）。(17)detail-summary APIへの受領見積書セクション統合（Requirement 43）。(18)プロジェクトの画面での閲覧範囲外の表示（Requirement 44）。(19)担当者の変更で自分が閲覧範囲から外れるときの確認（Requirement 45）。(20)論理削除したプロジェクトの保持期間（90日）と完全削除（Requirement 46）。既存条文の改訂: 9.5・9.6・28.1。",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -19,5 +19,31 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true
+  "ready_for_implementation": true,
+  "update_history": [
+    {
+      "date": "2026-11-09T17:30:00Z",
+      "changes": "Task 77〜82 を利用者が承認した（2026-11-09「承認します」）。approvals.tasks.approved を true、ready_for_implementation を true にした"
+    },
+    {
+      "date": "2026-11-09T17:00:00Z",
+      "changes": "Requirements 42-46 の実装タスク（Task 77〜82、計 23 サブタスク）を tasks.md の末尾に起票した。77 受領見積書セクション（件数と直近の部品・detail-summary の権限による出し分け・セクションの部品・一覧画面の登録フォームの自動の開き・詳細画面への組み込み）、78 詳細画面の不在の表示、79 担当者の変更（工事担当者を空にする値と作成者の型・確認ダイアログ・編集画面への組み込み）、80 削除の関連データの警告（件数・経路・ダイアログ・詳細画面）、81 完全削除（対象とキー・削除と監査・統合・定期処理・監査の表示名）、82 E2E と関門。task plan review gate パス。task-graph sanity review は independent で 1 回目 NEEDS_FIXES（10 件。テストのファイル名・型の受け持ち・依存・失敗の起こし方・分割）を直し、2 回目 PASS。phase を tasks-generated にした。approvals.tasks.approved は false"
+    },
+    {
+      "date": "2026-11-09T16:00:00Z",
+      "changes": "Requirements 42-46 の設計を利用者が承認した（2026-11-09「承認します」。D1 の新規登録のボタンを estimate_request:update で出し分ける読みを含む）。approvals.design.approved を true にした。tasks は未承認のまま"
+    },
+    {
+      "date": "2026-11-09T15:00:00Z",
+      "changes": "Requirements 42-46 の設計の章を design.md に加え、research.md を新設した。D1 新規登録のボタンは estimate_request:update で出し分ける（estimate-request の D3 の読みに合わせる）、D2 受領見積書のデータは権限が無ければ応答に含めない、D3 詳細画面の 404 を編集画面と同じその場の表示に替える、D4 自分が外れるかは画面で判定、D5 関連データの件数は専用の経路、D6 完全削除はファイル→DB、Restrict の行を葉から消してから連鎖、D7 1 回最大 20 件、D8 監査に名前とキーを入れない。design review gate（mechanical: 追跡・境界・File Structure Plan・孤立部品なし）パス。check:trace-coverage・check:design-component-reqs（下限を実測の 26・25・24 へ締めた）・check:design-refs・check:design-path-refs・check:design-code-refs・check:design-measurement-freshness は緑。approvals.design.approved は false"
+    },
+    {
+      "date": "2026-11-09T13:00:00Z",
+      "changes": "Requirement 42〜46 と既存条文の改訂（9.5・9.6・28.1）を利用者が承認した（2026-11-09「承認します」。46.8 の導入前に論理削除したプロジェクトへの適用も示したとおり）。approvals.requirements.approved を true にした。design・tasks は未承認のまま"
+    },
+    {
+      "date": "2026-11-09T12:00:00Z",
+      "changes": "Requirement 42〜46追加（roadmap の実施順 3: project-management の拡張と IPA の是正 §5.3）。42 プロジェクト詳細画面の受領見積書セクション（見積依頼セクションの直下、総数と直近、見積依頼の閲覧権限が無ければ表示しない）、43 detail-summary APIの受領見積書セクション統合、44 プロジェクトの画面での閲覧範囲外の表示（詳細・編集は存在しないIDと同じ表示）、45 担当者の変更で自分が閲覧範囲から外れるときの保存前の確認と保存後の一覧への遷移、46 論理削除したプロジェクトの保持期間 90 日と、関連データ・ストレージのファイルを含む完全削除（1日1回の定期処理、監査ログに記録、元に戻す画面は作らない）。既存条文の改訂: 9.5（関連データの種類ごとの件数を示す警告）・9.6（関連データに個別の削除の印を付けず、保持期間の後にプロジェクトと共に完全削除）・28.1（見積書セクションの位置）。利用者の判断（2026-11-09）: 4 点とも推奨案。requirements review gate（mechanical: 数値 ID・全 AC が EARS・If は then 付き、judgment: coverage/testability/boundary）パス。approvals を未承認に戻し、ready_for_implementation を false、phase を requirements-generated にした"
+    }
+  ]
 }

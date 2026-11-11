@@ -345,10 +345,11 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### ジョブキュー（Bull）
 
 - **メールの送信**: キュー `email-queue`（`backend/src/services/email.service.ts` の `createEmailQueue()`）。完了したジョブは中身ごと消し、再試行を使い切った失敗はトークンを含まない形で記録してから消す
-- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 5 つ
+- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 6 つ
   - `expired-token-cleanup`（毎時 15 分）: 使用済み・期限切れの招待・リセット・リフレッシュのトークンの消去
   - `failed-email-job-cleanup`（毎時 45 分）: メールキューの失敗のジョブの掃除
   - `inactive-user-deactivation`（毎日 03:00）: 90 日使われていない利用者の自動無効化
+  - `soft-deleted-project-purge`（毎日 03:30）: 論理削除から 90 日を過ぎたプロジェクトの、関連データとストレージのファイルを含む完全削除（1 回最大 20 件。監査ログに記録）
   - `audit-log-archive`（毎月 1 日 04:00）: 13 か月を過ぎた監査ログの暗号化したアーカイブと、8 年を過ぎたアーカイブの消去
   - `security-anomaly-overflow-summary`（10 分ごと）: 異常の通知の総数の上限で送らなかった通知（溢れ分）が残り、上限の時間窓が明けていれば、要約を全システム管理者へ 1 通送る
 

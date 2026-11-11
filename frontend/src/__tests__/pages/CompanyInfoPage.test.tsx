@@ -185,6 +185,7 @@ describe('CompanyInfoPage', () => {
     info: vi.fn(),
     projectCreated: vi.fn(),
     projectUpdated: vi.fn(),
+    projectUpdatedWithoutAccess: vi.fn(),
     projectDeleted: vi.fn(),
     projectStatusChanged: vi.fn(),
     operationFailed: vi.fn(),

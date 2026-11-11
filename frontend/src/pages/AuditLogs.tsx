@@ -12,6 +12,8 @@ import {
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
   INVITATION_AUDIT_ACTIONS,
   INVITATION_AUDIT_ACTION_LABELS,
+  PROJECT_PURGE_AUDIT_ACTIONS,
+  PROJECT_PURGE_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTIONS,
@@ -136,6 +138,7 @@ export function AuditLogs() {
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
       ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
+      ...PROJECT_PURGE_AUDIT_ACTION_LABELS,
     };
     return labels[action] || action;
   };
@@ -249,6 +252,11 @@ export function AuditLogs() {
             {CLAUDE_VISION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {CLAUDE_VISION_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
+            {PROJECT_PURGE_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {PROJECT_PURGE_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
           </select>

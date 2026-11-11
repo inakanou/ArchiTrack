@@ -6,10 +6,14 @@
  *
  * Requirements (user-authentication):
  * - REQ-36.6: 無効化されたユーザーが担当者として設定された既存データの表示で、表示名を引き続き表示する
+ *
+ * Requirements (project-management):
+ * - 45.4: 工事担当者を空にした保存は紐づけを外す値（null）を送る（タスク79.1）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
 import ProjectEditPage from '../../pages/ProjectEditPage';
@@ -56,6 +60,7 @@ const project: ProjectDetail = {
   statusLabel: '準備中',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-15T00:00:00.000Z',
+  createdById: 'user-1',
 };
 
 function renderPage() {
@@ -94,5 +99,31 @@ describe('ProjectEditPage — 無効化された担当者の表示名（36.6）'
     expect(sales.selectedOptions[0]?.textContent).toBe('退職営業（無効）');
     expect(construction.value).toBe('inactive-construction');
     expect(construction.selectedOptions[0]?.textContent).toBe('退職工事（無効）');
+  });
+
+  it('無効化された工事担当者を空にして保存すると、紐づけを外す値（null）を送る（45.4）', async () => {
+    const user = userEvent.setup();
+    vi.mocked(projectsApi.updateProject).mockResolvedValue({
+      ...project,
+      constructionPerson: undefined,
+    });
+    renderPage();
+
+    const construction = (await screen.findByRole('combobox', {
+      name: '工事担当者',
+    })) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(construction.value).toBe('inactive-construction');
+    });
+    await user.selectOptions(construction, '');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(projectsApi.updateProject).toHaveBeenCalledWith(
+        'project-1',
+        expect.objectContaining({ constructionPersonId: null }),
+        '2026-01-15T00:00:00.000Z'
+      );
+    });
   });
 });

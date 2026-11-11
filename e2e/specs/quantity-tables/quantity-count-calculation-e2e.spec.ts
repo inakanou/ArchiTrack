@@ -801,9 +801,10 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
       const deleteButton = page.getByRole('button', { name: /削除/i }).first();
       if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
         await deleteButton.click();
+        // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
+          .getByRole('button', { name: /^削除(する)?$/i });
         if (await isVisibleWithin(confirmButton, getTimeout(5000))) {
           await confirmButton.click();
           await page.waitForLoadState('networkidle');

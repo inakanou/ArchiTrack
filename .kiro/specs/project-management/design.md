@@ -4152,3 +4152,317 @@ interface ExecutionBudgetSectionItem {
 | 実行予算セクションカード | 単体テスト | `frontend/src/__tests__/components/projects/ExecutionBudgetSectionCard.test.tsx` |
 | detail-summary API実行予算統合 | 単体テスト | `backend/src/__tests__/unit/routes/projects.routes.test.ts` |
 | 実行予算セクション遷移 | E2Eテスト | `e2e/specs/project-execution-budget-navigation.spec.ts` |
+
+## Requirements 42-46: 受領見積書のセクションと IPA の是正（2026-11-09 の追加）
+
+### Overview
+
+**Purpose**: プロジェクト詳細画面に受領見積書のセクションを置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（42・43）。同じ回に、IPA 注意喚起に基づく是正計画 §5.3 として、プロジェクトの画面での閲覧範囲外の表示を揃え（44）、担当者の変更で自分が閲覧範囲から外れるときに保存の前に確かめ（45）、論理削除したプロジェクトを 90 日保持した後に関連データとストレージのファイルと共に完全に削除する（46）。既存の 9.5・9.6（関連データの警告）・28.1（見積書セクションの位置）を改訂に合わせて実装する（roadmap の実施順 3）。
+
+**Users**: 見積担当者（受領見積書の確認と登録への移動）、営業担当者・工事担当者（担当者の変更）、プロジェクトを削除する利用者、システム管理者（完全削除の記録の確認）。
+
+**Impact（既存前提の是正。2026-11-09 の調べもの〔読むだけ。HEAD `be72c627`〕）**:
+
+1. プロジェクト詳細画面は detail-summary の一括取得で各セクションを描くが、受領見積書のデータを含まない。受領見積書の一覧の経路（`GET /api/projects/:projectId/quotations`）は配列だけを返し、件数と直近の取得の部品を持たない。受領見積書の登録・編集・削除の経路は `estimate_request:update` を求める（estimate-request の design の D3 が 10.2・43.11 の「作成・編集・削除の権限」をこの権限で読む）
+2. 閲覧範囲外・不在・論理削除済みのプロジェクトの詳細画面は汎用の 404 の画面（「404 - ページが見つかりません」）へ移り、編集画面はその場に「プロジェクトが見つかりません」と一覧への戻るリンクを出す。二つの画面の表示が揃っておらず、詳細画面は 21.13 の表示を満たさない。21.13 の E2E は `test.fail()` の印で失敗を予期している
+3. 編集画面の保存は成功すると常に詳細画面へ移る。自分を担当者から外して閲覧範囲の外へ出ると 404 の画面になる。編集フォームは工事担当者を空にしても `undefined` を送り、サーバーは `null` のときだけ紐づけを外すため、工事担当者を空にする変更が保存されない
+4. 削除確認ダイアログは関連データの警告の表示を持つが、詳細画面は関連データの有無を常に「無し」で渡し、関連データの件数の部品（`ProjectService.getRelatedCounts`）は常に 0 を返す。経路も無い
+5. プロジェクトの論理削除は削除の印を付けるだけで、関連データとストレージのファイルは残り続ける。完全に削除する処理は無い。関連データの各機能の閲覧範囲の判定（`ProjectScopeService.evaluateProjectAccess`）は論理削除されたプロジェクトを「存在しない」と判定するため、論理削除の後は関連データも ID 指定で 404 になる
+6. プロジェクトの木の外部キーは大半が `Cascade` だが、受領見積書の案件（`Restrict`）と、木の中の `Restrict`（実行予算→契約、見積依頼→内訳書、見積依頼の項目→内訳書の項目、発注の項目・出来高の項目→実行予算の項目）がある。ストレージのキーはプロジェクトの単位の接頭辞を持たず（現場調査・アルバム・見積依頼の ID ごと）、ストレージの部品は一覧も一括削除も持たない。削除できないキーの削除は失敗せず何もしない
+
+### Goals
+- プロジェクト詳細画面から受領見積書の件数・直近・一覧・登録へ移れる
+- 閲覧範囲外・不在・論理削除済みのプロジェクトの詳細・編集画面が同じ表示になる
+- 自分を担当者から外す保存は確認を経て一覧へ移り、工事担当者を空にする変更が保存される
+- 論理削除したプロジェクトは関連データの件数を示して確かめ、90 日の後に関連データとファイルと共に完全に削除され、記録が残る
+
+### Non-Goals
+- 受領見積書の一覧画面・登録フォームそのもの（estimate-request の Requirement 43）
+- 論理削除されていないプロジェクトの配下で個別に論理削除された現場調査・工事写真のアルバムのファイルの扱い（是正計画 §5.2・§5.4）
+- 論理削除したプロジェクトを元に戻す画面、保持期間の設定の画面
+- 実行予算セクションと工程表セクションの並び（40.1 と画面の並びの食い違い。本章の境界の外として research.md に記録する）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- プロジェクト詳細画面の受領見積書セクションと、detail-summary の受領見積書のデータ（42・43）
+- プロジェクトの詳細画面・編集画面での不在の表示（44）と、担当者の変更の確認と遷移（45）
+- 関連データの件数の経路と削除確認ダイアログの警告・保持期間の表示（9.5・46.4）
+- 論理削除したプロジェクトの完全削除の処理と定期処理の定義、完全削除の監査の種別（46）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と拒否の記録（user-authentication の要件39）。本章は判定の結果を表示に使うだけで、判定を変えない
+- 定期処理の仕組み（user-authentication が持つ scheduled-job-runner）。本章は処理を一つ登録するだけ
+- 受領見積書の一覧画面の権限・表示（estimate-request の 43.11・43.13）。本章は一覧画面に「登録フォームを開いて表示する」入口を一つ足すだけ
+- 監査ログの保持・アーカイブ（user-authentication の要件41）
+
+#### Allowed Dependencies
+- `ProjectScopeService`（判定の結果と全案件の閲覧権限の有無）、`getSharedRBACService().hasPermission`（受領見積書の閲覧権限の有無）
+- `ReceivedQuotationService`（件数と直近の取得の部品を足す）
+- `StorageProvider.delete`、`AuditLogService.createLog`、scheduled-job-runner の `createScheduledJobDefinitions`
+- 画面の `usePermission`・`useAuth`・`useToast`・`FocusManager`・`ResourceNotFound`
+
+#### Revalidation Triggers
+- プロジェクトの木に外部キーを持つモデルが増えた・`onDelete` が変わった（完全削除の順と件数の数え方を見直す）
+- ストレージのファイルの列が増えた（完全削除のファイルの集め方を見直す）
+- 受領見積書の登録の権限（D3 の読み）が変わった（新規登録のボタンの出し分けを見直す）
+- 閲覧範囲の判定の規則（要件39）が変わった（45 の確認の条件を見直す）
+
+### Architecture
+
+```mermaid
+graph TB
+  subgraph Frontend
+    PDP[ProjectDetailPage] --> RQS[ReceivedQuotationSectionCard]
+    PDP --> DCD[DeleteConfirmationDialog]
+    PEP[ProjectEditPage] --> ASR[AssigneeSelfRemovalDialog]
+    RQS --> PRQ[ProjectReceivedQuotationListPage]
+  end
+  subgraph Backend
+    DSR[detail-summary route] --> RQSvc[ReceivedQuotationService]
+    RCR[related-counts route] --> PSvc[ProjectService]
+    Job[SoftDeletedProjectPurgeJob] --> Purge[ProjectPurgeService]
+    Purge --> Storage[StorageProvider]
+    Purge --> Audit[AuditLogService]
+  end
+  PDP --> DSR
+  PDP --> RCR
+```
+
+### Technology Stack
+新しい依存は持たない。定期処理は既存の Bull の `scheduled-jobs`（Asia/Tokyo の 5 項目の cron）に一つ足す。
+
+### File Structure Plan
+
+#### Directory Structure
+```
+backend/src/
+├── routes/projects.routes.ts                        # detail-summary の受領見積書、関連データの件数の経路（変更）
+├── services/project.service.ts                      # getRelatedCounts の実装（変更）
+├── services/received-quotation.service.ts           # findLatestByProjectId（件数と直近）（変更）
+├── services/project-purge.service.ts                # 論理削除したプロジェクトの完全削除（新設）
+├── jobs/soft-deleted-project-purge.job.ts           # 定期処理の本体（新設）
+├── jobs/scheduled-job-runner.ts                     # 定期処理の登録（変更）
+└── types/audit-log.types.ts                         # PROJECT_PURGED（変更）
+frontend/src/
+├── api/projects.ts                                  # 受領見積書のデータの型、関連データの件数の取得（変更）
+├── types/project.types.ts                           # ProjectDetail の createdById（変更）
+├── pages/ProjectDetailPage.tsx                      # セクションの配置・不在の表示・関連データの件数（変更）
+├── pages/ProjectEditPage.tsx                        # 確認・遷移（変更）
+├── pages/ProjectReceivedQuotationListPage.tsx       # 遷移の状態で登録フォームを開く（変更）
+├── components/projects/ReceivedQuotationSectionCard.tsx   # 受領見積書セクション（新設）
+├── components/projects/AssigneeSelfRemovalDialog.tsx      # 自分が外れるときの確認（新設）
+├── components/projects/DeleteConfirmationDialog.tsx       # 種類ごとの件数・保持期間の表示（変更）
+├── components/projects/ProjectForm.tsx              # 工事担当者を空にしたら null を送る（変更）
+├── hooks/useToast.ts、components/ToastProvider.tsx  # projectUpdatedWithoutAccess（変更）
+└── types/audit-log.types.ts、utils/audit-log-actions.ts   # PROJECT_PURGED のラベル（変更）
+```
+
+#### Modified Files
+- e2e/specs/projects/project-navigation.spec.ts — 21.13 の `test.fail()` を外し、「プロジェクトが見つかりません」と一覧への戻るリンクを主張する
+- e2e/specs/projects/project-access-scope.spec.ts — 詳細画面の不在の主張を汎用の 404 の画面から「プロジェクトが見つかりません」の表示へ追随させる（主張は消さない）
+- e2e/specs/projects/project-crud.spec.ts — 9.5・9.6 の E2E を関連データのあるプロジェクトで警告と件数を確かめる形へ改める
+
+### System Flows
+
+**完全削除（46.5〜46.7）**
+
+```mermaid
+sequenceDiagram
+  participant Job as SoftDeletedProjectPurgeJob
+  participant Svc as ProjectPurgeService
+  participant DB
+  participant St as StorageProvider
+  Job->>Svc: purgeExpired(now)
+  Svc->>DB: deletedAt が now-90日 より前のプロジェクト（最大 20 件）
+  loop プロジェクトごと
+    Svc->>DB: ファイルのキーと種類ごとの件数を集める
+    Svc->>St: キーを 1 件ずつ delete
+    alt 一つでも失敗
+      Svc-->>Job: failed に入れ、DB は消さない
+    else すべて成功
+      Svc->>DB: トランザクションで葉から削除し、PROJECT_PURGED を記録
+    end
+  end
+  Svc-->>Job: purged・failed・remaining
+```
+
+ファイルを先に消し、DB を後に消す。ファイルの削除が失敗すれば DB は残り、次の回にやり直す（46.7）。ファイルを消した後に DB の削除が失敗しても、次の回は既に無いキーの削除が何もせず成功し、DB の削除をやり直す（どちらの順で止まっても次の回で完了する）。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.1, 42.2 | 受領見積書セクションの配置と権限による出し分け | ProjectDetailPage | `GET /api/projects/:id/detail-summary` | - |
+| 42.3, 42.4, 42.5, 42.6, 42.13, 42.14 | 見出し・総数・カード・ロード中・スタイル | ReceivedQuotationSectionCard | `GET /api/projects/:id/detail-summary` | - |
+| 42.7, 42.8, 42.9, 42.10, 42.11, 42.12 | カード・すべて見る・新規登録・空の表示 | ReceivedQuotationSectionCard, ProjectReceivedQuotationListPage | - | - |
+| 28.1 | 見積書セクションの位置 | ProjectDetailPage | - | - |
+| 43.1, 43.2, 43.3, 43.4, 43.5 | detail-summary の受領見積書のデータ | ProjectsRoutes, ReceivedQuotationService | `GET /api/projects/:id/detail-summary` | - |
+| 44.1 | 一覧・件数に閲覧範囲外を含めない | ProjectsRoutes | `GET /api/projects`、`GET /api/projects/status-counts` | - |
+| 44.2, 44.3, 44.4 | 詳細・編集の不在の表示 | ProjectDetailPage, ProjectEditPage | `GET /api/projects/:id/detail-summary`、`GET /api/projects/:id` | - |
+| 45.1, 45.2 | 自分が外れるときの確認 | ProjectEditPage, AssigneeSelfRemovalDialog | `PUT /api/projects/:id` | - |
+| 45.3, 45.4, 45.5 | 保存の後の遷移と通知、確認を経た保存 | ProjectEditPage, ProjectForm | `PUT /api/projects/:id` | - |
+| 9.5 | 関連データの種類ごとの件数の警告 | DeleteConfirmationDialog, ProjectDetailPage, ProjectService, ProjectsRoutes | `GET /api/projects/:id/related-counts` | - |
+| 9.6 | 関連データを表示・取得の対象から外し、保持期間の後に共に削除 | ProjectPurgeService | 各機能の閲覧範囲の判定 | 完全削除 |
+| 46.5 | 1 日 1 回の定期処理 | ProjectPurgeService, SoftDeletedProjectPurgeJob | `createScheduledJobDefinitions` | 完全削除 |
+| 46.1, 46.6, 46.7, 46.8, 46.9 | 保持期間・記録・やり直し・導入前の分・監査ログを消さない | ProjectPurgeService | - | 完全削除 |
+| 46.2 | 保持期間中の不在の扱い | ProjectDetailPage, ProjectsRoutes | 各機能の閲覧範囲の判定 | - |
+| 46.3, 46.4 | 元に戻す手段を持たない・保持期間の表示 | DeleteConfirmationDialog | - | - |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| ReceivedQuotationSectionCard | UI | 受領見積書の総数・直近・入口 | 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9, 42.10, 42.11, 42.12, 42.13, 42.14 |
+| AssigneeSelfRemovalDialog | UI | 自分が外れるときの確認 | 45.1, 45.2 |
+| ProjectPurgeService | Service | 完全削除の本体 | 9.6, 46.1, 46.5, 46.6, 46.7, 46.8, 46.9 |
+| SoftDeletedProjectPurgeJob | Job | 1 日 1 回の起動 | 46.5 |
+
+#### ReceivedQuotationSectionCard
+
+| Field | Detail |
+|-------|--------|
+| Intent | 受領見積書の総数と直近 3 件のカード、「すべて見る」「新規登録」、空・ロード中の表示 |
+| Requirements | 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9, 42.10, 42.11, 42.12, 42.13, 42.14 |
+
+`ScheduleSectionCard` と同じ形（`role="region"`、見出し「受領見積書」、`全{totalCount}件`、骨組み 2 枚、空の表示）。カードとすべて見るは `/projects/:projectId/quotations` へ、新規登録は同じ画面へ遷移の状態 `{ openRegisterForm: true }` を付けて移る。新規登録は `canRegister`（親が `hasPermission('estimate_request:update')` で渡す。D3 の読み）のときだけ出す。提出日・NET 金額の表示は受領見積書の一覧画面と同じ形（日付は年月日、NET 金額は空なら「-」）を本部品の中に持つ。
+
+```typescript
+interface ReceivedQuotationSectionItem {
+  id: string;
+  name: string;
+  vendorName: string;
+  submittedAt: string;
+  netAmount: number | null;
+  createdAt: string;
+}
+interface ReceivedQuotationSectionSummary {
+  totalCount: number;
+  latestReceivedQuotations: ReceivedQuotationSectionItem[];
+}
+interface ReceivedQuotationSectionCardProps {
+  projectId: string;
+  totalCount: number;
+  latestReceivedQuotations: ReceivedQuotationSectionItem[];
+  isLoading: boolean;
+  canRegister: boolean;
+}
+```
+
+#### AssigneeSelfRemovalDialog
+
+| Field | Detail |
+|-------|--------|
+| Intent | 保存すると自分が閲覧できなくなることを告げ、「保存する」「キャンセル」を選ばせる |
+| Requirements | 45.1, 45.2 |
+
+`DeleteConfirmationDialog` と同じく `FocusManager`（外側のクリックで閉じない、初めのフォーカスはキャンセル）で作る。文言は 45.1 の逐語。
+
+```typescript
+interface AssigneeSelfRemovalDialogProps {
+  isOpen: boolean;
+  isSaving: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+```
+
+#### ProjectPurgeService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 論理削除から 90 日を過ぎたプロジェクトのファイルと DB の行を完全に削除し、記録する |
+| Requirements | 9.6, 46.1, 46.5, 46.6, 46.7, 46.8, 46.9 |
+
+```typescript
+interface ProjectPurgeCounts {
+  siteSurveys: number;
+  surveyImages: number;
+  quantityTables: number;
+  itemizedStatements: number;
+  estimateRequests: number;
+  receivedQuotations: number;
+  estimates: number;
+  contracts: number;
+  schedules: number;
+  executionBudgets: number;
+  constructionPhotoAlbums: number;
+  constructionPhotos: number;
+  files: number;
+}
+interface ProjectPurgeResult {
+  purgedProjectIds: string[];
+  failedProjectIds: string[];
+  remainingCandidates: number;
+}
+interface ProjectPurgeService {
+  purgeExpired(now: Date): Promise<ProjectPurgeResult>;
+}
+```
+
+- 対象: `deletedAt` が `now` から 90 日（`PROJECT_PURGE_RETENTION_DAYS = 90`）より前のプロジェクト。導入前に論理削除されたものも同じ条件で選ぶ（46.8）。1 回に `deletedAt` の古い順で最大 20 件（`PROJECT_PURGE_BATCH_SIZE`）を処理し、残りの件数を返す
+- ファイル: 関連データの側で個別に論理削除されたものを含め、現場調査の画像（原本・サムネイル・注釈つきのサムネイル）、工事写真（原本・サムネイル）、受領見積書のファイル（見積依頼に紐づくものと紐づかないもの）のキーを DB から集め、重複を除いて 1 件ずつ `StorageProvider.delete` する
+- DB: 一つのトランザクションで、`Restrict` の外部キーを持つ行を葉から先に消す（出来高の項目→発注の項目→出来高・発注・月次の締め・改定の履歴→実行予算の項目→実行予算、受領見積書、見積依頼の項目・状態の履歴→見積依頼）。その後に `project.delete` で残りを `Cascade` に任せる。同じトランザクションで `PROJECT_PURGED` を記録する
+- 記録: `actorId: null`（システム）、`targetType: 'Project'`、`targetId` はプロジェクト ID、`metadata` に論理削除の日時・完全削除の日時・`ProjectPurgeCounts`。プロジェクト名・ファイルのキーは入れない。監査ログは消さない（46.9。監査ログは外部キーを持たず、削除はトリガーが拒む）
+- 失敗: ファイルの削除の失敗・DB の削除の失敗は、そのプロジェクトを `failedProjectIds` に入れ、`logger.error`（プロジェクト ID と失敗の段階）を出して次のプロジェクトへ進む。DB は消さない（46.7）
+
+#### SoftDeletedProjectPurgeJob
+
+| Field | Detail |
+|-------|--------|
+| Intent | `ProjectPurgeService.purgeExpired` を 1 日 1 回起動する |
+| Requirements | 46.5 |
+
+`createScheduledJobDefinitions` に `{ name: 'soft-deleted-project-purge', cron: '30 3 * * *', run }` を足す。`inactive-user-deactivation.job.ts` と同じ `createXRun(prisma, createService, clock)` の形で、サービスとストレージを遅延して作る。結果に `failedProjectIds` があっても処理そのものは成功として返し（次の回で再び試す）、全件の失敗の連続は `logger.error` の記録で運用が気づく。
+
+#### その他の部品（変更）
+- **ProjectsRoutes**（`backend/src/routes/projects.routes.ts`）: `getProjectSections(projectId, { includeReceivedQuotations })` に引数を足す。ハンドラーが `getSharedRBACService().hasPermission(userId, 'estimate_request:read')` を求めて渡し、偽なら応答に `receivedQuotations` の鍵を含めない（43.4）。真なら `receivedQuotationService.findLatestByProjectId(projectId)` を他のセクションと並べて取り、失敗は `{ totalCount: 0, latestReceivedQuotations: [] }`（43.5）。関連データの件数の経路 `GET /api/projects/:id/related-counts` を `authenticate` → `requirePermission('project:delete')` → 検証 → `requireProjectInScope` で足す（9.5）
+- **ReceivedQuotationService**: `findLatestByProjectId(projectId, limit = 3)` を足す。件数と直近の条件は `findByProjectId` の `include: 'all'` と同じ（論理削除されていない受領見積書のうち、見積依頼の無いものと、論理削除されていない見積依頼に紐づくもの）にし、43.3 の一致を保つ。並びは登録日時の新しい順
+- **ProjectService**: `getRelatedCounts` を、論理削除されていない関連データの種類ごとの件数（現場調査・数量表・内訳書・見積依頼・受領見積書〔上と同じ条件〕・見積書・契約書・工程表・実行予算・論理削除されていないアルバムの工事写真）を返す実装に替える
+- **ProjectDetailPage**（`frontend/src/pages/ProjectDetailPage.tsx`）: 見積依頼セクションと見積書セクションの間に受領見積書セクションを置く（42.1・28.1）。応答に `receivedQuotations` が無ければ描かない（42.2）。ロード中は `hasPermission('estimate_request:read')` のときだけ骨組みを出す。404 は汎用の画面へ移らず、編集画面と同じ `ResourceNotFound`（「プロジェクトが見つかりません」、一覧への戻るリンク）をその場に出す（44.2・44.4・21.13）。削除のボタンで関連データの件数を取得してからダイアログを開き、取得に失敗したら失敗の通知を出してダイアログを開かない
+- **DeleteConfirmationDialog**: 件数の型を種類ごとの件数に替え、件数が 1 以上の種類だけを並べる。関連データがあるときは「関連データがあります。本当に削除しますか？」と「削除する」「キャンセル」を出す（9.5）。常に保持期間の文（関連データと共に 90 日後に完全に削除され元に戻せない旨）を出す（46.4）
+- **ProjectEditPage**（`frontend/src/pages/ProjectEditPage.tsx`）: 保存の前に、ログインの利用者が作成者でも `project:read_all` の保持者（`usePermission`）でもなく、変更後の営業担当者・工事担当者のどちらでもないときは `AssigneeSelfRemovalDialog` を開く（45.1）。「保存する」で保存し、成功したら `projectUpdatedWithoutAccess()` の通知（45.3 の逐語）を出して `/projects` へ移る。それ以外は従来どおり詳細画面へ（45.4）。404 の表示は今の `ResourceNotFound` のまま（44.3）
+- **ProjectForm**（`frontend/src/components/projects/ProjectForm.tsx`）: 編集で工事担当者を空にしたら `constructionPersonId: null` を送る（変更後の担当者の判定と保存を一致させる）
+- **ProjectReceivedQuotationListPage**（`frontend/src/pages/ProjectReceivedQuotationListPage.tsx`）: 遷移の状態 `openRegisterForm` を受けたら、一覧の読み込みの成功の後に登録フォームを開き、状態を置き換えて消す（読み込み直しで開き直さない）（42.11）
+- **ProjectDetail の型**（`frontend/src/types/project.types.ts`）: サーバーが既に返す `createdById` を型に足す
+
+### Data Models
+スキーマと migration は変えない。監査の種別 `PROJECT_PURGED` は文字列の列に入るため DB の変更を要しない（backend と frontend の型・表示のラベル「プロジェクトの完全削除」を足す）。
+
+### 決定
+
+**D1 受領見積書セクションの権限**: セクションの表示は `estimate_request:read`、新規登録のボタンは `estimate_request:update` で出し分ける。42.10・42.12 の「見積依頼の作成権限」は、estimate-request の 43.11 と design の D3 が受領見積書の登録・編集・削除を `estimate_request:update` で読む既存の対応に合わせて読む（`estimate_request:create` だけを持つ利用者にボタンを出すと、押した先の登録が 403 になるため）
+**D2 受領見積書のデータの有無**: 閲覧権限の判定はサーバーが行い、権限が無ければ応答に鍵を含めない。画面は応答の鍵の有無で描き分ける（件数を画面の判定だけで隠すと、応答から件数が読めるため。43.4）
+**D3 不在の表示**: 詳細画面の 404 を、汎用の 404 の画面への遷移から、編集画面と同じ `ResourceNotFound` のその場の表示に替える。閲覧範囲外・不在・論理削除済みはサーバーが同じ 404 を返すため、画面の表示も一つになる（44.4）。403 の遷移は変えない
+**D4 自分が外れるかの判定**: 画面で判定する（作成者の ID・`project:read_all` の有無・変更後の担当者）。サーバーの判定（要件39.1）と同じ材料であり、保存前の確認のためにサーバーへ問い合わせを増やさない。管理者（`*:*`）は `project:read_all` を含むため確認を出さない
+**D5 関連データの件数**: 削除のボタンを押したときに専用の経路で取る。detail-summary の件数は権限で受領見積書を隠し、実行予算は件数を持たないため流用しない。削除できる利用者には全種類の件数を示す（消すデータを知らせるため）
+**D6 完全削除の順**: ファイル→DB の順で、ファイルが一つでも消せなければ DB を残す。DB は一つのトランザクションで `Restrict` の行を葉から消してから `project.delete` で残りを `Cascade` に任せる（`Restrict` は即時に検査され、連鎖の順に依存させないため）
+**D7 1 回の件数**: 最大 20 件。1 件で数百のファイルを持ちうるため、1 回の所要と R2 の要求を抑え、残りは翌日以降に回す（保持期間を数日超えて消えることがある）
+**D8 監査の中身**: 件数と日時だけを入れ、プロジェクト名・ファイルのキーを入れない（完全削除の後に名前を残さないため。論理削除の時点の `PROJECT_DELETED` は名前を含み、要件41 の保持に従う）
+
+### Error Handling
+- detail-summary の受領見積書の取得の失敗は、そのセクションを 0 件として返し、他のセクションを妨げない（43.5）
+- 関連データの件数の取得の失敗は、画面に失敗の通知を出し、ダイアログを開かない（件数を示さずに消させない）
+- 完全削除のファイル・DB の失敗は、そのプロジェクトを残して記録し、次のプロジェクトへ進む（46.7）。キーの欠落は失敗としない
+- 担当者の変更の保存の失敗（409 の重複・競合など）は従来の表示のまま、確認ダイアログを閉じて編集画面に留まる
+
+### Testing Strategy
+- **単体（backend）**: `ProjectPurgeService` で、90 日の境界（89 日は対象外・90 日を過ぎたものは対象）、件数の上限、ファイルの削除の失敗で DB を消さないこと、DB の失敗の記録、監査の中身（件数と日時、名前とキーを含まない）を主張する。`findLatestByProjectId` の条件と件数、`getRelatedCounts` の種類ごとの件数、detail-summary の権限による鍵の有無と失敗の既定値を主張する。所在は次のファイル
+  backend/src/__tests__/unit/services/project-purge.service.test.ts（新設）
+  backend/src/__tests__/unit/jobs/soft-deleted-project-purge.job.test.ts（新設）
+  `backend/src/__tests__/unit/services/project.service.test.ts`
+- **統合（backend）**: 実際の DB とローカルのストレージで、`Restrict` を持つ全種類の関連データ（受領見積書の両方の文脈・実行予算の発注と出来高・内訳書を参照する見積依頼）とファイルを持つプロジェクトを論理削除の日時を 91 日前にして作り、完全削除の後に行もファイルも残らず `PROJECT_PURGED` が一件あることを主張する。89 日前のものと論理削除されていないものが残ること、ファイルの削除が失敗したときに行が残り、次の実行で消えることも主張する。新設のファイルは backend/src/__tests__/integration/project-purge.integration.test.ts
+- **単体（frontend）**: `ReceivedQuotationSectionCard`（総数・カード・空・骨組み・新規登録の出し分け・遷移の状態）、`AssigneeSelfRemovalDialog`、`DeleteConfirmationDialog`（種類ごとの件数・逐語・保持期間の文）、`ProjectDetailPage`（セクションの位置と権限・404 のその場の表示）、`ProjectEditPage`（確認の条件の組み合わせ・遷移・通知）、`ProjectReceivedQuotationListPage`（遷移の状態でフォームを開く）。新しい部品は stories も足す（Storybook の被覆）
+- **E2E**: 受領見積書セクション（件数が一覧の画面と一致する、カード・すべて見る・新規登録で一覧へ移りフォームが開く、権限の無い利用者に出ない）、閲覧範囲外・不在・論理削除済みの詳細・編集の表示が同じであること、自分を担当者から外す保存の確認・キャンセル・一覧への遷移と通知、関連データのあるプロジェクトの削除の警告と件数・保持期間の文、論理削除の後に関連データの詳細の URL が見つからない表示になること。新しいファイルは e2e/specs/projects/project-received-quotation-section.spec.ts と e2e/specs/projects/project-assignee-self-removal.spec.ts。既存の 3 本は File Structure Plan の Modified Files のとおり追随させる
+- **E2E で確かめないもの**: 46.1・46.5〜46.9（定期処理は E2E の環境で登録されない）と 46.3（元に戻す手段が無いこと）、43.5（取得の失敗）。実装のタスクで除外の台帳へ代替の検証（上の統合・単体）つきで登録する
+- 関門: 45.1・45.3・9.5 の逐語を実装に入れて `check:criterion-literals` を通す。被覆の印と除外を足したら `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで流す
+- 挙動の変更（不在の表示・確認・件数・完全削除）は RED → GREEN で進める
+
+### Security Considerations
+- 受領見積書の件数は閲覧権限の無い利用者の応答に含めない（43.4）
+- 不在の表示は閲覧範囲外・不在・論理削除済みで同じにし、存在をうかがわせない（44.4）
+- 関連データの件数の経路は閲覧範囲の判定と削除の権限を経る
+- 完全削除の記録にプロジェクト名とファイルのキーを入れない（D8）。完全削除は監査ログを消さない（46.9）
+
+### Migration Strategy
+- スキーマの変更は無い。本番へ入れた後の最初の定期処理で、導入前に論理削除され 90 日を過ぎたプロジェクトが 1 回 20 件ずつ完全に削除される（46.8。利用者の承認 2026-11-09）

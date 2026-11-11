@@ -2,7 +2,8 @@
  * @fileoverview 削除確認ダイアログ コンポーネント
  *
  * プロジェクト削除時に確認を求めるモーダルダイアログ。
- * 関連データが存在する場合は警告メッセージを表示。
+ * 関連データが存在する場合は警告と種類ごとの件数を表示し、
+ * 常に保持期間（90日後の完全削除）を知らせる。
  * FocusManagerを使用したフォーカストラップと、
  * WCAG 2.1 Level AA準拠のアクセシビリティを実装。
  *
@@ -10,8 +11,10 @@
  * - 9.1: ユーザーがプロジェクト詳細画面で「削除」ボタンをクリックする、削除確認ダイアログを表示する
  * - 9.3: プロジェクトが正常に削除される、「プロジェクトを削除しました」という成功メッセージを表示する
  * - 9.4: ユーザーが削除確認ダイアログで「キャンセル」を選択する、ダイアログを閉じ、詳細画面に留まる
- * - 9.5: プロジェクトに関連データ（現場調査、見積書等）が存在する、「関連データがあります。本当に削除しますか？」という警告メッセージを表示
- * - 9.6: ユーザーが関連データ警告ダイアログで「削除する」を選択する、関連データを含めてプロジェクトを論理削除する
+ * - 9.5: 論理削除されていない関連データがあるとき、「関連データがあります。本当に削除しますか？」と種類ごとの件数を出し、「削除する」「キャンセル」を出す
+ * - 9.6: ユーザーが関連データ警告ダイアログで「削除する」を選択する、プロジェクトを論理削除する
+ * - 46.3: 論理削除したプロジェクトを元に戻す手段を出さない
+ * - 46.4: 関連データと共に90日後に完全に削除され元に戻せない旨を出す
  * - 20.1: すべての操作をキーボードのみで実行可能にする
  */
 
@@ -23,14 +26,53 @@ import FocusManager from '../FocusManager';
 // ============================================================================
 
 /**
- * 関連データの件数
+ * 関連データの種類ごとの件数（GET /api/projects/:id/related-counts の応答と同じ形）
  */
-export interface RelatedDataCounts {
-  /** 現場調査の件数 */
-  surveys?: number;
-  /** 見積書の件数 */
-  estimates?: number;
+export interface RelatedCounts {
+  /** 現場調査 */
+  siteSurveys: number;
+  /** 数量表 */
+  quantityTables: number;
+  /** 内訳書 */
+  itemizedStatements: number;
+  /** 見積依頼 */
+  estimateRequests: number;
+  /** 受領見積書 */
+  receivedQuotations: number;
+  /** 見積書 */
+  estimates: number;
+  /** 契約書 */
+  contracts: number;
+  /** 工程表 */
+  schedules: number;
+  /** 実行予算 */
+  executionBudgets: number;
+  /** 工事写真 */
+  constructionPhotos: number;
 }
+
+/**
+ * 表示する種類と名前（9.5 の順）
+ */
+const RELATED_COUNT_LABELS: ReadonlyArray<{ key: keyof RelatedCounts; label: string }> = [
+  { key: 'siteSurveys', label: '現場調査' },
+  { key: 'quantityTables', label: '数量表' },
+  { key: 'itemizedStatements', label: '内訳書' },
+  { key: 'estimateRequests', label: '見積依頼' },
+  { key: 'receivedQuotations', label: '受領見積書' },
+  { key: 'estimates', label: '見積書' },
+  { key: 'contracts', label: '契約書' },
+  { key: 'schedules', label: '工程表' },
+  { key: 'executionBudgets', label: '実行予算' },
+  { key: 'constructionPhotos', label: '工事写真' },
+];
+
+/** 関連データがあるときの警告（9.5 の逐語） */
+const RELATED_DATA_WARNING = '関連データがあります。本当に削除しますか？';
+
+/** 保持期間の文（46.4） */
+const RETENTION_NOTICE =
+  '削除したプロジェクトは、関連データと共に90日後に完全に削除され、元に戻せません。';
 
 /**
  * 削除確認ダイアログの Props
@@ -46,8 +88,8 @@ export interface DeleteConfirmationDialogProps {
   projectName: string;
   /** 関連データが存在するか */
   hasRelatedData: boolean;
-  /** 関連データの件数（オプション） */
-  relatedDataCounts?: RelatedDataCounts;
+  /** 関連データの種類ごとの件数（オプション） */
+  relatedDataCounts?: RelatedCounts;
   /** 削除処理中フラグ */
   isDeleting?: boolean;
 }
@@ -91,10 +133,11 @@ const styles = {
     color: '#856404',
     marginBottom: '8px',
   } as React.CSSProperties,
-  warningText: {
+  retentionNotice: {
+    marginBottom: '16px',
     fontSize: '14px',
-    color: '#856404',
-    marginBottom: '8px',
+    color: '#374151',
+    lineHeight: '1.6',
   } as React.CSSProperties,
   relatedDataList: {
     fontSize: '13px',
@@ -164,7 +207,7 @@ const DIALOG_DESCRIPTION_ID = 'delete-dialog-description';
  *   onConfirm={handleDelete}
  *   projectName="サンプルプロジェクト"
  *   hasRelatedData={true}
- *   relatedDataCounts={{ surveys: 3, estimates: 2 }}
+ *   relatedDataCounts={relatedCounts}
  *   isDeleting={isDeleting}
  * />
  * ```
@@ -179,6 +222,10 @@ function DeleteConfirmationDialog({
   isDeleting = false,
 }: DeleteConfirmationDialogProps): React.ReactNode {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  // 件数が 1 以上の種類だけを並べる
+  const visibleCounts = relatedDataCounts
+    ? RELATED_COUNT_LABELS.filter(({ key }) => relatedDataCounts[key] > 0)
+    : [];
 
   return (
     <FocusManager
@@ -203,24 +250,26 @@ function DeleteConfirmationDialog({
         <div id={DIALOG_DESCRIPTION_ID} style={styles.description}>
           <span style={styles.projectName}>{projectName}</span>
           を削除しますか？この操作は取り消せません。
-          {hasRelatedData && '本当に削除しますか？'}
         </div>
 
         {/* 関連データ警告（存在する場合） */}
         {hasRelatedData && (
           <div role="alert" style={styles.warningBox}>
-            <div style={styles.warningTitle}>関連データがあります</div>
-            <div style={styles.warningText}>
-              このプロジェクトには関連データが存在します。削除すると、これらのデータも一緒に削除されます。
-            </div>
-            {relatedDataCounts && (
+            <div style={styles.warningTitle}>{RELATED_DATA_WARNING}</div>
+            {visibleCounts.length > 0 && relatedDataCounts && (
               <ul style={styles.relatedDataList}>
-                <li>現場調査: {relatedDataCounts.surveys ?? 0}件</li>
-                <li>見積書: {relatedDataCounts.estimates ?? 0}件</li>
+                {visibleCounts.map(({ key, label }) => (
+                  <li key={key}>
+                    {label}: {relatedDataCounts[key]}件
+                  </li>
+                ))}
               </ul>
             )}
           </div>
         )}
+
+        {/* 保持期間の文（常に出す） */}
+        <p style={styles.retentionNotice}>{RETENTION_NOTICE}</p>
 
         {/* ボタン */}
         <div style={styles.buttonContainer}>
@@ -247,7 +296,7 @@ function DeleteConfirmationDialog({
               ...(isDeleting ? styles.deleteButtonDisabled : {}),
             }}
           >
-            {isDeleting ? '削除中...' : '削除'}
+            {isDeleting ? '削除中...' : hasRelatedData ? '削除する' : '削除'}
           </button>
         </div>
       </div>

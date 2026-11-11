@@ -112,6 +112,22 @@ export const CLAUDE_VISION_AUDIT_ACTION_LABELS: Record<ClaudeVisionAuditAction, 
   CLAUDE_VISION_SENT: '外部AIでの読み取りの送信',
 };
 
+/**
+ * 論理削除したプロジェクトの完全削除の種別（project-management 要件46.6）
+ *
+ * backend の定期処理が実行者なしで記録する。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const PROJECT_PURGE_AUDIT_ACTIONS = [
+  'PROJECT_PURGED',
+] as const satisfies readonly AuditLogAction[];
+
+export type ProjectPurgeAuditAction = (typeof PROJECT_PURGE_AUDIT_ACTIONS)[number];
+
+/** プロジェクトの完全削除の種別の表示名 */
+export const PROJECT_PURGE_AUDIT_ACTION_LABELS: Record<ProjectPurgeAuditAction, string> = {
+  PROJECT_PURGED: 'プロジェクトの完全削除',
+};
+
 /** 招待の記録の対象の種別（backend の InvitationService.recordAudit と register の記録の targetType） */
 const INVITATION_TARGET_TYPE = 'Invitation';
 

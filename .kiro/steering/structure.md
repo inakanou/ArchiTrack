@@ -1086,6 +1086,7 @@ backend/
 │   │   ├── expired-token-cleanup.job.ts # 使用済み・期限切れのトークンの消去
 │   │   ├── failed-email-job-cleanup.job.ts # メールキューの失敗のジョブの掃除
 │   │   ├── inactive-user-deactivation.job.ts # 90 日の自動無効化
+│   │   ├── soft-deleted-project-purge.job.ts # 論理削除から 90 日を過ぎたプロジェクトの完全削除
 │   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
 │   ├── scripts/           # サーバー上で実行する運用スクリプト
 │   │   ├── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）

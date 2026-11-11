@@ -3,7 +3,7 @@
  *
  * Task 16.1: プロジェクトCRUD E2Eテスト
  *
- * Requirements:
+ * Requirements (project-management):
  * - 1.1: 「新規作成」ボタンでプロジェクト作成フォームを表示する
  * - 1.7: 「作成」ボタンをクリックした場合、プロジェクトが作成され、詳細画面に遷移
  * - 1.8: 作成成功時に成功メッセージを表示
@@ -15,14 +15,224 @@
  * - 9.1: 「削除」ボタンをクリックすると削除確認ダイアログを表示
  * - 9.2: 削除確認ダイアログで「削除」を選択すると削除される
  * - 9.3: 削除後、一覧画面に遷移する
+ * - 9.5: 関連データ（現場調査・内訳書・見積依頼・受領見積書など）があるとき、警告の文と種類ごとの件数を出し、
+ *   「削除する」「キャンセル」を出す（2026-11-09 改訂）
+ * - 9.6: 関連データ警告ダイアログで「削除する」を選ぶと論理削除され、関連データも表示・取得の対象から外れる
+ *   （2026-11-09 改訂）
+ * - 46.2: 論理削除したプロジェクトの関連データの詳細の URL は、存在しないものと同じ不在の表示になる
+ * - 46.4: 削除確認ダイアログに、関連データと共に90日後に完全に削除され元に戻せない旨を出す
+ *
+ * 被覆する受入基準は各テストの `@requirement` の印が名乗る。
  */
 
-import { test, expect } from '@playwright/test';
+import { randomBytes } from 'node:crypto';
+import { test, expect, type Page } from '@playwright/test';
+import { getPrismaClient } from '../../fixtures/database';
+import { TEST_USERS } from '../../helpers/test-users';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedProject } from '../../helpers/project-list-preconditions';
+
+// ============================================================================
+// 関連データを持つプロジェクトの前提（9.5・9.6・46.2・46.4）
+// ============================================================================
+
+/** 関連データの検証でテストの中で作る案件・取引先・関連データの名前の接頭辞（後始末で消す） */
+const RELATED_NAME_PREFIX = 'e2e-pm-crud-related-';
+
+/** 削除確認ダイアログの関連データの警告の文（9.5 の逐語） */
+const RELATED_DATA_WARNING = '関連データがあります。本当に削除しますか？';
+
+/** 削除確認ダイアログの保持期間の文（46.4） */
+const RETENTION_NOTICE =
+  '削除したプロジェクトは、関連データと共に90日後に完全に削除され、元に戻せません。';
+
+/** 一意の接尾辞 */
+function uniqueSuffix(): string {
+  return `${Date.now()}-${randomBytes(3).toString('hex')}`;
+}
+
+/** 関連データを持つプロジェクトの前提 */
+interface ProjectWithRelatedData {
+  projectId: string;
+  projectName: string;
+  siteSurveyId: string;
+  itemizedStatementId: string;
+  estimateRequestId: string;
+}
+
+/**
+ * 関連データを持つプロジェクトを DB に作る。
+ *
+ * 一般ユーザーを営業担当者・作成者とする。関連データは次のとおりで、
+ * 期待する件数はこの入力から定まる（論理削除したものは数えない）。
+ *
+ * - 現場調査 2件（ほかに論理削除したもの 1件）
+ * - 内訳書 1件（見積依頼が参照する）
+ * - 見積依頼 1件
+ * - 受領見積書 2件（見積依頼に紐づくもの 1件・紐づかないもの 1件。ほかに論理削除したもの 1件）
+ */
+async function seedProjectWithRelatedData(): Promise<ProjectWithRelatedData> {
+  const prisma = getPrismaClient();
+  const owner = await prisma.user.findUnique({
+    where: { email: TEST_USERS.REGULAR_USER.email },
+    select: { id: true },
+  });
+  const ownerId = owner?.id;
+  assertPrepared(ownerId, '営業担当者とする一般ユーザーのID');
+
+  const suffix = uniqueSuffix();
+  const project = await prisma.project.create({
+    data: {
+      name: `${RELATED_NAME_PREFIX}案件-${suffix}`,
+      salesPersonId: ownerId,
+      createdById: ownerId,
+    },
+    select: { id: true, name: true },
+  });
+
+  const surveys = [];
+  for (const [label, deletedAt] of [
+    ['一回目', null],
+    ['二回目', null],
+    ['論理削除済み', new Date()],
+  ] as const) {
+    surveys.push(
+      await prisma.siteSurvey.create({
+        data: {
+          projectId: project.id,
+          name: `${RELATED_NAME_PREFIX}現場調査-${label}-${suffix}`,
+          surveyDate: new Date('2026-10-27'),
+          deletedAt,
+        },
+        select: { id: true },
+      })
+    );
+  }
+
+  const partner = await prisma.tradingPartner.create({
+    data: {
+      name: `${RELATED_NAME_PREFIX}業者-${suffix}`,
+      nameKana: 'イーツーイークラッドギョウシャ',
+      address: '東京都千代田区1-1-1',
+      email: 'e2e-pm-crud-related-partner@example.com',
+      types: { create: [{ type: 'SUBCONTRACTOR' }] },
+    },
+    select: { id: true, name: true },
+  });
+
+  const statement = await prisma.itemizedStatement.create({
+    data: {
+      projectId: project.id,
+      name: `${RELATED_NAME_PREFIX}内訳書-${suffix}`,
+      sourceQuantityTableId: `${RELATED_NAME_PREFIX}qt-${suffix}`,
+      sourceQuantityTableName: '関連データの検証の数量表',
+      items: {
+        create: [
+          { workType: '内装工事', name: '床の張替え', unit: 'm2', quantity: 12, displayOrder: 1 },
+        ],
+      },
+    },
+    select: { id: true, items: { select: { id: true } } },
+  });
+
+  const estimateRequest = await prisma.estimateRequest.create({
+    data: {
+      projectId: project.id,
+      tradingPartnerId: partner.id,
+      itemizedStatementId: statement.id,
+      name: `${RELATED_NAME_PREFIX}見積依頼-${suffix}`,
+      selectedItems: {
+        create: statement.items.map((item) => ({
+          itemizedStatementItemId: item.id,
+          selected: true,
+        })),
+      },
+    },
+    select: { id: true },
+  });
+
+  for (const input of [
+    { label: '見積依頼に紐づく', estimateRequestId: estimateRequest.id, deletedAt: null },
+    { label: '見積依頼に紐づかない', estimateRequestId: null, deletedAt: null },
+    { label: '論理削除済み', estimateRequestId: null, deletedAt: new Date() },
+  ]) {
+    await prisma.receivedQuotation.create({
+      data: {
+        projectId: project.id,
+        estimateRequestId: input.estimateRequestId,
+        tradingPartnerId: input.estimateRequestId ? partner.id : null,
+        vendorName: input.estimateRequestId ? partner.name : '関連データの検証の業者',
+        name: `${RELATED_NAME_PREFIX}受領見積書-${input.label}-${suffix}`,
+        submittedAt: new Date('2026-10-20'),
+        netAmount: 100000,
+        deletedAt: input.deletedAt,
+      },
+    });
+  }
+
+  const siteSurveyId = surveys[0]?.id;
+  assertPrepared(siteSurveyId, '論理削除していない現場調査のID');
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    siteSurveyId,
+    itemizedStatementId: statement.id,
+    estimateRequestId: estimateRequest.id,
+  };
+}
+
+/** 関連データの検証で作ったものを消す（受領見積書・見積依頼は案件・内訳書を Restrict で指すため先に消す） */
+async function cleanupProjectsWithRelatedData(): Promise<void> {
+  const prisma = getPrismaClient();
+  const projectWhere = { project: { name: { startsWith: RELATED_NAME_PREFIX } } };
+  await prisma.receivedQuotation.deleteMany({ where: projectWhere });
+  await prisma.estimateRequest.deleteMany({ where: projectWhere });
+  await prisma.project.deleteMany({ where: { name: { startsWith: RELATED_NAME_PREFIX } } });
+  await prisma.tradingPartner.deleteMany({ where: { name: { startsWith: RELATED_NAME_PREFIX } } });
+}
+
+/** 名前で検索したプロジェクト一覧の画面を開き、画面が受け取った一覧の応答のプロジェクトIDを返す */
+async function openProjectListSearch(page: Page, name: string): Promise<{ ids: string[] }> {
+  const listResponse = page.waitForResponse(
+    (r) => {
+      const url = new URL(r.url());
+      return (
+        r.request().method() === 'GET' &&
+        url.pathname === '/api/projects' &&
+        url.searchParams.get('search') === name
+      );
+    },
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(`/projects?search=${encodeURIComponent(name)}`);
+  const response = await listResponse;
+  expect(response.status(), '前提: 一覧の取得が成功する').toBe(200);
+  const body = (await response.json()) as { data: Array<{ id: string }> };
+  return { ids: body.data.map((p) => p.id) };
+}
+
+/** プロジェクト一覧の表の中の、指定の名前のプロジェクトの行 */
+function projectRows(page: Page, name: string) {
+  return page
+    .getByRole('table', { name: 'プロジェクト一覧' })
+    .getByRole('row')
+    .filter({ hasText: name });
+}
+
+/** 関連データの詳細の URL を開き、不在の表示（ResourceNotFound）が出ることを確かめる */
+async function expectNotFoundDisplay(page: Page, url: string, resourceType: string): Promise<void> {
+  await page.goto(url);
+  await expect(
+    page.getByRole('heading', { name: `${resourceType}が見つかりません`, exact: true }),
+    `${url} が不在の表示になる`
+  ).toBeVisible({ timeout: getTimeout(15000) });
+  await expect(
+    page.getByText(`指定された${resourceType}は存在しないか、削除されています。`, { exact: true })
+  ).toBeVisible();
+}
 
 /**
  * プロジェクトCRUD機能のE2Eテスト
@@ -610,12 +820,17 @@ test.describe('プロジェクトCRUD操作', () => {
    * REQ-9.3: 削除後、一覧画面に遷移する
    */
   test.describe('プロジェクト削除フロー', () => {
+    test.afterAll(async () => {
+      await cleanupProjectsWithRelatedData();
+    });
+
     /**
      * @requirement project-management/REQ-9.1
      * @requirement project-management/REQ-9.2
      * @requirement project-management/REQ-9.3
+     * @requirement project-management/REQ-46.4
      */
-    test('削除ボタン→確認ダイアログ→削除→一覧遷移が正常に行われる (project-management/REQ-9.1, REQ-9.2, REQ-9.3)', async ({
+    test('削除ボタン→確認ダイアログ→削除→一覧遷移が正常に行われる (project-management/REQ-9.1, REQ-9.2, REQ-9.3, REQ-46.4)', async ({
       page,
       context,
     }) => {
@@ -696,6 +911,13 @@ test.describe('プロジェクトCRUD操作', () => {
         page.getByTestId('focus-manager-overlay').getByText(projectNameToDelete)
       ).toBeVisible();
       await expect(page.getByText(/この操作は取り消せません/i)).toBeVisible();
+      // 46.4: 関連データの無いときも保持期間の文を出し、関連データの警告は出さない
+      await expect(
+        page.getByTestId('focus-manager-overlay').getByText(RETENTION_NOTICE, { exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByTestId('focus-manager-overlay').getByText(RELATED_DATA_WARNING)
+      ).toHaveCount(0);
 
       // APIレスポンスを待機しながら削除ボタンをクリック
       const deletePromise = page.waitForResponse(
@@ -790,75 +1012,130 @@ test.describe('プロジェクトCRUD操作', () => {
     /**
      * @requirement project-management/REQ-9.5
      * @requirement project-management/REQ-9.6
+     * @requirement project-management/REQ-46.2
+     * @requirement project-management/REQ-46.4
      */
-    test('プロジェクトに関連データが存在する場合、警告ダイアログが表示される (project-management/REQ-9.5, REQ-9.6)', async ({
+    test('関連データのあるプロジェクトは警告と種類ごとの件数・保持期間の文を出し、削除すると一覧から消え関連データの詳細も不在の表示になる (project-management/REQ-9.5, REQ-9.6, REQ-46.2, REQ-46.4)', async ({
       page,
-      context,
     }) => {
-      // Note: 関連データ（現場調査、見積書）は別機能のため、
-      // ここでは警告ダイアログの仕組みが存在することを確認する
-      // 実際の関連データ削除警告は該当機能実装後にテストする
+      const seeded = await seedProjectWithRelatedData();
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 管理者で削除する（削除の権限が必要）
+      await loginAsUser(page, 'ADMIN_USER');
 
-      // テスト用プロジェクトを作成
-      await page.goto('/projects/new');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+      // 削除の前は関連データの詳細が見える（不在の表示が削除によることを確かめる対照）
+      await page.goto(`/site-surveys/${seeded.siteSurveyId}`);
+      await expect(page.getByText(`${RELATED_NAME_PREFIX}現場調査-一回目`).first()).toBeVisible({
         timeout: getTimeout(15000),
       });
 
-      await page.getByLabel(/プロジェクト名/i).fill(`関連データテスト_${Date.now()}`);
+      const listBeforeDelete = await openProjectListSearch(page, seeded.projectName);
+      expect(listBeforeDelete.ids, '前提: 削除の前は一覧の応答に含まれる').toContain(
+        seeded.projectId
+      );
+      await expect(projectRows(page, seeded.projectName)).toHaveCount(1, {
+        timeout: getTimeout(15000),
+      });
 
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await selectFirstRealOption(salesPersonSelect, '営業担当者');
+      await page.goto(`/projects/${seeded.projectId}`);
+      await expect(page.getByRole('heading', { name: seeded.projectName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
 
-      const createPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
+      const countsPromise = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'GET' &&
+          new URL(r.url()).pathname === `/api/projects/${seeded.projectId}/related-counts`,
         { timeout: getTimeout(30000) }
       );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-
-      // URLからプロジェクトIDを取得する。
-      // ここで取らずに再ログインの後で取ると、ログインは /dashboard へ遷移するため
-      // 詳細URLは失われ、ID が取れなくなる。
-      // 直前に作成したプロジェクトの詳細URLに居るため、IDは必ず取れる。
-      // 取れない場合は前提が崩れているのでここで失敗させる。
-      const match = page.url().match(/\/projects\/([0-9a-f-]+)$/);
-      const relatedTestProjectId = match?.[1] ?? null;
-      assertPrepared(relatedTestProjectId, '作成した関連データ検証用プロジェクトのID');
-
-      // 管理者ユーザーに切り替え
-      await context.clearCookies();
-      await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      const countsResponse = await countsPromise;
+      expect(countsResponse.status(), '前提: 関連データの件数の取得が成功する').toBe(200);
+      // 論理削除したものを数えない
+      expect(await countsResponse.json()).toEqual({
+        siteSurveys: 2,
+        quantityTables: 0,
+        itemizedStatements: 1,
+        estimateRequests: 1,
+        receivedQuotations: 2,
+        estimates: 0,
+        contracts: 0,
+        schedules: 0,
+        executionBudgets: 0,
+        constructionPhotos: 0,
       });
 
-      await loginAsUser(page, 'ADMIN_USER');
-
-      await page.goto(`/projects/${relatedTestProjectId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 削除ボタンをクリック
-      await page.getByRole('button', { name: /削除/i }).click();
-
-      // 削除確認ダイアログが表示されることを確認
-      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+      const dialog = page.getByTestId('focus-manager-overlay');
+      await expect(dialog.getByRole('heading', { name: 'プロジェクトの削除' })).toBeVisible({
         timeout: getTimeout(10000),
       });
+      await expect(dialog.getByText(seeded.projectName, { exact: true })).toBeVisible();
+      await expect(dialog.getByText('を削除しますか？この操作は取り消せません。')).toBeVisible();
 
-      // 削除確認ダイアログが表示されたらキャンセルする
-      await page.getByRole('button', { name: /キャンセル/i }).click();
+      // 9.5: 警告の文（逐語）と、件数が1以上の種類だけを定めた順に件数つきで並べる
+      const warning = dialog.getByRole('alert');
+      await expect(warning.getByText(RELATED_DATA_WARNING, { exact: true })).toBeVisible();
+      await expect(warning.getByRole('listitem')).toHaveText([
+        '現場調査: 2件',
+        '内訳書: 1件',
+        '見積依頼: 1件',
+        '受領見積書: 2件',
+      ]);
+
+      // 46.4: 保持期間の文（逐語）
+      await expect(dialog.getByText(RETENTION_NOTICE, { exact: true })).toBeVisible();
+
+      // 9.5: 「削除する」「キャンセル」の選択肢（関連データの無いときの「削除」ではない）
+      await expect(dialog.getByRole('button', { name: 'キャンセル', exact: true })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: '削除', exact: true })).toHaveCount(0);
+      const confirmButton = dialog.getByRole('button', { name: '削除する', exact: true });
+      await expect(confirmButton).toBeVisible();
+
+      // 9.6: 「削除する」で論理削除され、一覧へ移る
+      const deletePromise = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'DELETE' &&
+          new URL(r.url()).pathname === `/api/projects/${seeded.projectId}`,
+        { timeout: getTimeout(30000) }
+      );
+      await confirmButton.click();
+      expect((await deletePromise).status(), '削除の要求が成功する').toBe(204);
+
+      await expect(dialog).toHaveCount(0, { timeout: getTimeout(10000) });
+      await expect(page.getByText('プロジェクトを削除しました')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
+
+      // 一覧から消える（削除の前に同じ名前の検索で出ていたものが、削除の後は出ない）
+      const listAfterDelete = await openProjectListSearch(page, seeded.projectName);
+      expect(listAfterDelete.ids, '一覧の応答に削除したプロジェクトが含まれない').not.toContain(
+        seeded.projectId
+      );
+      // 一覧の表示が応答を描き終えたこと（空の表示）を待ってから、行が無いことを確かめる。
+      // URL の検索の条件で開いたときの空の表示は「プロジェクトがありません」になる
+      // （「検索結果がありません」は画面で検索を実行したときの表示）ため、どちらも空の表示として受ける
+      await expect(
+        page.getByRole('heading', { name: /^(検索結果|プロジェクト)がありません$/ })
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(projectRows(page, seeded.projectName)).toHaveCount(0);
+
+      // 9.6・46.2: 関連データの詳細の URL は存在しないものと同じ不在の表示になる
+      await expectNotFoundDisplay(page, `/site-surveys/${seeded.siteSurveyId}`, '現場調査');
+      await expectNotFoundDisplay(
+        page,
+        `/itemized-statements/${seeded.itemizedStatementId}`,
+        '内訳書'
+      );
+      await expectNotFoundDisplay(
+        page,
+        `/estimate-requests/${seeded.estimateRequestId}`,
+        '見積依頼'
+      );
+      // 受領見積書は案件の受領見積書の一覧の画面で見る。案件ごと不在の表示になる
+      await expectNotFoundDisplay(page, `/projects/${seeded.projectId}/quotations`, 'プロジェクト');
+      // プロジェクトの詳細も不在の表示になる
+      await expectNotFoundDisplay(page, `/projects/${seeded.projectId}`, 'プロジェクト');
     });
   });
 });

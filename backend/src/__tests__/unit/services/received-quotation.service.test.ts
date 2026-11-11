@@ -5516,4 +5516,177 @@ describe('ReceivedQuotationService', () => {
       });
     });
   });
+
+  /**
+   * 受領見積書セクションの総数と直近（project-management の Requirements 42-46 の章の
+   * ReceivedQuotationService、タスク77.1）
+   *
+   * 照会の where を手元の行に当てる偽の Prisma で、一覧（include: all）と総数・直近が同じ行を数えることを観測する
+   */
+  describe('受領見積書セクションの総数と直近（タスク77.1）', () => {
+    type FakeRow = {
+      id: string;
+      projectId: string;
+      estimateRequestId: string | null;
+      estimateRequest: { name: string; deletedAt: Date | null } | null;
+      name: string;
+      vendorName: string;
+      submittedAt: Date;
+      netAmount: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+      deletedAt: Date | null;
+    };
+
+    const row = (overrides: Partial<FakeRow> & Pick<FakeRow, 'id' | 'createdAt'>): FakeRow => ({
+      projectId: 'project-sec',
+      estimateRequestId: null,
+      estimateRequest: null,
+      name: `受領見積書 ${overrides.id}`,
+      vendorName: `業者 ${overrides.id}`,
+      submittedAt: new Date('2026-11-01T00:00:00Z'),
+      netAmount: null,
+      updatedAt: overrides.createdAt,
+      deletedAt: null,
+      ...overrides,
+    });
+
+    const liveRequest = { name: '生きている見積依頼', deletedAt: null };
+    const deletedRequest = {
+      name: '消された見積依頼',
+      deletedAt: new Date('2026-11-05T00:00:00Z'),
+    };
+
+    /** where の 1 項目を行に当てる（この照会が使う形だけを解く） */
+    const matches = (target: Record<string, unknown>, where: Record<string, unknown>): boolean =>
+      Object.entries(where).every(([key, cond]) => {
+        if (key === 'OR') {
+          return (cond as Record<string, unknown>[]).some((c) => matches(target, c));
+        }
+        const value = target[key];
+        if (cond !== null && typeof cond === 'object' && !(cond instanceof Date)) {
+          const c = cond as Record<string, unknown>;
+          if ('is' in c) {
+            return value != null && matches(value as Record<string, unknown>, c.is as never);
+          }
+          if ('not' in c) {
+            return value !== c.not;
+          }
+          throw new Error(`未対応の条件: ${key}`);
+        }
+        return value === cond;
+      });
+
+    /** findMany と count の両方で同じ where を行に当てる偽の Prisma */
+    const useFakeRows = (rows: FakeRow[]) => {
+      const pick = (args: { where: Record<string, unknown> }) =>
+        rows.filter((r) => matches(r as unknown as Record<string, unknown>, args.where));
+      vi.mocked(mockPrisma.receivedQuotation.findMany).mockImplementation(((args: {
+        where: Record<string, unknown>;
+        orderBy?: { createdAt: 'desc' };
+        take?: number;
+      }) => {
+        const found = pick(args).map((r) => ({ ...r, lineItems: [] }));
+        if (args.orderBy) {
+          found.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        }
+        return Promise.resolve(args.take !== undefined ? found.slice(0, args.take) : found);
+      }) as never);
+      vi.mocked(mockPrisma.receivedQuotation.count).mockImplementation(((args: {
+        where: Record<string, unknown>;
+      }) => Promise.resolve(pick(args).length)) as never);
+    };
+
+    /**
+     * @requirement project-management/REQ-42.4
+     * @requirement project-management/REQ-43.3
+     */
+    it('見積依頼の無いものと論理削除されていない見積依頼に紐づくものを数え、論理削除された受領見積書と論理削除された見積依頼のものを数えない', async () => {
+      useFakeRows([
+        row({ id: 'rq-own', createdAt: new Date('2026-11-01T00:00:00Z') }),
+        row({
+          id: 'rq-req',
+          estimateRequestId: 'er-live',
+          estimateRequest: liveRequest,
+          createdAt: new Date('2026-11-02T00:00:00Z'),
+        }),
+        row({
+          id: 'rq-deleted',
+          deletedAt: new Date('2026-11-06T00:00:00Z'),
+          createdAt: new Date('2026-11-03T00:00:00Z'),
+        }),
+        row({
+          id: 'rq-deleted-request',
+          estimateRequestId: 'er-deleted',
+          estimateRequest: deletedRequest,
+          createdAt: new Date('2026-11-04T00:00:00Z'),
+        }),
+        row({
+          id: 'rq-other-project',
+          projectId: 'project-other',
+          createdAt: new Date('2026-11-05T00:00:00Z'),
+        }),
+      ]);
+
+      const summary = await service.findLatestByProjectId('project-sec');
+      const list = await service.findByProjectId('project-sec', { include: 'all' });
+
+      expect(summary.totalCount).toBe(2);
+      expect(summary.latestReceivedQuotations.map((q) => q.id)).toEqual(['rq-req', 'rq-own']);
+      // 件数は案件の受領見積書の一覧の件数と一致する（43.3）
+      expect(summary.totalCount).toBe(list.length);
+      expect(summary.latestReceivedQuotations.map((q) => q.id)).toEqual(list.map((q) => q.id));
+    });
+
+    /**
+     * @requirement project-management/REQ-42.5
+     * @requirement project-management/REQ-42.6
+     * @requirement project-management/REQ-43.2
+     */
+    it('直近は登録日時の新しい順に 3 件で、ID・受領見積書名・業者名・提出日・NET 金額・登録日時を返し、総数は全件を数える', async () => {
+      useFakeRows([
+        row({ id: 'rq-1', createdAt: new Date('2026-11-01T00:00:00Z') }),
+        row({
+          id: 'rq-4',
+          name: '内装の見積',
+          vendorName: '内装の協力業者',
+          submittedAt: new Date('2026-11-03T00:00:00Z'),
+          netAmount: '1234567.50',
+          estimateRequestId: 'er-live',
+          estimateRequest: liveRequest,
+          createdAt: new Date('2026-11-04T09:30:00Z'),
+        }),
+        row({ id: 'rq-2', createdAt: new Date('2026-11-02T00:00:00Z') }),
+        row({ id: 'rq-3', createdAt: new Date('2026-11-03T00:00:00Z') }),
+      ]);
+
+      const summary = await service.findLatestByProjectId('project-sec');
+
+      expect(summary.totalCount).toBe(4);
+      expect(summary.latestReceivedQuotations.map((q) => q.id)).toEqual(['rq-4', 'rq-3', 'rq-2']);
+      expect(summary.latestReceivedQuotations[0]).toEqual({
+        id: 'rq-4',
+        name: '内装の見積',
+        vendorName: '内装の協力業者',
+        submittedAt: '2026-11-03T00:00:00.000Z',
+        netAmount: 1234567.5,
+        createdAt: '2026-11-04T09:30:00.000Z',
+      });
+      // NET 金額が無いものは null
+      expect(summary.latestReceivedQuotations[1]?.netAmount).toBeNull();
+    });
+
+    it('件数の数を変えられ、受領見積書が無ければ 0 件・直近なしを返す', async () => {
+      useFakeRows([
+        row({ id: 'rq-1', createdAt: new Date('2026-11-01T00:00:00Z') }),
+        row({ id: 'rq-2', createdAt: new Date('2026-11-02T00:00:00Z') }),
+      ]);
+      const one = await service.findLatestByProjectId('project-sec', 1);
+      expect(one.totalCount).toBe(2);
+      expect(one.latestReceivedQuotations.map((q) => q.id)).toEqual(['rq-2']);
+
+      const none = await service.findLatestByProjectId('project-empty');
+      expect(none).toEqual({ totalCount: 0, latestReceivedQuotations: [] });
+    });
+  });
 });
