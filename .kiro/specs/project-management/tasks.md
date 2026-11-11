@@ -2116,7 +2116,7 @@
   - _Requirements: 46.11, 46.14_
   - _Depends: 83.6_
 
-- [ ] 84.2 除外の登録と spec の関門を緑にする
+- [x] 84.2 除外の登録と spec の関門を緑にする
   - E2E で確かめない 46.10〜46.15（定期処理は E2E の環境で登録されず、運用の手順は画面を持たない）を、本番に到達する被覆の印が無いものに限り、除外の台帳（`e2e/requirement-exclusions.json`）へ代替の検証（83.2〜83.7 の単体と統合）つきで登録し、件数の宣言を実数に合わせる
   - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流し、新設予定の印を外した設計文書の免除の件数や鮮度の錨が動いたら帰属つきで貼り直す
   - estimate-request のタスク121.3 も除外の台帳の件数の宣言と鮮度の錨を触るため、並べて流さない。後に流す側が件数と錨を貼り直す
@@ -2139,3 +2139,4 @@
 - backend の単体を 1 ファイルだけ流すには `npm --prefix backend exec -- vitest run --root backend <file>` を使う。`npm --prefix backend run test:unit -- <file>` は単体の全件を流す（83.2）
 - `createProjectPurgeServiceForJob` は通知の部品を常に渡す。83.6 の運用の手順は通知の部品を渡さない設計のため、組み立てに引数を足すか別に組み立てる（83.3）
 - 83.7 の統合は、失敗しないプロジェクトを 2 件にした（1 件では 1 回の 20 件の枠と区別できない）。古い方が 1 回目で、最も新しい方が 2 回目に試みた失敗のものより先に消えることで、後ろへ回す並びを実際の DB で確かめる。1 対 1 の関係の項目での並び（記録の無いものを先）は想定どおりだった（83.7）
+- 84.2 の時点で check:req-coverage は estimate-request の REQ-51.1〜51.3（タスク121）だけが未被覆で赤。project-management の 46.10〜46.15 は本番に到達する印で被覆され、除外は登録していない（84.2）

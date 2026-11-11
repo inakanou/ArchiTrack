@@ -4551,7 +4551,7 @@ frontend/src/
 
 #### Modified Files
 - `.kiro/steering/tech.md` の定期処理の `soft-deleted-project-purge` の行に失敗の扱いを足し、`.kiro/steering/structure.md` の `scripts/` の欄に対象に戻す運用の手順を足す
-- 上の欄に載せる名前は `requeue-project-purge.ts`（新設予定）
+- 上の欄に載せる名前は `requeue-project-purge.ts`
 - `docs/deployment/data-protection.md` に、論理削除したプロジェクトの完全削除の失敗の扱い（5 回で対象から外れて通知が来ること）と、対象に戻す手順 `npm run project:purge-requeue` を足す
 
 ### System Flows
@@ -4671,7 +4671,7 @@ model ProjectPurgeState {
 | Intent | サーバー上でプロジェクト ID を指定して対象に戻す |
 | Requirements | 46.14 |
 
-`backend/src/scripts/requeue-project-purge.ts`（新設予定）。`npm run project:purge-requeue -- --project-id <ID>`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/requeue-project-purge.js` を node で動かす）。終了コードは 0 = 戻した、または既に対象（`not_excluded`）、1 = 該当するプロジェクトが無い・実行の失敗、2 = 引数の誤り（ID が UUID の形でない場合を含む）。出力にプロジェクト名を出さない。
+`backend/src/scripts/requeue-project-purge.ts`。`npm run project:purge-requeue -- --project-id <ID>`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/requeue-project-purge.js` を node で動かす）。終了コードは 0 = 戻した、または既に対象（`not_excluded`）、1 = 該当するプロジェクトが無い・実行の失敗、2 = 引数の誤り（ID が UUID の形でない場合を含む）。出力にプロジェクト名を出さない。
 
 ### Data Models
 - 表 `project_purge_states` を足す（上の `ProjectPurgeState`）。プロジェクトの完全削除で `Cascade` により消える。既存の行は持たない（導入の後の最初の失敗で作られる）
@@ -4703,6 +4703,7 @@ model ProjectPurgeState {
 - **統合（backend）**: 実際の DB で、別のプロジェクトの見積依頼が対象の内訳書を参照して DB の段で毎回失敗するプロジェクトを 20 件と、失敗しないプロジェクトを 1 件作り、1 回目で失敗しないものが消えること（46.10）、5 回の実行で失敗するものが対象から外れ記録が残ること、`requeue` の後の回で再び試みられること、対象から外れたものが関連データの詳細の取得で 404 のままであること（46.13）を主張する。所在は `backend/src/__tests__/integration/project-purge.integration.test.ts`
 - **単体（frontend）**: 3 つの監査の種別の表示名。所在は `frontend/src/__tests__/utils/audit-log-actions.test.ts`
 - **E2E で確かめないもの**: 46.10〜46.15（定期処理は E2E の環境で登録されず、運用の手順は画面を持たない）。実装のタスクで除外の台帳へ代替の検証（上の統合・単体）つきで登録する
+- **実装の記録（タスク84.2、2026-11-11）**: 46.10〜46.15 は除外の台帳（e2e/requirement-exclusions.json）へ登録しない。46.10・46.11・46.13・46.14・46.15 は統合（backend/src/__tests__/integration/project-purge.integration.test.ts）の被覆の印で、46.12 は単体（backend/src/__tests__/unit/services/project-purge.service.test.ts）の被覆の印で、本番に到達する被覆と既に数えられているためである。被覆された受入基準を除外すると宣言が実態と食い違う（estimate-request のタスク120.3 の 48.8・49.7 と同じ扱い）
 - 挙動の変更は RED → GREEN で進める
 
 ### Security Considerations

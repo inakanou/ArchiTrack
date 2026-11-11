@@ -29,8 +29,8 @@
   "reachTotal": 191,
   "candidateTotal": 1116,
   "entityTotal": 151,
-  "exemptedTotal": 151,
-  "exemptedDistinctTotal": 46,
+  "exemptedTotal": 149,
+  "exemptedDistinctTotal": 44,
   "ambiguousTotal": 5,
   "candidateHistory": [
     {
@@ -347,7 +347,6 @@
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
     ".kiro/specs/estimate-request/design.md": 2,
-    ".kiro/specs/project-management/design.md": 2,
     ".kiro/specs/quantity-table-generation/design.md": 14,
     ".kiro/specs/site-survey/design.md": 132
   },
@@ -358,10 +357,6 @@
     ".kiro/specs/estimate-request/design.md": [
       "backend/src/scripts/find-cross-project-estimate-requests.ts",
       "find-cross-project-estimate-requests.ts"
-    ],
-    ".kiro/specs/project-management/design.md": [
-      "backend/src/scripts/requeue-project-purge.ts",
-      "requeue-project-purge.ts"
     ],
     ".kiro/specs/quantity-table-generation/design.md": [
       "FieldValidatedItemRow.autocomplete.test.tsx",

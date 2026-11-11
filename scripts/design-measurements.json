@@ -805,11 +805,11 @@
     {
       "id": "backend-self-report-population",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "project-management のタスク 82.5 の提出時点の自己申告を持つバックエンドの実装ファイルの再実測は 109 件である",
+      "anchor": "project-management のタスク 84.2 の提出時点の自己申告を持つバックエンドの実装ファイルの再実測は 111 件である",
       "command": "( grep -rlE '^ \\* - [0-9]+\\.[0-9]+: ' backend/src --include='*.ts'; grep -rl '@requirement site-survey/REQ-' backend/src --include='*.ts' ) | grep -vE '__tests__|\\.test\\.ts$' | sort -u | wc -l",
-      "expected": "109",
-      "documentRendering": "再実測は 109 件である",
-      "note": "タスク 115.283 のバックエンド走査の母集団。手順1 が対象外とした「バックエンドの資材」の全体であり、走査したのはこのうち本書が逐語で引く 26 件である（残る 80 件は同項の第3層の残余）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.283 の 106 件は文書に残る）。増分 1 件は backend/src/routes/autocomplete.routes.ts で、下流 quantity-table-generation の Task 96.5 のコミット db1007f0 が範囲の一行 7.1-7.7 を一行一番号の形へ改めたため第1項の網に掛かった。project-management のタスク 82.5 が錨と値を提出時点へ貼り直した（115.330 の 107 件は文書に残る）。増分 2 件は backend/src/services/project-purge.service.ts（同スペックのタスク 81.1 のコミット caf19d6d）と backend/src/jobs/soft-deleted-project-purge.job.ts（同タスク 81.4 のコミット 3b2ca06d）で、どちらも Requirements: ブロックの一行一番号の形として第1項の網に掛かる。origin/develop の 0999f2f7 の版の合成との差集合は当該の 2 件だけで、抜けた側は 0 件"
+      "expected": "111",
+      "documentRendering": "再実測は 111 件である",
+      "note": "タスク 115.283 のバックエンド走査の母集団。手順1 が対象外とした「バックエンドの資材」の全体であり、走査したのはこのうち本書が逐語で引く 26 件である（残る 80 件は同項の第3層の残余）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.283 の 106 件は文書に残る）。増分 1 件は backend/src/routes/autocomplete.routes.ts で、下流 quantity-table-generation の Task 96.5 のコミット db1007f0 が範囲の一行 7.1-7.7 を一行一番号の形へ改めたため第1項の網に掛かった。project-management のタスク 82.5 が錨と値を提出時点へ貼り直した（115.330 の 107 件は文書に残る）。増分 2 件は backend/src/services/project-purge.service.ts（同スペックのタスク 81.1 のコミット caf19d6d）と backend/src/jobs/soft-deleted-project-purge.job.ts（同タスク 81.4 のコミット 3b2ca06d）で、どちらも Requirements: ブロックの一行一番号の形として第1項の網に掛かる。origin/develop の 0999f2f7 の版の合成との差集合は当該の 2 件だけで、抜けた側は 0 件。project-management のタスク 84.2 が錨と値を提出時点へ貼り直した（82.5 の 109 件は文書に残る）。増分 2 件は backend/src/scripts/requeue-project-purge.ts（同スペックのタスク 83.6 のコミット 47f8d6c0）と backend/src/services/admin-notification.service.ts（同タスク 83.3 のコミット 625cb08c が Requirements: ブロックを足した）で、どちらも一行一番号の形として第1項の網に掛かる。8a7976dc（#893 の squash。78b99392 と同じ内容）の版の合成との差集合は当該の 2 件だけで、抜けた側は 0 件"
     },
     {
       "id": "backend-self-report-population-quoted-in-design",
@@ -859,20 +859,20 @@
     {
       "id": "design-path-exemption-tally-total",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "project-management の 2026-11-11 の設計の提出時点の再実測は延べ 151 件・distinct 46 件である",
+      "anchor": "project-management のタスク 84.2 の提出時点の再実測は延べ 149 件・distinct 44 件である",
       "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').exemptedTotal)\"",
-      "expected": "151",
-      "documentRendering": "延べ 151 件",
-      "note": "免除の延べ件数の基準（タスク 115.293）。設計文書が撤去の記録を足すと動くため、判断の記録が引く値は基準と同時に測り直すこと。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った project-management の 2026-11-11 の設計（Requirements 46.10-46.15・estimate-request の Requirement 51）が錨と値を提出時点へ貼り直した（前の値は当時の値として文書に残る）。増分は同設計が新設予定の運用の手順のファイルを名指し、基準を関門の案内する経路で更新したことによる。"
+      "expected": "149",
+      "documentRendering": "延べ 149 件",
+      "note": "免除の延べ件数の基準（タスク 115.293）。設計文書が撤去の記録を足すと動くため、判断の記録が引く値は基準と同時に測り直すこと。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った project-management の 2026-11-11 の設計（Requirements 46.10-46.15・estimate-request の Requirement 51）が錨と値を提出時点へ貼り直した（前の値は当時の値として文書に残る）。増分は同設計が新設予定の運用の手順のファイルを名指し、基準を関門の案内する経路で更新したことによる。 project-management のタスク 84.2 が錨と値を提出時点へ貼り直した（2026-11-11 の設計の 151 / 46 は文書に残る）。減少は延べ 2・distinct 2 で、同スペックのタスク 83.6 のコミット 47f8d6c0 が運用の手順のファイルを作り、同タスク 84.2 が同スペックの設計文書の新設予定の注記を外して基準を関門の案内する経路で更新したことによる。"
     },
     {
       "id": "design-path-exemption-distinct-total",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "project-management の 2026-11-11 の設計の提出時点の再実測は延べ 151 件・distinct 46 件である",
+      "anchor": "project-management のタスク 84.2 の提出時点の再実測は延べ 149 件・distinct 44 件である",
       "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').exemptedDistinctTotal)\"",
-      "expected": "46",
-      "documentRendering": "distinct 46 件",
-      "note": "免除の distinct の集合の基準（タスク 115.293）。延べとは別に持つ値であり、両者の差が判断の根拠である。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った project-management の 2026-11-11 の設計（Requirements 46.10-46.15・estimate-request の Requirement 51）が錨と値を提出時点へ貼り直した（前の値は当時の値として文書に残る）。増分は同設計が新設予定の運用の手順のファイルを名指し、基準を関門の案内する経路で更新したことによる。"
+      "expected": "44",
+      "documentRendering": "distinct 44 件",
+      "note": "免除の distinct の集合の基準（タスク 115.293）。延べとは別に持つ値であり、両者の差が判断の根拠である。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った project-management の 2026-11-11 の設計（Requirements 46.10-46.15・estimate-request の Requirement 51）が錨と値を提出時点へ貼り直した（前の値は当時の値として文書に残る）。増分は同設計が新設予定の運用の手順のファイルを名指し、基準を関門の案内する経路で更新したことによる。 project-management のタスク 84.2 が錨と値を提出時点へ貼り直した（2026-11-11 の設計の 151 / 46 は文書に残る）。減少は延べ 2・distinct 2 で、同スペックのタスク 83.6 のコミット 47f8d6c0 が運用の手順のファイルを作り、同タスク 84.2 が同スペックの設計文書の新設予定の注記を外して基準を関門の案内する経路で更新したことによる。"
     },
     {
       "id": "design-path-exemption-tally-distinct-gap",
