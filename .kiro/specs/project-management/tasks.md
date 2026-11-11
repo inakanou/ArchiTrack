@@ -2109,7 +2109,7 @@
 
 **経緯**: Task 83 の経緯と同じ。design.md の同章の Modified Files と Testing Strategy を行う
 
-- [ ] 84.1 steering と運用の文書に失敗の扱いと対象に戻す手順を足す
+- [x] 84.1 steering と運用の文書に失敗の扱いと対象に戻す手順を足す
   - `.kiro/steering/tech.md` の定期処理の `soft-deleted-project-purge` の行に失敗の扱い（後ろへ回す・5 回で外して知らせる）を足し、`.kiro/steering/structure.md` の `scripts/` の欄に対象に戻す運用の手順を足す。`docs/deployment/data-protection.md` に、完全削除の失敗の扱いと `npm run project:purge-requeue` の手順を足す
   - `check:steering-refs`・`check:steering-idents`・`check:steering-dir-counts` が緑の状態になる
   - estimate-request のタスク121.3 も `.kiro/steering/structure.md` の同じ木を触るため、並べて流さない。後に流す側が木の印と件数を貼り直す

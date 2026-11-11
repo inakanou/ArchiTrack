@@ -1090,6 +1090,7 @@ backend/
 │   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
 │   ├── scripts/           # サーバー上で実行する運用スクリプト
 │   │   ├── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）
+│   │   ├── requeue-project-purge.ts # 完全削除の対象から外したプロジェクトを対象に戻す（npm run project:purge-requeue）
 │   │   └── reset-undecryptable-two-factor.ts # 鍵の入れ替えの後に復号できない 2FA を未登録へ戻す（npm run user:reset-undecryptable-2fa。既定は確認だけ、--apply で書き込む）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
