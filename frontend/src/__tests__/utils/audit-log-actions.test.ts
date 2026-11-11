@@ -36,8 +36,46 @@ describe('プロジェクトの完全削除の種別', () => {
    * @requirement project-management/REQ-46.6 完全削除の記録を監査ログ画面で種別の名前で表示できる
    */
   it('完全削除の記録の種別と表示名を持つ', () => {
-    expect(PROJECT_PURGE_AUDIT_ACTIONS).toEqual(['PROJECT_PURGED']);
+    expect(PROJECT_PURGE_AUDIT_ACTIONS).toContain('PROJECT_PURGED');
     expect(PROJECT_PURGE_AUDIT_ACTION_LABELS.PROJECT_PURGED).toBe('プロジェクトの完全削除');
+  });
+});
+
+describe('プロジェクトの完全削除の失敗の扱いの種別', () => {
+  /**
+   * @requirement project-management/REQ-46.11 対象外化の記録を監査ログ画面で種別の名前で表示できる
+   * @requirement project-management/REQ-46.14 対象への復帰の記録を監査ログ画面で種別の名前で表示できる
+   * @requirement project-management/REQ-46.15 定期処理の結果の記録を監査ログ画面で種別の名前で表示できる
+   */
+  it('完全削除の種別の並びに失敗の扱いの 3 つの種別を足す', () => {
+    expect(PROJECT_PURGE_AUDIT_ACTIONS).toEqual([
+      'PROJECT_PURGED',
+      'PROJECT_PURGE_EXCLUDED',
+      'PROJECT_PURGE_REQUEUED',
+      'PROJECT_PURGE_RUN_COMPLETED',
+    ]);
+  });
+
+  it.each([
+    ['PROJECT_PURGE_EXCLUDED', 'プロジェクトの完全削除の対象外化'],
+    ['PROJECT_PURGE_REQUEUED', 'プロジェクトの完全削除の対象への復帰'],
+    ['PROJECT_PURGE_RUN_COMPLETED', 'プロジェクトの完全削除の定期処理の結果'],
+  ] as const)(
+    '%s の表示名は「%s」で、未知の種別として種別のコードのままにならない',
+    (action, label) => {
+      expect(PROJECT_PURGE_AUDIT_ACTION_LABELS[action]).toBe(label);
+      expect(PROJECT_PURGE_AUDIT_ACTION_LABELS[action]).not.toBe(action);
+    }
+  );
+
+  it('定期処理の結果の記録の対象の欄は回の開始の日時（対象の ID）を表示する', () => {
+    expect(
+      getAuditLogTargetLabel({
+        targetType: 'ProjectPurgeRun',
+        targetId: '2026-11-11T03:00:00.000Z',
+        metadata: { purged: 0, failed: 0, excluded: 0, remainingCandidates: 0 },
+      })
+    ).toBe('2026-11-11T03:00:00.000Z');
   });
 });
 

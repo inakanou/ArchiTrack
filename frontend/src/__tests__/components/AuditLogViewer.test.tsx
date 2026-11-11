@@ -377,4 +377,30 @@ describe('AuditLogViewer', () => {
     expect(screen.getByText('プロジェクトの完全削除')).toBeInTheDocument();
     expect(screen.queryByText('PROJECT_PURGED')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['PROJECT_PURGE_EXCLUDED', 'プロジェクトの完全削除の対象外化', 'Project'],
+    ['PROJECT_PURGE_REQUEUED', 'プロジェクトの完全削除の対象への復帰', 'Project'],
+    ['PROJECT_PURGE_RUN_COMPLETED', 'プロジェクトの完全削除の定期処理の結果', 'ProjectPurgeRun'],
+  ] as const)(
+    '%s の記録を「%s」と表示する（project-management 要件46.11・46.14・46.15）',
+    (action, label, targetType) => {
+      const logs: AuditLog[] = [
+        {
+          id: `log-${action}`,
+          actorId: null,
+          action,
+          targetType,
+          targetId: 'target-1',
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.queryByText(action)).not.toBeInTheDocument();
+    }
+  );
 });

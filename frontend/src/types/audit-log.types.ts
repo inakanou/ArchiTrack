@@ -49,7 +49,11 @@ export type AuditLogAction =
   // 外部の AI での読み取り（Claude Vision）の送信（estimate-request の 49.7。表示名は utils/audit-log-actions.ts）
   | 'CLAUDE_VISION_SENT'
   // 論理削除から保持期間を過ぎたプロジェクトの完全削除（project-management 要件46.6。表示名は utils/audit-log-actions.ts）
-  | 'PROJECT_PURGED';
+  | 'PROJECT_PURGED'
+  // 完全削除の失敗の扱い（対象外化・対象への復帰・定期処理の結果。project-management 要件46.11・46.14・46.15）
+  | 'PROJECT_PURGE_EXCLUDED'
+  | 'PROJECT_PURGE_REQUEUED'
+  | 'PROJECT_PURGE_RUN_COMPLETED';
 
 /**
  * 監査ログ情報
