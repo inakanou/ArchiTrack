@@ -7,6 +7,7 @@
  * Task 81.1: 対象の選び方と、ファイルのキー・種類ごとの件数の集め方
  * Task 81.2: ファイル→DB の順の完全削除と監査の記録
  * Task 83.2: 失敗の記録と、失敗したものを後ろへ回す選び方
+ * Task 83.3: 5 回続けて失敗したものを対象から外し、全システム管理者へ知らせる
  *
  * Requirements (project-management):
  * - 9.6: 関連データを保持期間の後に共に削除する
@@ -16,6 +17,8 @@
  * - 46.8: 導入の前に論理削除されたプロジェクトにも同じ保持期間を当てる
  * - 46.9: 監査ログは消さない
  * - 46.10: 失敗したものは記録し、試みていないものと試みた日時の古いものの後に回す（D10・D11）
+ * - 46.11: 5 回続けて失敗したものを対象から外し、監査に記録し、全システム管理者へ知らせる（D12）
+ * - 46.12: その記録と通知に名前・ファイルのキー・エラーの文言を含めない
  * - 46.13: 対象から外したものは選ばない（論理削除のままのため表示・提供もされない）
  *
  * @module services/project-purge
@@ -26,6 +29,7 @@ import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import logger from '../utils/logger.js';
+import type { IAdminNotificationService } from './admin-notification.service.js';
 import { AuditLogService } from './audit-log.service.js';
 
 /** 論理削除から完全削除までの保持期間（日） */
@@ -39,6 +43,12 @@ export const PROJECT_PURGE_TRANSACTION_TIMEOUT_MS = 60_000;
 
 /** 完全削除の監査の対象の種類 */
 export const PROJECT_PURGE_AUDIT_TARGET_TYPE = 'Project';
+
+/** 対象から外すまでの、続けての失敗の回数（46.11） */
+export const PROJECT_PURGE_MAX_FAILURES = 5;
+
+/** 対象から外したものを対象に戻す運用の手順のコマンド（通知に載せる） */
+export const PROJECT_PURGE_REQUEUE_COMMAND = 'npm run project:purge-requeue -- --project-id <ID>';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -63,6 +73,8 @@ export interface ProjectPurgeCounts {
 export interface ProjectPurgeResult {
   purgedProjectIds: string[];
   failedProjectIds: string[];
+  /** この回で対象から外したもの（46.11） */
+  excludedProjectIds: string[];
   remainingCandidates: number;
 }
 
@@ -89,10 +101,28 @@ export interface ProjectPurgeServiceDependencies {
   storageProvider: StorageProvider;
   /** 監査の記録（省略時は prisma で作る） */
   auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /** 対象から外したことの全システム管理者への通知（省略時は通知しない。試験と運用の手順のため） */
+  adminNotificationService?: Pick<IAdminNotificationService, 'notifyAllAdmins'>;
 }
 
 /** 失敗の段階（記録に使う） */
 type ProjectPurgeStage = 'collect' | 'files' | 'database';
+
+/** 1 件の完全削除の結果（失敗のときは段階を持つ） */
+type ProjectPurgeOutcome = { ok: true } | { ok: false; stage: ProjectPurgeStage };
+
+/** 失敗の記録の書き込みの結果 */
+interface ProjectPurgeFailureRecord {
+  failureCount: number;
+  /** この書き込みで対象から外したか */
+  excluded: boolean;
+}
+
+/** この回で対象から外したもの（通知に載せる） */
+interface ExcludedProject {
+  id: string;
+  failureCount: number;
+}
 
 /** 失敗の記録に出す最小限の情報（エラーの文言はキーを含みうるため出さない） */
 function describeError(error: unknown): { errorName?: string; errorCode?: string } {
@@ -129,18 +159,35 @@ export class ProjectPurgeService {
     const { targets, remainingCandidates } = await this.selectTargets(now);
     const purgedProjectIds: string[] = [];
     const failedProjectIds: string[] = [];
+    const excluded: ExcludedProject[] = [];
 
     for (const target of targets) {
-      const ok = await this.purgeProject(target, now);
-      (ok ? purgedProjectIds : failedProjectIds).push(target.id);
-      if (!ok) await this.recordFailure(target.id, now);
+      const outcome = await this.purgeProject(target, now);
+      if (outcome.ok) {
+        purgedProjectIds.push(target.id);
+        continue;
+      }
+      failedProjectIds.push(target.id);
+      const record = await this.recordFailure(target.id, now);
+      if (record?.excluded) {
+        excluded.push({ id: target.id, failureCount: record.failureCount });
+        await this.recordExclusion(target, record.failureCount, outcome.stage, now);
+      }
     }
 
-    return { purgedProjectIds, failedProjectIds, remainingCandidates };
+    // その回で外したものをまとめて 1 通で知らせる（D12）
+    await this.notifyExcluded(excluded);
+
+    return {
+      purgedProjectIds,
+      failedProjectIds,
+      excludedProjectIds: excluded.map((project) => project.id),
+      remainingCandidates,
+    };
   }
 
-  /** 1 件のプロジェクトを完全に削除する。失敗したら記録して false を返す */
-  private async purgeProject(target: ProjectPurgeTarget, now: Date): Promise<boolean> {
+  /** 1 件のプロジェクトを完全に削除する。失敗したら記録して失敗の段階を返す */
+  private async purgeProject(target: ProjectPurgeTarget, now: Date): Promise<ProjectPurgeOutcome> {
     let stage: ProjectPurgeStage = 'collect';
     try {
       const { fileKeys, counts } = await this.collectProjectAssets(target.id);
@@ -175,33 +222,117 @@ export class ProjectPurgeService {
         },
         { ...connectBudgetTransactionOptions(), timeout: PROJECT_PURGE_TRANSACTION_TIMEOUT_MS }
       );
-      return true;
+      return { ok: true };
     } catch (error) {
       logger.error(
         { projectId: target.id, stage, ...describeError(error) },
         'Failed to purge soft-deleted project'
       );
-      return false;
+      return { ok: false, stage };
     }
   }
 
   /**
-   * 失敗の回数を 1 増やし、最後に試みた日時を付ける（46.10、D11）
+   * 失敗の回数を 1 増やし、最後に試みた日時を付ける。回数が上限に届いたら対象から外した日時を付ける
+   * （46.10・46.11、D11）
    *
-   * 削除のトランザクションの外で書く（ロールバックで記録が消えないように）。
+   * 削除のトランザクションの外で書く（ロールバックで記録が消えないように）。回数を増やす書き込みと
+   * 対象から外す書き込みは一つのトランザクションにまとめ、片方だけが残らないようにする。対象から外す
+   * 書き込みは増やした後の回数を条件にするため、主キーの行の upsert の後で同じ行を読み書きする。
    * 書き込みの失敗は記録して次のプロジェクトへ進む（その回の失敗は数えないが、次の回にまた試みる）。
+   *
+   * @returns 書き込んだ後の回数と、この書き込みで対象から外したか（書き込みに失敗したら null）
    */
-  private async recordFailure(projectId: string, now: Date): Promise<void> {
+  private async recordFailure(
+    projectId: string,
+    now: Date
+  ): Promise<ProjectPurgeFailureRecord | null> {
+    const states = this.deps.prisma.projectPurgeState;
     try {
-      await this.deps.prisma.projectPurgeState.upsert({
-        where: { projectId },
-        create: { projectId, failureCount: 1, lastAttemptAt: now },
-        update: { failureCount: { increment: 1 }, lastAttemptAt: now },
-      });
+      const [state, exclusion] = await this.deps.prisma.$transaction([
+        states.upsert({
+          where: { projectId },
+          create: { projectId, failureCount: 1, lastAttemptAt: now },
+          update: { failureCount: { increment: 1 }, lastAttemptAt: now },
+        }),
+        states.updateMany({
+          where: {
+            projectId,
+            excludedAt: null,
+            failureCount: { gte: PROJECT_PURGE_MAX_FAILURES },
+          },
+          data: { excludedAt: now },
+        }),
+      ]);
+      return { failureCount: state.failureCount, excluded: exclusion.count > 0 };
     } catch (error) {
       logger.error(
         { projectId, ...describeError(error) },
         'Failed to record project purge failure'
+      );
+      return null;
+    }
+  }
+
+  /**
+   * 対象から外したことを監査に記録する（46.11・46.12）
+   *
+   * 回数・日時・最後の失敗の段階だけを記録し、名前・ファイルのキー・エラーの文言は入れない。
+   * 記録の失敗は記録して次へ進む（対象から外したことは失敗の記録の表に残っている）。
+   */
+  private async recordExclusion(
+    target: ProjectPurgeTarget,
+    failureCount: number,
+    stage: ProjectPurgeStage,
+    now: Date
+  ): Promise<void> {
+    try {
+      await this.auditLogService.createLog({
+        action: 'PROJECT_PURGE_EXCLUDED',
+        actorId: null,
+        targetType: PROJECT_PURGE_AUDIT_TARGET_TYPE,
+        targetId: target.id,
+        metadata: {
+          failureCount,
+          deletedAt: target.deletedAt.toISOString(),
+          excludedAt: now.toISOString(),
+          lastFailureStage: stage,
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { projectId: target.id, ...describeError(error) },
+        'Failed to record project purge exclusion'
+      );
+    }
+  }
+
+  /**
+   * その回で対象から外したものを全システム管理者へ 1 通で知らせる（46.11・46.12、D12）
+   *
+   * 本文はプロジェクト ID・失敗の回数・対象に戻す手順のコマンド名だけ（名前は外へ出さない）。
+   * 通知の部品が無いとき・外したものが無いときは送らない。通知の失敗は処理を失敗にしない。
+   */
+  private async notifyExcluded(excluded: ExcludedProject[]): Promise<void> {
+    const notifier = this.deps.adminNotificationService;
+    if (!notifier || excluded.length === 0) return;
+    try {
+      await notifier.notifyAllAdmins({
+        kind: 'PROJECT_PURGE_EXCLUDED',
+        subject: `【重要】プロジェクトの完全削除の対象外化: ${excluded.length} 件`,
+        lines: [
+          `完全削除が ${PROJECT_PURGE_MAX_FAILURES} 回続けて失敗したため、次のプロジェクトを定期処理の対象から外しました。`,
+          ...excluded.map(
+            (project) => `プロジェクト ID: ${project.id}（失敗の回数: ${project.failureCount} 回）`
+          ),
+          '原因を取り除いた後、サーバー上で次の手順を実行すると、次回の定期処理で再び完全削除を試みます。',
+          PROJECT_PURGE_REQUEUE_COMMAND,
+        ],
+      });
+    } catch (error) {
+      logger.error(
+        { projectIds: excluded.map((project) => project.id), ...describeError(error) },
+        'Failed to notify admins of excluded project purges'
       );
     }
   }

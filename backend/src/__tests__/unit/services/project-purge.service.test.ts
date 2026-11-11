@@ -13,6 +13,8 @@
  * - 46.9: 監査ログは消さない
  * - 46.10: 失敗したものは記録し、試みていないものと試みた日時の古いものの後に回す（Task 83.2）
  * - 46.13: 対象から外したものは選ばない（Task 83.2）
+ * - 46.11: 5 回続けて失敗したものを対象から外し、記録し、全システム管理者へ知らせる（Task 83.3、D12）
+ * - 46.12: 対象から外したことの記録と通知に名前・ファイルのキー・エラーの文言を含めない（Task 83.3）
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -27,6 +29,7 @@ import logger from '../../../utils/logger.js';
 import {
   ProjectPurgeService,
   PROJECT_PURGE_BATCH_SIZE,
+  PROJECT_PURGE_MAX_FAILURES,
   PROJECT_PURGE_RETENTION_DAYS,
 } from '../../../services/project-purge.service.js';
 
@@ -132,9 +135,22 @@ type PurgeStateUpsertArgs = {
   update: { failureCount: { increment: number }; lastAttemptAt: Date };
 };
 
-/** 失敗の記録の偽の表（upsert でプロジェクトの行の purgeState を書き換える） */
+type PurgeStateUpdateManyArgs = {
+  where: { projectId: string; excludedAt: null; failureCount: { gte: number } };
+  data: { excludedAt: Date };
+};
+
+/** 失敗の記録の偽の表（upsert・updateMany でプロジェクトの行の purgeState を書き換える） */
 function createPurgeStateTable(rows: ProjectRow[]) {
   return {
+    updateMany: vi.fn(async (args: PurgeStateUpdateManyArgs) => {
+      const row = rows.find((r) => r.id === args.where.projectId);
+      const state = row?.purgeState;
+      if (!row || !state || state.excludedAt !== null) return { count: 0 };
+      if (state.failureCount < args.where.failureCount.gte) return { count: 0 };
+      row.purgeState = { ...state, excludedAt: args.data.excludedAt };
+      return { count: 1 };
+    }),
     upsert: vi.fn(async (args: PurgeStateUpsertArgs) => {
       const row = rows.find((r) => r.id === args.where.projectId);
       if (!row) throw new Error(`no project: ${args.where.projectId}`);
@@ -472,7 +488,9 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
     );
     const txs: ReturnType<typeof createTx>[] = [];
     const $transaction = vi.fn(
-      async (fn: (tx: unknown) => Promise<unknown>, _options?: unknown) => {
+      async (fn: ((tx: unknown) => Promise<unknown>) | Promise<unknown>[], _options?: unknown) => {
+        // 配列は失敗の記録の書き込み（一つのトランザクションにまとめた書き込み）
+        if (Array.isArray(fn)) return Promise.all(fn);
         calls.push('$transaction');
         const tx = createTx();
         txs.push(tx);
@@ -480,6 +498,11 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
       }
     );
     return { ...base, $transaction, txs };
+  }
+
+  /** 削除のトランザクション（関数を渡した呼び出し）だけを返す */
+  function deletionTransactionCalls() {
+    return prisma.$transaction.mock.calls.filter(([arg]) => typeof arg === 'function');
   }
 
   function createPurgeService() {
@@ -632,7 +655,8 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
       'storage.delete:k-4',
       '$transaction',
     ]);
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    // 削除のトランザクションは p-2 の 1 回だけ（失敗の記録の書き込みは数えない）
+    expect(prisma.txs).toHaveLength(1);
     expect(prisma.txs[0]!.project!.delete).toHaveBeenCalledWith({ where: { id: 'p-2' } });
     expect(result.failedProjectIds).toEqual(['p-1']);
     expect(result.purgedProjectIds).toEqual(['p-2']);
@@ -660,7 +684,8 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
 
     const result = await service.purgeExpired(NOW);
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    // 削除のトランザクションは 2 回（失敗の記録の書き込みは数えない）
+    expect(deletionTransactionCalls()).toHaveLength(2);
     expect(result.failedProjectIds).toEqual(['p-1']);
     expect(result.purgedProjectIds).toEqual(['p-2']);
     expect(logger.error).toHaveBeenCalledTimes(1);
@@ -690,6 +715,7 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
     expect(result).toEqual({
       purgedProjectIds: Array.from({ length: 20 }, (_, i) => `p-${String(i).padStart(2, '0')}`),
       failedProjectIds: [],
+      excludedProjectIds: [],
       remainingCandidates: 3,
     });
   });
@@ -700,7 +726,12 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
 
     const result = await service.purgeExpired(NOW);
 
-    expect(result).toEqual({ purgedProjectIds: [], failedProjectIds: [], remainingCandidates: 0 });
+    expect(result).toEqual({
+      purgedProjectIds: [],
+      failedProjectIds: [],
+      excludedProjectIds: [],
+      remainingCandidates: 0,
+    });
     expect(storageDelete).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -710,7 +741,8 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
 
     /** 指定したプロジェクトの DB の削除を毎回失敗させる（Restrict の失敗を模す） */
     function failDatabaseFor(failing: Set<string>) {
-      prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      prisma.$transaction.mockImplementation(async (fn) => {
+        if (Array.isArray(fn)) return Promise.all(fn);
         calls.push('$transaction');
         const tx = createTx();
         prisma.txs.push(tx);
@@ -918,6 +950,307 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
         errorCode: 'P1001',
       });
       expect(JSON.stringify(errorLogs)).not.toContain('secret-key');
+    });
+  });
+
+  describe('5 回続けて失敗したものを対象から外し、知らせる（46.11・46.12、D12）', () => {
+    const LATER = new Date(NOW.getTime() + DAY_MS);
+    const REQUEUE_COMMAND = 'npm run project:purge-requeue -- --project-id <ID>';
+    let createLog: Mock;
+    let notifyAllAdmins: Mock;
+
+    /** 指定したプロジェクトの DB の削除を毎回失敗させる（エラーの文言にキーを含める） */
+    function failDatabase(failing: Set<string>) {
+      prisma.$transaction.mockImplementation(async (fn) => {
+        if (Array.isArray(fn)) return Promise.all(fn);
+        calls.push('$transaction');
+        const tx = createTx();
+        prisma.txs.push(tx);
+        const originalDelete = tx.project!.delete!;
+        tx.project!.delete = vi.fn(async (args: { where: { id: string } }) => {
+          if (failing.has(args.where.id)) {
+            throw Object.assign(new Error('Foreign key constraint violated: secret-message'), {
+              code: 'P2003',
+            });
+          }
+          return originalDelete(args);
+        });
+        return fn(tx);
+      });
+    }
+
+    /** 監査の記録と通知の部品を差し替えた ProjectPurgeService を作る */
+    function createExcludingService(options: { withNotifier?: boolean } = {}) {
+      storageDelete = vi.fn(async (key: string) => {
+        calls.push(`storage.delete:${key}`);
+      });
+      const storageProvider = {
+        type: 'local',
+        delete: storageDelete,
+      } as unknown as StorageProvider;
+      return new ProjectPurgeService({
+        prisma: prisma as unknown as PrismaClient,
+        storageProvider,
+        auditLogService: { createLog },
+        ...(options.withNotifier === false
+          ? {}
+          : { adminNotificationService: { notifyAllAdmins } }),
+      });
+    }
+
+    /** 失敗の回数を持つ、対象から外していない記録 */
+    function failedBefore(failureCount: number): PurgeStateRow {
+      return { failureCount, lastAttemptAt: daysAgo(1), excludedAt: null };
+    }
+
+    function excludedLogs() {
+      return createLog.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .filter((input) => input.action === 'PROJECT_PURGE_EXCLUDED');
+    }
+
+    beforeEach(() => {
+      createLog = vi.fn(async (input: Record<string, unknown>) => ({ id: 'audit-1', ...input }));
+      notifyAllAdmins = vi.fn().mockResolvedValue(undefined);
+    });
+
+    it('上限は 5 回である', () => {
+      expect(PROJECT_PURGE_MAX_FAILURES).toBe(5);
+    });
+
+    it('4 回目の失敗では外さず、5 回目の失敗で同じ書き込みで外して記録し、1 通知らせる（46.11）', async () => {
+      const deletedAt = daysAgo(100);
+      const rows: ProjectRow[] = [{ id: 'p-1', deletedAt, purgeState: failedBefore(3) }];
+      prisma = createPurgePrisma(rows, {});
+      failDatabase(new Set(['p-1']));
+      const service = createExcludingService();
+
+      // 4 回目: 外さない
+      const fourth = await service.purgeExpired(NOW);
+      expect(fourth.failedProjectIds).toEqual(['p-1']);
+      expect(fourth.excludedProjectIds).toEqual([]);
+      expect(rows[0]!.purgeState).toEqual({
+        failureCount: 4,
+        lastAttemptAt: NOW,
+        excludedAt: null,
+      });
+      expect(excludedLogs()).toHaveLength(0);
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+
+      // 5 回目: 回数を増やす書き込みと対象から外す書き込みを一つのトランザクションで行う
+      const fifth = await service.purgeExpired(LATER);
+      expect(fifth.failedProjectIds).toEqual(['p-1']);
+      expect(fifth.excludedProjectIds).toEqual(['p-1']);
+      expect(rows[0]!.purgeState).toEqual({
+        failureCount: 5,
+        lastAttemptAt: LATER,
+        excludedAt: LATER,
+      });
+      const batches = prisma.$transaction.mock.calls.filter(([arg]) => Array.isArray(arg));
+      expect(batches).toHaveLength(2);
+      expect(prisma.projectPurgeState.updateMany).toHaveBeenLastCalledWith({
+        where: { projectId: 'p-1', excludedAt: null, failureCount: { gte: 5 } },
+        data: { excludedAt: LATER },
+      });
+
+      // 監査は実行者なし・対象はプロジェクト、回数・日時・最後の失敗の段階だけ
+      expect(excludedLogs()).toEqual([
+        {
+          action: 'PROJECT_PURGE_EXCLUDED',
+          actorId: null,
+          targetType: 'Project',
+          targetId: 'p-1',
+          metadata: {
+            failureCount: 5,
+            deletedAt: deletedAt.toISOString(),
+            excludedAt: LATER.toISOString(),
+            lastFailureStage: 'database',
+          },
+        },
+      ]);
+      // 削除のトランザクションの外で書く
+      expect(createLog.mock.calls.find((c) => c[0].action === 'PROJECT_PURGE_EXCLUDED')).toEqual([
+        expect.anything(),
+      ]);
+
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+      const notification = notifyAllAdmins.mock.calls[0]![0] as {
+        kind: string;
+        subject: string;
+        lines: string[];
+      };
+      expect(notification.kind).toBe('PROJECT_PURGE_EXCLUDED');
+      expect(notification.subject).toContain('1 件');
+      expect(notification.lines.some((l) => l.includes('p-1') && l.includes('5 回'))).toBe(true);
+      expect(notification.lines).toContain(REQUEUE_COMMAND);
+
+      // 外したものは次の回で選ばない
+      const after = await service.purgeExpired(new Date(LATER.getTime() + DAY_MS));
+      expect(after.failedProjectIds).toEqual([]);
+      expect(after.excludedProjectIds).toEqual([]);
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録と通知にプロジェクトの名前・ファイルのキー・エラーの文言を含めない（46.12）', async () => {
+      const deletedAt = daysAgo(100);
+      prisma = createPurgePrisma([{ id: 'p-1', deletedAt, purgeState: failedBefore(4) }], {
+        'p-1': ['surveys/secret-name/original.jpg'],
+      });
+      const service = createExcludingService();
+      storageDelete.mockRejectedValue(
+        new Error('storage unavailable: surveys/secret-name/original.jpg secret-message')
+      );
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.excludedProjectIds).toEqual(['p-1']);
+      expect(excludedLogs()).toHaveLength(1);
+      expect(excludedLogs()[0]!.metadata).toEqual({
+        failureCount: 5,
+        deletedAt: deletedAt.toISOString(),
+        excludedAt: NOW.toISOString(),
+        lastFailureStage: 'files',
+      });
+      const serialized = JSON.stringify([excludedLogs(), notifyAllAdmins.mock.calls]);
+      expect(serialized).not.toContain('secret-name');
+      expect(serialized).not.toContain('secret-message');
+      expect(serialized).not.toContain('original.jpg');
+      expect(serialized).not.toContain('"name"');
+      expect(serialized).not.toContain('projectName');
+      // 通知の本文はプロジェクト ID・回数・対象に戻す手順のコマンド名だけ
+      const { lines } = notifyAllAdmins.mock.calls[0]![0] as { lines: string[] };
+      const idLines = lines.filter((l) => l.includes('p-1'));
+      expect(idLines).toEqual(['プロジェクト ID: p-1（失敗の回数: 5 回）']);
+    });
+
+    it('同じ回で 2 件外しても通知は回の終わりに 1 通で、両方の ID と回数を載せる（D12）', async () => {
+      prisma = createPurgePrisma(
+        [
+          { id: 'p-1', deletedAt: daysAgo(130), purgeState: failedBefore(4) },
+          { id: 'p-2', deletedAt: daysAgo(120), purgeState: failedBefore(4) },
+          { id: 'p-3', deletedAt: daysAgo(110), purgeState: failedBefore(1) },
+          { id: 'p-4', deletedAt: daysAgo(100) },
+        ],
+        {}
+      );
+      failDatabase(new Set(['p-1', 'p-2', 'p-3']));
+      const service = createExcludingService();
+      notifyAllAdmins.mockImplementation(async () => {
+        calls.push('notifyAllAdmins');
+      });
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.failedProjectIds.sort()).toEqual(['p-1', 'p-2', 'p-3']);
+      expect(result.purgedProjectIds).toEqual(['p-4']);
+      expect(result.excludedProjectIds.sort()).toEqual(['p-1', 'p-2']);
+      expect(
+        excludedLogs()
+          .map((l) => l.targetId)
+          .sort()
+      ).toEqual(['p-1', 'p-2']);
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+      // 回の終わり（すべてのプロジェクトの処理の後）に送る
+      expect(calls[calls.length - 1]).toBe('notifyAllAdmins');
+      const { subject, lines } = notifyAllAdmins.mock.calls[0]![0] as {
+        subject: string;
+        lines: string[];
+      };
+      expect(subject).toContain('2 件');
+      expect(lines).toContain('プロジェクト ID: p-1（失敗の回数: 5 回）');
+      expect(lines).toContain('プロジェクト ID: p-2（失敗の回数: 5 回）');
+      expect(lines.some((l) => l.includes('p-3'))).toBe(false);
+    });
+
+    it('外したものが無い回は通知しない', async () => {
+      prisma = createPurgePrisma(
+        [
+          { id: 'p-1', deletedAt: daysAgo(120), purgeState: failedBefore(2) },
+          { id: 'p-2', deletedAt: daysAgo(110) },
+        ],
+        {}
+      );
+      failDatabase(new Set(['p-1']));
+      const service = createExcludingService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.failedProjectIds).toEqual(['p-1']);
+      expect(result.excludedProjectIds).toEqual([]);
+      expect(excludedLogs()).toHaveLength(0);
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('通知が失敗しても処理は失敗せず、外したプロジェクトを返す', async () => {
+      prisma = createPurgePrisma(
+        [{ id: 'p-1', deletedAt: daysAgo(120), purgeState: failedBefore(4) }],
+        {}
+      );
+      failDatabase(new Set(['p-1']));
+      const service = createExcludingService();
+      notifyAllAdmins.mockRejectedValue(new Error('mail queue down'));
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.excludedProjectIds).toEqual(['p-1']);
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+        expect.objectContaining({ projectIds: ['p-1'] }),
+        'Failed to notify admins of excluded project purges'
+      );
+    });
+
+    it('通知の部品を渡さないときは通知しないが、対象から外して記録する', async () => {
+      const rows: ProjectRow[] = [
+        { id: 'p-1', deletedAt: daysAgo(120), purgeState: failedBefore(4) },
+      ];
+      prisma = createPurgePrisma(rows, {});
+      failDatabase(new Set(['p-1']));
+      const service = createExcludingService({ withNotifier: false });
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.excludedProjectIds).toEqual(['p-1']);
+      expect(rows[0]!.purgeState!.excludedAt).toEqual(NOW);
+      expect(excludedLogs()).toHaveLength(1);
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('記録の書き込みが失敗したら外さず、記録も通知もしない（次の回でまた数える）', async () => {
+      const rows: ProjectRow[] = [
+        { id: 'p-1', deletedAt: daysAgo(120), purgeState: failedBefore(4) },
+      ];
+      prisma = createPurgePrisma(rows, {});
+      failDatabase(new Set(['p-1']));
+      prisma.projectPurgeState.upsert.mockRejectedValueOnce(new Error('connection lost'));
+      const service = createExcludingService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.failedProjectIds).toEqual(['p-1']);
+      expect(result.excludedProjectIds).toEqual([]);
+      expect(rows[0]!.purgeState!.excludedAt).toBeNull();
+      expect(excludedLogs()).toHaveLength(0);
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('対象から外したことの監査の記録が失敗しても、記録して知らせ、外したプロジェクトを返す', async () => {
+      prisma = createPurgePrisma(
+        [{ id: 'p-1', deletedAt: daysAgo(120), purgeState: failedBefore(4) }],
+        {}
+      );
+      failDatabase(new Set(['p-1']));
+      createLog.mockRejectedValue(new Error('audit down'));
+      const service = createExcludingService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.excludedProjectIds).toEqual(['p-1']);
+      expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'p-1' }),
+        'Failed to record project purge exclusion'
+      );
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
     });
   });
 });

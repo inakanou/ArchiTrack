@@ -144,6 +144,8 @@ export type AuditLogAction =
   | 'PROJECT_STATUS_CHANGED'
   // 論理削除から保持期間を過ぎたプロジェクトの完全削除（project-management 要件46.6。件数と日時だけを持つ）
   | 'PROJECT_PURGED'
+  // 完全削除が 5 回続けて失敗したプロジェクトを定期処理の対象から外した（要件46.11・46.12。回数・日時・段階だけを持つ）
+  | 'PROJECT_PURGE_EXCLUDED'
   // 取引先管理
   | 'TRADING_PARTNER_CREATED'
   | 'TRADING_PARTNER_UPDATED'
