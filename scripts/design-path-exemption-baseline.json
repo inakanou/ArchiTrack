@@ -26,11 +26,11 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 189,
-  "candidateTotal": 747,
-  "entityTotal": 149,
-  "exemptedTotal": 147,
-  "exemptedDistinctTotal": 42,
+  "reachTotal": 191,
+  "candidateTotal": 1116,
+  "entityTotal": 151,
+  "exemptedTotal": 151,
+  "exemptedDistinctTotal": 46,
   "ambiguousTotal": 5,
   "candidateHistory": [
     {
@@ -132,6 +132,11 @@
       "recordedAt": "2026-09-25",
       "reachTotal": 189,
       "candidateTotal": 747
+    },
+    {
+      "recordedAt": "2026-11-11",
+      "reachTotal": 191,
+      "candidateTotal": 1116
     }
   ],
   "documents": {
@@ -152,11 +157,13 @@
       "LineItemEditor.tsx",
       "backend/src/__tests__/integration/estimate-request.api.integration.test.ts",
       "backend/src/routes/estimate-requests.routes.ts",
+      "estimate-request-project-scope.api.integration.test.ts",
       "estimate-requests.routes.ts",
       "frontend/src/components/estimate-request/EstimateRequestForm.test.tsx",
       "frontend/src/components/estimate-request/EstimateRequestForm.tsx"
     ],
     ".kiro/specs/project-management/design.md": [
+      "docs/deployment/data-protection.md",
       "frontend/src/pages/ProjectDetailPage.tsx"
     ],
     ".kiro/specs/quantity-table-generation/design.md": [
@@ -339,12 +346,22 @@
   },
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
+    ".kiro/specs/estimate-request/design.md": 2,
+    ".kiro/specs/project-management/design.md": 2,
     ".kiro/specs/quantity-table-generation/design.md": 14,
     ".kiro/specs/site-survey/design.md": 132
   },
   "exemptedReferences": {
     ".kiro/specs/estimate-creation/design.md": [
       "estimate-export.service.ts"
+    ],
+    ".kiro/specs/estimate-request/design.md": [
+      "backend/src/scripts/find-cross-project-estimate-requests.ts",
+      "find-cross-project-estimate-requests.ts"
+    ],
+    ".kiro/specs/project-management/design.md": [
+      "backend/src/scripts/requeue-project-purge.ts",
+      "requeue-project-purge.ts"
     ],
     ".kiro/specs/quantity-table-generation/design.md": [
       "FieldValidatedItemRow.autocomplete.test.tsx",

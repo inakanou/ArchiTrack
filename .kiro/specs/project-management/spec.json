@@ -1,14 +1,14 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-11-11T12:00:00Z",
+  "updated_at": "2026-11-11T15:00:00Z",
   "language": "ja",
-  "phase": "requirements-generated",
+  "phase": "design-generated",
   "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。プロジェクト詳細画面の工程表セクション追加：(12)工程表セクション表示（Requirement 38）。(13)detail-summary APIへの工程表セクション統合（Requirement 39）。プロジェクト詳細画面の実行予算セクション追加：(14)実行予算セクション表示（Requirement 40）。(15)detail-summary APIへの実行予算セクション統合（Requirement 41）。受領見積書と IPA の是正（2026-11-09。roadmap の実施順 3、是正計画 §5.3）：(16)プロジェクト詳細画面の受領見積書セクション（Requirement 42）。(17)detail-summary APIへの受領見積書セクション統合（Requirement 43）。(18)プロジェクトの画面での閲覧範囲外の表示（Requirement 44）。(19)担当者の変更で自分が閲覧範囲から外れるときの確認（Requirement 45）。(20)論理削除したプロジェクトの保持期間（90日）と完全削除（Requirement 46）。既存条文の改訂: 9.5・9.6・28.1。",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
@@ -21,6 +21,14 @@
   },
   "ready_for_implementation": false,
   "update_history": [
+    {
+      "date": "2026-11-11T15:00:00Z",
+      "changes": "Requirements 46.10-46.15 の設計の章を design.md に加え、research.md に調べものを記した。D9 失敗の記録は別の表 project_purge_states、D10 最後に試みた日時の空を先に選ぶ、D11 記録の回数が続けての失敗の回数、D12 通知は回ごとに 1 通で ID と回数だけ、D13 対象に戻すのは運用のスクリプト、D14 0 件の回も結果を記録。訂正: 見積依頼の作成は 2026-11-04 から経路の層で別のプロジェクトの内訳書を拒んでいた（46 の改訂の記録の一文を直した）。design review gate パス。approvals.design.approved は false"
+    },
+    {
+      "date": "2026-11-11T13:00:00Z",
+      "changes": "2026-11-11 の要件の改訂を利用者が承認した（2026-11-11「承認します」。失敗の上限5回・監査ログと全システム管理者への通知・運用の手順で対象に戻す・編集も Requirement 51 の対象とする点を含む）。approvals.requirements.approved を true にした。design・tasks は未承認のまま"
+    },
     {
       "date": "2026-11-11T12:00:00Z",
       "changes": "Requirement 46 に受入基準10〜15を加えた（2026-11-11、利用者の判断「提案の方法で進める」）。機能レベルの検証で、完全削除が毎回失敗するプロジェクトが20件たまると新しい対象が進まないことを確かめたため、失敗したプロジェクトを後ろに回し、5回続けて失敗したら対象から外して全てのシステム管理者へ通知し、運用の手順で対象に戻せるようにする。原因の一つは estimate-request の Requirement 51 で断つ。requirements review gate（mechanical: 数値 ID・全 AC が EARS・If は then 付き、judgment: coverage/testability/boundary）パス。approvals を未承認に戻し、ready_for_implementation を false、phase を requirements-generated にした"

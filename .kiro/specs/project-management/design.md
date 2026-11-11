@@ -4466,3 +4466,248 @@ interface ProjectPurgeService {
 
 ### Migration Strategy
 - スキーマの変更は無い。本番へ入れた後の最初の定期処理で、導入前に論理削除され 90 日を過ぎたプロジェクトが 1 回 20 件ずつ完全に削除される（46.8。利用者の承認 2026-11-09）
+
+## Requirements 46.10-46.15: 完全削除の失敗の扱い（2026-11-11 の追加）
+
+### Overview
+
+**Purpose**: 完全削除（46.5）が毎回失敗するプロジェクトに枠を占められて、他のプロジェクトが保持期間を過ぎても消えない状態をなくす。失敗したプロジェクトを後ろに回し（46.10）、5 回続けて失敗したら対象から外して全てのシステム管理者へ知らせ（46.11・46.12）、原因を直した後に運用の手順で対象に戻せるようにする（46.14）。1 回ごとの結果を監査ログに残す（46.15）。失敗の原因の一つ（別のプロジェクトの内訳書を参照する見積依頼）は、2026-11-04 の是正（estimate-request の 42.10）から新たには作られず、それより前の不整合は estimate-request の Requirement 51.3 で確かめる。
+
+**Users**: システム管理者（通知を受け、原因を直して対象に戻す）。
+
+**Impact（既存前提の是正。2026-11-11 の調べもの〔読むだけ。HEAD `8a7976dc`〕）**:
+
+1. `ProjectPurgeService.selectTargets` は `deletedAt` の古い順に毎回 20 件を選ぶ。失敗は `logger.error` に出すだけで DB に残らず、次の回の選び方に使われない。毎回失敗するプロジェクトが 20 件あれば、それより新しい対象は選ばれない
+2. 失敗の段階は `collect`・`files`・`database` の三つ。DB の段の失敗の主な原因は、他のプロジェクトの行が対象の木の行を `Restrict` で参照していること（例: 別のプロジェクトの見積依頼が対象の内訳書を参照する。estimate-request の Requirement 51 の経緯）
+3. 管理者への通知は `AdminNotificationService.notifyAllAdmins`（admin ロールの有効な利用者へメール、同時に Sentry）がある。サーバー上で実行する運用の手順の先例は `backend/src/scripts/reactivate-user.ts`（`npm run user:reactivate`、終了コード 0・1・2、実行者の無い監査に `trigger='operator_script'`）
+4. 監査ログの `targetType`・`targetId` は必須の文字列で、種別は文字列の列に入る（DB の enum ではない）
+
+### Goals
+- 失敗が続くプロジェクトがあっても、他のプロジェクトは保持期間の後の最初の数回の定期処理で完全に削除される
+- 直らない失敗は 5 回で止まり、システム管理者が知る
+- 原因を直したプロジェクトは運用の手順で対象に戻り、次の回に完全削除を試みる
+
+### Non-Goals
+- 失敗の原因を自動で直すこと（参照している他のプロジェクトの行を消す・付け替えるなど）
+- 対象に戻す画面、対象から外れたプロジェクトの一覧の画面
+- 失敗の上限・1 回の件数を設定で変えること
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 完全削除の対象の選び方（失敗の回数・最後に試みた日時・対象から外したこと）とその記録の表
+- 対象から外したときと 1 回ごとの結果の監査の種別、対象から外したときの通知の中身
+- 対象に戻す運用の手順（スクリプト）
+
+#### Out of Boundary
+- 別のプロジェクトの内訳書を参照する見積依頼を作らせないこと・既存の不整合を確かめること（estimate-request の Requirement 51）
+- 通知の宛先の決め方と送り方（user-authentication の `AdminNotificationService`。本章は種別を一つ足すだけ）
+- 定期処理の仕組みと監査ログの保持（user-authentication）
+
+#### Allowed Dependencies
+- `AdminNotificationService.notifyAllAdmins`（種別 `PROJECT_PURGE_EXCLUDED` を足す）
+- `AuditLogService.createLog`、`StorageProvider.delete`（既存のまま）
+- 運用の手順の起動の形は `reactivate-user.ts` に揃える（`getPrismaClient`・`disconnectPrisma`・終了コード）
+
+#### Revalidation Triggers
+- `Project` の削除の連鎖が変わった（記録の表は `Cascade` でプロジェクトと共に消える前提）
+- 通知の種別の型・宛先の規則が変わった（user-authentication）
+- 失敗の上限・1 回の件数を変えた（46.10・46.11 の主張と E2E の除外の代替の検証を見直す）
+
+### Architecture
+
+```mermaid
+graph TB
+  Job[SoftDeletedProjectPurgeJob] --> Purge[ProjectPurgeService]
+  Purge --> State[(project_purge_states)]
+  Purge --> Audit[AuditLogService]
+  Purge --> Notify[AdminNotificationService]
+  Script[requeue-project-purge script] --> Requeue[ProjectPurgeService.requeue]
+  Requeue --> State
+  Requeue --> Audit
+```
+
+### Technology Stack
+新しい依存は持たない。表を一つ足す（Prisma の migration）。
+
+### File Structure Plan
+
+#### Directory Structure
+```
+backend/
+├── prisma/schema.prisma                                   # ProjectPurgeState と Project の関係（変更）
+├── prisma/migrations/20261111000000_project_purge_states/migration.sql   # 表の作成（新設）
+├── package.json                                           # project:purge-requeue（変更）
+└── src/
+    ├── services/project-purge.service.ts                  # 選び方・失敗の記録・対象から外す・結果の記録・requeue（変更）
+    ├── services/admin-notification.service.ts             # 種別 PROJECT_PURGE_EXCLUDED（変更）
+    ├── jobs/soft-deleted-project-purge.job.ts             # 通知の部品を渡す（変更）
+    ├── scripts/requeue-project-purge.ts                   # 対象に戻す運用の手順（新設）
+    └── types/audit-log.types.ts                           # 監査の種別 3 つ（変更）
+frontend/src/
+├── types/audit-log.types.ts                               # 監査の種別 3 つ（変更）
+└── utils/audit-log-actions.ts                             # 表示名（変更）
+```
+
+#### Modified Files
+- `.kiro/steering/tech.md` の定期処理の `soft-deleted-project-purge` の行に失敗の扱いを足し、`.kiro/steering/structure.md` の `scripts/` の欄に対象に戻す運用の手順を足す
+- 上の欄に載せる名前は `requeue-project-purge.ts`（新設予定）
+- `docs/deployment/data-protection.md` に、論理削除したプロジェクトの完全削除の失敗の扱い（5 回で対象から外れて通知が来ること）と、対象に戻す手順 `npm run project:purge-requeue` を足す
+
+### System Flows
+
+**完全削除の 1 回（46.10・46.11・46.15）**
+
+```mermaid
+sequenceDiagram
+  participant Job as SoftDeletedProjectPurgeJob
+  participant Svc as ProjectPurgeService
+  participant DB
+  participant N as AdminNotificationService
+  Job->>Svc: purgeExpired(now)
+  Svc->>DB: 対象（対象から外していない・90日を過ぎた）を、最後に試みた日時の無いもの→古いもの→deletedAt の古い順に最大 20 件
+  loop プロジェクトごと
+    Svc->>Svc: ファイル→DB（既存）
+    alt 失敗
+      Svc->>DB: 失敗の回数 +1、最後に試みた日時 = now
+      opt 回数が 5 に届いた
+        Svc->>DB: 対象から外した日時 = now、PROJECT_PURGE_EXCLUDED を記録
+      end
+    end
+  end
+  Svc->>DB: PROJECT_PURGE_RUN_COMPLETED（件数）を記録
+  opt 対象から外したものがある
+    Svc->>N: 全システム管理者へ 1 通（プロジェクト ID と回数）
+  end
+```
+
+**対象に戻す（46.14）**: `npm run project:purge-requeue -- --project-id <ID>` → 論理削除されていて対象から外されているかを確かめる → 失敗の回数 0・最後に試みた日時と対象から外した日時を空にする → `PROJECT_PURGE_REQUEUED` を記録。最後に試みた日時が空のものは次の回に先に選ばれる。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 46.10 | 失敗したプロジェクトを後ろに回す | ProjectPurgeService, ProjectPurgeState | `purgeExpired` | 完全削除の 1 回 |
+| 46.11, 46.12 | 5 回で対象から外し、記録し、名前を含めずに知らせる | ProjectPurgeService, AdminNotificationService | `notifyAllAdmins` | 完全削除の 1 回 |
+| 46.13 | 対象から外した間も表示しない | ProjectPurgeService | 各機能の閲覧範囲の判定（既存） | - |
+| 46.14 | 運用の手順で対象に戻す | RequeueProjectPurgeScript, ProjectPurgeService | `requeue` | 対象に戻す |
+| 46.15 | 1 回ごとの件数の記録 | ProjectPurgeService | `purgeExpired` | 完全削除の 1 回 |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| ProjectPurgeService（変更） | Service | 選び方・失敗の記録・対象から外す・結果の記録・対象に戻す | 46.10, 46.11, 46.12, 46.13, 46.14, 46.15 |
+| ProjectPurgeState | Data | 失敗の回数と日時の記録 | 46.10, 46.11, 46.14 |
+| RequeueProjectPurgeScript | Script | 対象に戻す運用の手順 | 46.14 |
+
+#### ProjectPurgeService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 失敗を記録して次の回の選び方に使い、5 回で対象から外して知らせ、1 回ごとの結果を記録する |
+| Requirements | 46.10, 46.11, 46.12, 46.13, 46.14, 46.15 |
+
+```typescript
+/** 対象から外すまでの、続けての失敗の回数（46.11） */
+export const PROJECT_PURGE_MAX_FAILURES = 5;
+
+interface ProjectPurgeResult {
+  purgedProjectIds: string[];
+  failedProjectIds: string[];
+  excludedProjectIds: string[];   // 追加: この回で対象から外したもの
+  remainingCandidates: number;
+}
+
+type ProjectPurgeRequeueOutcome = 'requeued' | 'not_excluded' | 'not_found';
+
+interface ProjectPurgeServiceDependencies {
+  prisma: PrismaClient;
+  storageProvider: StorageProvider;
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  adminNotificationService?: Pick<IAdminNotificationService, 'notifyAllAdmins'>; // 追加
+}
+
+interface ProjectPurgeService {
+  purgeExpired(now: Date): Promise<ProjectPurgeResult>;
+  /** 運用の手順から呼ぶ（46.14）。DB の削除はしない */
+  requeue(projectId: string, now: Date): Promise<ProjectPurgeRequeueOutcome>;
+}
+```
+
+- **選び方（46.10・46.13）**: `deletedAt` が締めより前で、記録の無いもの、または記録の `excludedAt` が空のもの。並びは `purgeState.lastAttemptAt` の昇順で空を先（試みていないもの）→ `deletedAt` の昇順 → `id` の昇順。最大 20 件。`remainingCandidates` は対象から外したものを除いて数える。対象から外したものは `deletedAt` を持ったままのため、既存の閲覧範囲の判定で表示・提供されない（46.13 は振る舞いを変えず、主張だけを足す）
+- **失敗の記録（46.10）**: 段階を問わず失敗したら、削除のトランザクションの外で記録を upsert し、`failureCount` を 1 増やし `lastAttemptAt = now` とする。成功したプロジェクトは記録ごと消える（`Cascade`）ため、記録の回数はそのまま「続けての失敗」の回数になる。記録の書き込みの失敗は `logger.error` に出して次のプロジェクトへ進む（その回の失敗は数えられないが、次の回にもう一度試みる）
+- **対象から外す（46.11・46.12）**: 増やした回数が `PROJECT_PURGE_MAX_FAILURES` に届いたら、同じ書き込みで `excludedAt = now` とし、`PROJECT_PURGE_EXCLUDED`（`actorId: null`、`targetType: 'Project'`、`targetId` はプロジェクト ID、`metadata` に `failureCount`・`deletedAt`・`excludedAt`・最後の失敗の段階）を記録する。名前・ファイルのキー・エラーの文言は入れない
+- **通知（46.11・46.12）**: その回で対象から外したものが一つ以上あれば、回の終わりに `notifyAllAdmins({ kind: 'PROJECT_PURGE_EXCLUDED', subject, lines })` を 1 通送る。`lines` はプロジェクト ID と失敗の回数、対象に戻す手順のコマンド名だけ。通知の失敗は `notifyAllAdmins` が吸収する（処理を失敗にしない）
+- **結果の記録（46.15）**: 回の終わりに `PROJECT_PURGE_RUN_COMPLETED`（`actorId: null`、`targetType: 'ProjectPurgeRun'`、`targetId` は回の開始の日時の ISO 文字列、`metadata` に `purged`・`failed`・`excluded`・`remainingCandidates` の件数）を記録する。対象が 0 件の回も記録する（定期処理が動いていることを追えるようにする）。記録の失敗は `logger.error` に出し、処理の結果は返す
+- **対象に戻す（46.14）**: プロジェクトが無い、または論理削除されていなければ `not_found`、記録が無いか `excludedAt` が空なら `not_excluded`（何も変えない）。それ以外は一つのトランザクションで `failureCount = 0`・`lastAttemptAt = null`・`excludedAt = null` とし、`PROJECT_PURGE_REQUEUED`（`actorId: null`、`metadata.trigger = 'operator_script'`、戻す前の `failureCount`・`excludedAt`）を記録して `requeued`
+
+#### ProjectPurgeState
+
+| Field | Detail |
+|-------|--------|
+| Intent | 完全削除の失敗の回数と日時、対象から外した日時を、プロジェクトごとに 1 行持つ |
+| Requirements | 46.10, 46.11, 46.14 |
+
+```prisma
+model ProjectPurgeState {
+  projectId     String    @id @map("project_id")
+  failureCount  Int       @default(0) @map("failure_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  excludedAt    DateTime? @map("excluded_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([excludedAt, lastAttemptAt])
+  @@map("project_purge_states")
+}
+// Project に: purgeState ProjectPurgeState?
+```
+
+#### RequeueProjectPurgeScript
+
+| Field | Detail |
+|-------|--------|
+| Intent | サーバー上でプロジェクト ID を指定して対象に戻す |
+| Requirements | 46.14 |
+
+`backend/src/scripts/requeue-project-purge.ts`（新設予定）。`npm run project:purge-requeue -- --project-id <ID>`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/requeue-project-purge.js` を node で動かす）。終了コードは 0 = 戻した、または既に対象（`not_excluded`）、1 = 該当するプロジェクトが無い・実行の失敗、2 = 引数の誤り（ID が UUID の形でない場合を含む）。出力にプロジェクト名を出さない。
+
+### Data Models
+- 表 `project_purge_states` を足す（上の `ProjectPurgeState`）。プロジェクトの完全削除で `Cascade` により消える。既存の行は持たない（導入の後の最初の失敗で作られる）
+- 監査の種別 `PROJECT_PURGE_EXCLUDED`・`PROJECT_PURGE_REQUEUED`・`PROJECT_PURGE_RUN_COMPLETED` は文字列の列に入るため DB の変更を要しない。frontend の表示名はそれぞれ「プロジェクトの完全削除の対象外化」「プロジェクトの完全削除の対象への復帰」「プロジェクトの完全削除の定期処理の結果」
+
+### 決定
+
+**D9 記録の持ち方**: `Project` に列を足さず、別の表に 1 対 1 で持つ。完全削除の関心だけの値であり、プロジェクトの一覧・詳細の取得や型に混ぜないため。`Cascade` で完全削除と共に消え、成功の後に記録が残らない
+**D10 後ろへ回す並び**: 最後に試みた日時の空を先、古い順を後にする。失敗したものは試みた日時が付いて後ろへ回り、新しく 90 日を過ぎたものが先に選ばれる。全件が失敗しても、20 件の枠を毎回違うプロジェクトが使う
+**D11 続けての失敗の数え方**: 成功すれば記録ごと消えるため、記録の回数は常に続けての失敗の回数になる。対象に戻すと 0 に戻る
+**D12 通知の単位**: 回ごとに 1 通にまとめる（同じ回で複数を外しても通知は 1 通）。通知には ID と回数だけを入れる（46.12。完全削除の前のプロジェクトでも名前を外へ出さない）
+**D13 対象に戻す手段**: 運用の手順のスクリプトとする（46.3 の画面を作らない方針と、`user:reactivate` の先例に合わせる）。原因を直したかは確かめない（直さずに戻せば、また 5 回で外れて知らせが来る）
+**D14 結果の記録**: 対象が 0 件の回も `PROJECT_PURGE_RUN_COMPLETED` を残す。1 日 1 件で量は小さく、定期処理が止まっていることに監査ログから気づける
+
+### Error Handling
+- 失敗の記録の書き込み・監査の記録の失敗は `logger.error` に出し、その回の他のプロジェクトの処理を止めない
+- 通知の失敗は `AdminNotificationService` がログと Sentry に送り、処理を失敗にしない
+- 運用の手順は、DB に届かない・引数の誤りを終了コードで返し、変更は一つのトランザクションで行う
+
+### Testing Strategy
+- **単体（backend）**: `ProjectPurgeService` で次を主張する。所在は `backend/src/__tests__/unit/services/project-purge.service.test.ts`
+  - 失敗したプロジェクトが次の回で試みていないものの後に回ること（46.10）
+  - 4 回目の失敗では外さず 5 回目で外し、`PROJECT_PURGE_EXCLUDED` を記録し、通知が 1 通であること（46.11・D12）
+  - 記録と通知に名前・キー・エラーの文言が無いこと（46.12）
+  - 対象から外したものを選ばないこと
+  - `PROJECT_PURGE_RUN_COMPLETED` の件数（0 件の回を含む）（46.15）
+  - `requeue` の 3 つの結果と記録（46.14）
+- **単体（backend）**: 運用の手順の引数・終了コード・出力に名前が無いこと。新設のファイルは backend/src/__tests__/unit/scripts/requeue-project-purge.test.ts
+- **統合（backend）**: 実際の DB で、別のプロジェクトの見積依頼が対象の内訳書を参照して DB の段で毎回失敗するプロジェクトを 20 件と、失敗しないプロジェクトを 1 件作り、1 回目で失敗しないものが消えること（46.10）、5 回の実行で失敗するものが対象から外れ記録が残ること、`requeue` の後の回で再び試みられること、対象から外れたものが関連データの詳細の取得で 404 のままであること（46.13）を主張する。所在は `backend/src/__tests__/integration/project-purge.integration.test.ts`
+- **単体（frontend）**: 3 つの監査の種別の表示名。所在は `frontend/src/__tests__/utils/audit-log-actions.test.ts`
+- **E2E で確かめないもの**: 46.10〜46.15（定期処理は E2E の環境で登録されず、運用の手順は画面を持たない）。実装のタスクで除外の台帳へ代替の検証（上の統合・単体）つきで登録する
+- 挙動の変更は RED → GREEN で進める
+
+### Security Considerations
+- 記録・通知・運用の手順の出力にプロジェクト名・ファイルのキー・エラーの文言を入れない（46.12・D8 の延長）
+- 運用の手順はサーバー上の実行に限り、画面と API を持たない（対象に戻すことを利用者に開かない）
+
+### Migration Strategy
+- migration で表を作るだけで、既存の行は変えない。導入の後の最初の回は、既存の失敗の履歴を持たないため従来どおり `deletedAt` の古い順に選び、失敗したものから記録が付く
