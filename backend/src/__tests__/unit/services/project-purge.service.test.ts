@@ -16,6 +16,7 @@
  * - 46.11: 5 回続けて失敗したものを対象から外し、記録し、全システム管理者へ知らせる（Task 83.3、D12）
  * - 46.12: 対象から外したことの記録と通知に名前・ファイルのキー・エラーの文言を含めない（Task 83.3）
  * - 46.15: 定期処理の 1 回ごとの件数を監査に記録する（0 件の回も。Task 83.4、D14）
+ * - 46.14: 対象から外したものを対象に戻し、記録し、次の回で先に選ぶ（Task 83.5、D11・D13）
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -1443,6 +1444,238 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
       );
       expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('secret-message');
       expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('requeue（対象から外したものを対象に戻す。46.14、D11・D13）', () => {
+    const LATER = new Date(NOW.getTime() + DAY_MS);
+    let projects: ProjectRow[];
+    let createLog: Mock;
+    let notifyAllAdmins: Mock;
+
+    type RequeueUpdateManyArgs = {
+      where: { projectId: string; excludedAt: { not: null } };
+      data: { failureCount: number; lastAttemptAt: null; excludedAt: null };
+    };
+
+    /**
+     * 戻すためのトランザクションの中の読み書きを、プロジェクトの行に対して解す偽にする
+     * （削除のトランザクションの偽はそのまま持つ）
+     */
+    function withRequeueTx() {
+      prisma.$transaction.mockImplementation(async (fn) => {
+        if (Array.isArray(fn)) return Promise.all(fn);
+        calls.push('$transaction');
+        const tx = createTx() as Record<string, Record<string, Mock>>;
+        tx.project!.findUnique = vi.fn(async (args: { where: { id: string } }) => {
+          calls.push('project.findUnique');
+          const row = projects.find((r) => r.id === args.where.id);
+          if (!row) return null;
+          return { id: row.id, deletedAt: row.deletedAt, purgeState: row.purgeState ?? null };
+        });
+        tx.projectPurgeState = {
+          updateMany: vi.fn(async (args: RequeueUpdateManyArgs) => {
+            calls.push('projectPurgeState.updateMany');
+            const row = projects.find((r) => r.id === args.where.projectId);
+            if (!row?.purgeState || row.purgeState.excludedAt === null) return { count: 0 };
+            row.purgeState = { ...row.purgeState, ...args.data };
+            return { count: 1 };
+          }),
+        };
+        prisma.txs.push(tx as ReturnType<typeof createTx>);
+        return fn(tx);
+      });
+    }
+
+    function createRequeueService() {
+      storageDelete = vi.fn(async (key: string) => {
+        calls.push(`storage.delete:${key}`);
+      });
+      const storageProvider = {
+        type: 'local',
+        delete: storageDelete,
+      } as unknown as StorageProvider;
+      return new ProjectPurgeService({
+        prisma: prisma as unknown as PrismaClient,
+        storageProvider,
+        auditLogService: { createLog },
+        adminNotificationService: { notifyAllAdmins },
+      });
+    }
+
+    function setup(rows: ProjectRow[]) {
+      projects = rows;
+      prisma = createPurgePrisma(projects, {});
+      withRequeueTx();
+      return createRequeueService();
+    }
+
+    const EXCLUDED_AT = daysAgo(2);
+
+    beforeEach(() => {
+      createLog = vi.fn(async (input: Record<string, unknown>) => {
+        calls.push(`createLog:${String(input.action)}`);
+        return { id: 'audit-1', ...input };
+      });
+      notifyAllAdmins = vi.fn().mockResolvedValue(undefined);
+    });
+
+    it('対象から外したものを、一つのトランザクションで回数を 0 に・日時を空にし、記録して requeued を返す', async () => {
+      const service = setup([
+        {
+          id: 'p-ex',
+          deletedAt: daysAgo(120),
+          purgeState: { failureCount: 5, lastAttemptAt: EXCLUDED_AT, excludedAt: EXCLUDED_AT },
+        },
+      ]);
+
+      const outcome = await service.requeue('p-ex', NOW);
+
+      expect(outcome).toBe('requeued');
+      expect(projects[0]!.purgeState).toEqual({
+        failureCount: 0,
+        lastAttemptAt: null,
+        excludedAt: null,
+      });
+      // 読み・書き・記録が一つのトランザクションの中で行われる
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(typeof prisma.$transaction.mock.calls[0]![0]).toBe('function');
+      const tx = prisma.txs[0]!;
+      expect(tx.projectPurgeState!.updateMany).toHaveBeenCalledWith({
+        where: { projectId: 'p-ex', excludedAt: { not: null } },
+        data: { failureCount: 0, lastAttemptAt: null, excludedAt: null },
+      });
+      expect(createLog).toHaveBeenCalledTimes(1);
+      expect(createLog.mock.calls[0]).toEqual([
+        {
+          action: 'PROJECT_PURGE_REQUEUED',
+          actorId: null,
+          targetType: 'Project',
+          targetId: 'p-ex',
+          metadata: {
+            trigger: 'operator_script',
+            previousFailureCount: 5,
+            previousExcludedAt: EXCLUDED_AT.toISOString(),
+            requeuedAt: NOW.toISOString(),
+          },
+        },
+        tx,
+      ]);
+      expect(calls).toEqual([
+        '$transaction',
+        'project.findUnique',
+        'projectPurgeState.updateMany',
+        'createLog:PROJECT_PURGE_REQUEUED',
+      ]);
+      // ファイルは消さず、知らせない
+      expect(storageDelete).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('プロジェクトが無いとき・論理削除されていないときは not_found を返し、何も変えない', async () => {
+      const service = setup([
+        {
+          id: 'p-alive',
+          deletedAt: null,
+          purgeState: { failureCount: 5, lastAttemptAt: EXCLUDED_AT, excludedAt: EXCLUDED_AT },
+        },
+      ]);
+
+      await expect(service.requeue('p-missing', NOW)).resolves.toBe('not_found');
+      await expect(service.requeue('p-alive', NOW)).resolves.toBe('not_found');
+
+      expect(projects[0]!.purgeState).toEqual({
+        failureCount: 5,
+        lastAttemptAt: EXCLUDED_AT,
+        excludedAt: EXCLUDED_AT,
+      });
+      expect(calls).not.toContain('projectPurgeState.updateMany');
+      expect(createLog).not.toHaveBeenCalled();
+      expect(storageDelete).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('記録が無いとき・対象から外していないときは not_excluded を返し、何も変えない', async () => {
+      const service = setup([
+        { id: 'p-none', deletedAt: daysAgo(120) },
+        {
+          id: 'p-failed',
+          deletedAt: daysAgo(110),
+          purgeState: { failureCount: 3, lastAttemptAt: EXCLUDED_AT, excludedAt: null },
+        },
+      ]);
+
+      await expect(service.requeue('p-none', NOW)).resolves.toBe('not_excluded');
+      await expect(service.requeue('p-failed', NOW)).resolves.toBe('not_excluded');
+
+      expect(projects[0]!.purgeState).toBeUndefined();
+      expect(projects[1]!.purgeState).toEqual({
+        failureCount: 3,
+        lastAttemptAt: EXCLUDED_AT,
+        excludedAt: null,
+      });
+      expect(calls).not.toContain('projectPurgeState.updateMany');
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    it('読んだ後に他で戻されて書き換えが 0 件のときは not_excluded を返し、記録しない', async () => {
+      const service = setup([
+        {
+          id: 'p-ex',
+          deletedAt: daysAgo(120),
+          purgeState: { failureCount: 5, lastAttemptAt: EXCLUDED_AT, excludedAt: EXCLUDED_AT },
+        },
+      ]);
+      // 読んだ時点では外れているが、書き換えの時点では他の実行が戻し終えている
+      const original = prisma.$transaction.getMockImplementation()!;
+      prisma.$transaction.mockImplementation(async (fn, options) =>
+        original(async (tx: unknown) => {
+          const models = tx as Record<string, Record<string, Mock>>;
+          models.projectPurgeState!.updateMany!.mockResolvedValue({ count: 0 });
+          return (fn as (tx: unknown) => Promise<unknown>)(tx);
+        }, options)
+      );
+
+      await expect(service.requeue('p-ex', NOW)).resolves.toBe('not_excluded');
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    it('記録に失敗したときは、トランザクションごと失敗させる（戻したのに記録が無い状態を残さない）', async () => {
+      const service = setup([
+        {
+          id: 'p-ex',
+          deletedAt: daysAgo(120),
+          purgeState: { failureCount: 5, lastAttemptAt: EXCLUDED_AT, excludedAt: EXCLUDED_AT },
+        },
+      ]);
+      createLog.mockRejectedValue(new Error('audit down'));
+
+      await expect(service.requeue('p-ex', NOW)).rejects.toThrow('audit down');
+    });
+
+    it('戻したものは、次の回で失敗したことのあるものより先に選ばれ、完全削除が試みられる（46.10・46.14）', async () => {
+      // 前に失敗した 25 件（論理削除が古い）と、対象から外した 1 件（論理削除が最も新しい）
+      const rows: ProjectRow[] = Array.from({ length: 25 }, (_, i) => ({
+        id: `p-${String(i).padStart(2, '0')}`,
+        deletedAt: daysAgo(200 - i),
+        purgeState: { failureCount: 1, lastAttemptAt: daysAgo(1), excludedAt: null },
+      }));
+      rows.push({
+        id: 'p-ex',
+        deletedAt: daysAgo(95),
+        purgeState: { failureCount: 5, lastAttemptAt: EXCLUDED_AT, excludedAt: EXCLUDED_AT },
+      });
+      const service = setup(rows);
+
+      const before = await service.selectTargets(LATER);
+      expect(before.targets.map((t) => t.id)).not.toContain('p-ex');
+
+      await expect(service.requeue('p-ex', NOW)).resolves.toBe('requeued');
+      const result = await service.purgeExpired(LATER);
+
+      expect(result.purgedProjectIds[0]).toBe('p-ex');
+      expect(result.purgedProjectIds).toHaveLength(PROJECT_PURGE_BATCH_SIZE);
+      expect(calls.filter((c) => c === 'project.delete')).toHaveLength(PROJECT_PURGE_BATCH_SIZE);
     });
   });
 });

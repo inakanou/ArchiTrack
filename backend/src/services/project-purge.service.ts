@@ -9,6 +9,7 @@
  * Task 83.2: 失敗の記録と、失敗したものを後ろへ回す選び方
  * Task 83.3: 5 回続けて失敗したものを対象から外し、全システム管理者へ知らせる
  * Task 83.4: 定期処理の 1 回ごとの件数を監査に記録する
+ * Task 83.5: 対象から外したものを対象に戻す
  *
  * Requirements (project-management):
  * - 9.6: 関連データを保持期間の後に共に削除する
@@ -21,6 +22,7 @@
  * - 46.11: 5 回続けて失敗したものを対象から外し、監査に記録し、全システム管理者へ知らせる（D12）
  * - 46.12: その記録と通知に名前・ファイルのキー・エラーの文言を含めない
  * - 46.13: 対象から外したものは選ばない（論理削除のままのため表示・提供もされない）
+ * - 46.14: 運用の手順で対象に戻したら、回数を 0 に戻して次の回で試み、監査に記録する（D11・D13）
  * - 46.15: 定期処理の 1 回ごとに、完全に削除した・失敗した・対象から外した件数を監査に記録する（D14）
  *
  * @module services/project-purge
@@ -82,6 +84,14 @@ export interface ProjectPurgeResult {
   excludedProjectIds: string[];
   remainingCandidates: number;
 }
+
+/**
+ * 対象に戻した結果（46.14）
+ * - requeued: 対象に戻した
+ * - not_excluded: 対象から外れていない（何も変えない）
+ * - not_found: プロジェクトが無い、または論理削除されていない
+ */
+export type ProjectPurgeRequeueOutcome = 'requeued' | 'not_excluded' | 'not_found';
 
 /** 完全削除の対象のプロジェクト */
 export interface ProjectPurgeTarget {
@@ -194,6 +204,57 @@ export class ProjectPurgeService {
     await this.notifyExcluded(excluded);
 
     return result;
+  }
+
+  /**
+   * 対象から外したプロジェクトを対象に戻す（運用の手順から呼ぶ。46.14、D11・D13）
+   *
+   * 失敗の回数を 0 に、最後に試みた日時と対象から外した日時を空にし、戻したことを監査に記録する。
+   * 最後に試みた日時が空のものは次の回に先に選ばれる。読み・書き・記録を一つのトランザクションに
+   * まとめ、記録に失敗したら戻さない。書き換えは「対象から外れている」ことを条件にし、読んだ後に
+   * 他の実行が戻していたら（0 件）not_excluded として記録しない。原因を直したかは確かめない。
+   * ストレージには触れず、通知もしない。
+   *
+   * @param projectId - プロジェクトの ID
+   * @param now - 現在の時刻（記録の日時）
+   */
+  async requeue(projectId: string, now: Date): Promise<ProjectPurgeRequeueOutcome> {
+    return this.deps.prisma.$transaction(async (tx) => {
+      const project = await tx.project.findUnique({
+        where: { id: projectId },
+        select: {
+          deletedAt: true,
+          purgeState: { select: { failureCount: true, excludedAt: true } },
+        },
+      });
+      if (!project || project.deletedAt === null) return 'not_found';
+      const state = project.purgeState;
+      if (!state || state.excludedAt === null) return 'not_excluded';
+
+      const updated = await tx.projectPurgeState.updateMany({
+        where: { projectId, excludedAt: { not: null } },
+        data: { failureCount: 0, lastAttemptAt: null, excludedAt: null },
+      });
+      if (updated.count === 0) return 'not_excluded';
+
+      // 回数と日時だけを記録する。名前とキーは入れない
+      await this.auditLogService.createLog(
+        {
+          action: 'PROJECT_PURGE_REQUEUED',
+          actorId: null,
+          targetType: PROJECT_PURGE_AUDIT_TARGET_TYPE,
+          targetId: projectId,
+          metadata: {
+            trigger: 'operator_script',
+            previousFailureCount: state.failureCount,
+            previousExcludedAt: state.excludedAt.toISOString(),
+            requeuedAt: now.toISOString(),
+          },
+        },
+        tx
+      );
+      return 'requeued';
+    }, connectBudgetTransactionOptions());
   }
 
   /**
