@@ -15,6 +15,7 @@
  * - 46.13: 対象から外したものは選ばない（Task 83.2）
  * - 46.11: 5 回続けて失敗したものを対象から外し、記録し、全システム管理者へ知らせる（Task 83.3、D12）
  * - 46.12: 対象から外したことの記録と通知に名前・ファイルのキー・エラーの文言を含めない（Task 83.3）
+ * - 46.15: 定期処理の 1 回ごとの件数を監査に記録する（0 件の回も。Task 83.4、D14）
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -497,7 +498,15 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
         return fn(tx);
       }
     );
-    return { ...base, $transaction, txs };
+    // 回の結果の記録はトランザクションの外で書く（46.15）
+    const auditLog = {
+      create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+        id: 'audit-run',
+        createdAt: NOW,
+        ...args.data,
+      })),
+    };
+    return { ...base, $transaction, txs, auditLog };
   }
 
   /** 削除のトランザクション（関数を渡した呼び出し）だけを返す */
@@ -1250,6 +1259,189 @@ describe('ProjectPurgeService.purgeExpired（完全削除）', () => {
         expect.objectContaining({ projectId: 'p-1' }),
         'Failed to record project purge exclusion'
       );
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('定期処理の 1 回ごとの結果の記録（46.15、D14）', () => {
+    let createLog: Mock;
+    let notifyAllAdmins: Mock;
+
+    function createRecordingService() {
+      storageDelete = vi.fn(async (key: string) => {
+        calls.push(`storage.delete:${key}`);
+        if (key.startsWith('k-fail')) throw new Error(`storage unavailable: ${key} secret-message`);
+      });
+      const storageProvider = {
+        type: 'local',
+        delete: storageDelete,
+      } as unknown as StorageProvider;
+      return new ProjectPurgeService({
+        prisma: prisma as unknown as PrismaClient,
+        storageProvider,
+        auditLogService: { createLog },
+        adminNotificationService: { notifyAllAdmins },
+      });
+    }
+
+    function runLogs() {
+      return createLog.mock.calls.filter(
+        (c) => (c[0] as { action: string }).action === 'PROJECT_PURGE_RUN_COMPLETED'
+      );
+    }
+
+    beforeEach(() => {
+      createLog = vi.fn(async (input: Record<string, unknown>) => {
+        calls.push(`createLog:${String(input.action)}`);
+        return { id: 'audit-1', ...input };
+      });
+      notifyAllAdmins = vi.fn(async () => {
+        calls.push('notifyAllAdmins');
+      });
+    });
+
+    it('回の終わりに、完全に削除した件数・失敗した件数・対象から外した件数・残りの件数だけを記録する', async () => {
+      prisma = createPurgePrisma(
+        [
+          {
+            id: 'p-1',
+            deletedAt: daysAgo(130),
+            purgeState: { failureCount: 4, lastAttemptAt: daysAgo(1), excludedAt: null },
+          },
+          { id: 'p-2', deletedAt: daysAgo(120) },
+          { id: 'p-3', deletedAt: daysAgo(110) },
+        ],
+        { 'p-1': ['k-fail-1'], 'p-2': ['k-fail-2'], 'p-3': ['k-ok'] }
+      );
+      const service = createRecordingService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result.purgedProjectIds).toEqual(['p-3']);
+      expect(result.failedProjectIds.sort()).toEqual(['p-1', 'p-2']);
+      expect(result.excludedProjectIds).toEqual(['p-1']);
+      // 実行者なし・対象は回（回の開始の日時）。削除のトランザクションの外で書く
+      expect(runLogs()).toEqual([
+        [
+          {
+            action: 'PROJECT_PURGE_RUN_COMPLETED',
+            actorId: null,
+            targetType: 'ProjectPurgeRun',
+            targetId: NOW.toISOString(),
+            metadata: { purged: 1, failed: 2, excluded: 1, remainingCandidates: 0 },
+          },
+        ],
+      ]);
+      // 件数だけで、ID・キー・エラーの文言を含めない
+      const serialized = JSON.stringify(runLogs());
+      for (const text of ['p-1', 'p-2', 'p-3', 'k-fail', 'k-ok', 'secret-message']) {
+        expect(serialized).not.toContain(text);
+      }
+      // すべてのプロジェクトの処理の後、通知の前に記録する
+      const runIndex = calls.indexOf('createLog:PROJECT_PURGE_RUN_COMPLETED');
+      expect(runIndex).toBeGreaterThan(calls.indexOf('createLog:PROJECT_PURGE_EXCLUDED'));
+      expect(runIndex).toBeGreaterThan(calls.lastIndexOf('$transaction'));
+      expect(calls.slice(runIndex)).toEqual([
+        'createLog:PROJECT_PURGE_RUN_COMPLETED',
+        'notifyAllAdmins',
+      ]);
+    });
+
+    it('選ばれなかった残りの件数を記録する', async () => {
+      const rows: ProjectRow[] = Array.from({ length: 22 }, (_, i) => ({
+        id: `p-${String(i).padStart(2, '0')}`,
+        deletedAt: daysAgo(200 - i),
+      }));
+      prisma = createPurgePrisma(rows, {});
+      const service = createRecordingService();
+
+      await service.purgeExpired(NOW);
+
+      expect(runLogs()).toHaveLength(1);
+      expect(runLogs()[0]![0].metadata).toEqual({
+        purged: 20,
+        failed: 0,
+        excluded: 0,
+        remainingCandidates: 2,
+      });
+    });
+
+    it('対象が 0 件の回も記録する（D14）', async () => {
+      prisma = createPurgePrisma([{ id: 'p-young', deletedAt: daysAgo(89) }], {});
+      const service = createRecordingService();
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result).toEqual({
+        purgedProjectIds: [],
+        failedProjectIds: [],
+        excludedProjectIds: [],
+        remainingCandidates: 0,
+      });
+      expect(runLogs()).toEqual([
+        [
+          {
+            action: 'PROJECT_PURGE_RUN_COMPLETED',
+            actorId: null,
+            targetType: 'ProjectPurgeRun',
+            targetId: NOW.toISOString(),
+            metadata: { purged: 0, failed: 0, excluded: 0, remainingCandidates: 0 },
+          },
+        ],
+      ]);
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('監査の部品を渡さないときは、トランザクションの外の監査ログに記録する', async () => {
+      prisma = createPurgePrisma([], {});
+      const service = createPurgeService();
+
+      await service.purgeExpired(NOW);
+
+      expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+      expect(prisma.auditLog.create.mock.calls[0]![0].data).toMatchObject({
+        action: 'PROJECT_PURGE_RUN_COMPLETED',
+        actorId: null,
+        targetType: 'ProjectPurgeRun',
+        targetId: NOW.toISOString(),
+        metadata: { purged: 0, failed: 0, excluded: 0, remainingCandidates: 0 },
+      });
+    });
+
+    it('記録が失敗しても、エラーの文言を出さずに記録して、結果を返し通知する', async () => {
+      prisma = createPurgePrisma(
+        [
+          {
+            id: 'p-1',
+            deletedAt: daysAgo(120),
+            purgeState: { failureCount: 4, lastAttemptAt: daysAgo(1), excludedAt: null },
+          },
+          { id: 'p-2', deletedAt: daysAgo(110) },
+        ],
+        { 'p-1': ['k-fail-1'] }
+      );
+      const service = createRecordingService();
+      createLog.mockImplementation(async (input: { action: string }) => {
+        calls.push(`createLog:${input.action}`);
+        if (input.action === 'PROJECT_PURGE_RUN_COMPLETED') {
+          throw Object.assign(new Error('audit down: secret-message'), { code: 'P1001' });
+        }
+        return { id: 'audit-1', ...input };
+      });
+
+      const result = await service.purgeExpired(NOW);
+
+      expect(result).toEqual({
+        purgedProjectIds: ['p-2'],
+        failedProjectIds: ['p-1'],
+        excludedProjectIds: ['p-1'],
+        remainingCandidates: 0,
+      });
+      expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+        { runStartedAt: NOW.toISOString(), errorName: 'Error', errorCode: 'P1001' },
+        'Failed to record project purge run'
+      );
+      expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).not.toContain('secret-message');
       expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
     });
   });

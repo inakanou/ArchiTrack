@@ -8,6 +8,7 @@
  * Task 81.2: ファイル→DB の順の完全削除と監査の記録
  * Task 83.2: 失敗の記録と、失敗したものを後ろへ回す選び方
  * Task 83.3: 5 回続けて失敗したものを対象から外し、全システム管理者へ知らせる
+ * Task 83.4: 定期処理の 1 回ごとの件数を監査に記録する
  *
  * Requirements (project-management):
  * - 9.6: 関連データを保持期間の後に共に削除する
@@ -20,6 +21,7 @@
  * - 46.11: 5 回続けて失敗したものを対象から外し、監査に記録し、全システム管理者へ知らせる（D12）
  * - 46.12: その記録と通知に名前・ファイルのキー・エラーの文言を含めない
  * - 46.13: 対象から外したものは選ばない（論理削除のままのため表示・提供もされない）
+ * - 46.15: 定期処理の 1 回ごとに、完全に削除した・失敗した・対象から外した件数を監査に記録する（D14）
  *
  * @module services/project-purge
  */
@@ -43,6 +45,9 @@ export const PROJECT_PURGE_TRANSACTION_TIMEOUT_MS = 60_000;
 
 /** 完全削除の監査の対象の種類 */
 export const PROJECT_PURGE_AUDIT_TARGET_TYPE = 'Project';
+
+/** 定期処理の 1 回の結果の監査の対象の種類（対象の ID は回の開始の日時） */
+export const PROJECT_PURGE_RUN_AUDIT_TARGET_TYPE = 'ProjectPurgeRun';
 
 /** 対象から外すまでの、続けての失敗の回数（46.11） */
 export const PROJECT_PURGE_MAX_FAILURES = 5;
@@ -175,15 +180,46 @@ export class ProjectPurgeService {
       }
     }
 
-    // その回で外したものをまとめて 1 通で知らせる（D12）
-    await this.notifyExcluded(excluded);
-
-    return {
+    const result: ProjectPurgeResult = {
       purgedProjectIds,
       failedProjectIds,
       excludedProjectIds: excluded.map((project) => project.id),
       remainingCandidates,
     };
+
+    // 回の結果を記録してから知らせる（対象が 0 件の回も記録する。46.15、D14）
+    await this.recordRun(result, now);
+
+    // その回で外したものをまとめて 1 通で知らせる（D12）
+    await this.notifyExcluded(excluded);
+
+    return result;
+  }
+
+  /**
+   * 定期処理の 1 回の結果を監査に記録する（46.15、D14）
+   *
+   * 件数だけを記録し、プロジェクトの ID・名前・キーは入れない。対象が 0 件の回も記録し、
+   * 定期処理が止まっていることに監査ログから気づけるようにする。記録の失敗は記録して結果を返す。
+   */
+  private async recordRun(result: ProjectPurgeResult, now: Date): Promise<void> {
+    const runStartedAt = now.toISOString();
+    try {
+      await this.auditLogService.createLog({
+        action: 'PROJECT_PURGE_RUN_COMPLETED',
+        actorId: null,
+        targetType: PROJECT_PURGE_RUN_AUDIT_TARGET_TYPE,
+        targetId: runStartedAt,
+        metadata: {
+          purged: result.purgedProjectIds.length,
+          failed: result.failedProjectIds.length,
+          excluded: result.excludedProjectIds.length,
+          remainingCandidates: result.remainingCandidates,
+        },
+      });
+    } catch (error) {
+      logger.error({ runStartedAt, ...describeError(error) }, 'Failed to record project purge run');
+    }
   }
 
   /** 1 件のプロジェクトを完全に削除する。失敗したら記録して失敗の段階を返す */
