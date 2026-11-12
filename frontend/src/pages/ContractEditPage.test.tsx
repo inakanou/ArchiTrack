@@ -106,6 +106,7 @@ const mockProjectDetail = {
   salesPerson: { id: 'user-001', displayName: '営業太郎' },
   status: 'PREPARING' as const,
   statusLabel: '準備中',
+  createdById: 'user-1',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
 };
@@ -139,6 +140,7 @@ function createMockToastContext(): ToastContextValue {
     info: vi.fn().mockReturnValue('toast-1'),
     projectCreated: vi.fn().mockReturnValue('toast-1'),
     projectUpdated: vi.fn().mockReturnValue('toast-1'),
+    projectUpdatedWithoutAccess: vi.fn().mockReturnValue('toast-1'),
     projectDeleted: vi.fn().mockReturnValue('toast-1'),
     projectStatusChanged: vi.fn().mockReturnValue('toast-1'),
     operationFailed: vi.fn().mockReturnValue('toast-1'),

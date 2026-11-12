@@ -55,11 +55,13 @@
     "restore:plain-thumbnails": "tsx scripts/restore-plain-thumbnails.ts",
     "inventory:area-volume-weight-only": "tsx scripts/inventory-area-volume-weight-only.ts",
     "user:reactivate": "sh -c 'if [ -f src/scripts/reactivate-user.ts ]; then exec tsx src/scripts/reactivate-user.ts \"$@\"; else exec node dist/src/scripts/reactivate-user.js \"$@\"; fi' reactivate-user",
+    "project:purge-requeue": "sh -c 'if [ -f src/scripts/requeue-project-purge.ts ]; then exec tsx src/scripts/requeue-project-purge.ts \"$@\"; else exec node dist/src/scripts/requeue-project-purge.js \"$@\"; fi' requeue-project-purge",
+    "estimate-request:find-cross-project": "sh -c 'if [ -f src/scripts/find-cross-project-estimate-requests.ts ]; then exec tsx src/scripts/find-cross-project-estimate-requests.ts \"$@\"; else exec node dist/src/scripts/find-cross-project-estimate-requests.js \"$@\"; fi' find-cross-project-estimate-requests",
     "user:reset-undecryptable-2fa": "sh -c 'if [ -f src/scripts/reset-undecryptable-two-factor.ts ]; then exec tsx src/scripts/reset-undecryptable-two-factor.ts \"$@\"; else exec node dist/src/scripts/reset-undecryptable-two-factor.js \"$@\"; fi' reset-undecryptable-two-factor"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
-    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/client-s3": "^3.1163.0",
     "@aws-sdk/s3-request-presigner": "^3.1048.0",
     "@holiday-jp/holiday_jp": "^2.5.1",
     "@node-rs/argon2": "^2.0.2",

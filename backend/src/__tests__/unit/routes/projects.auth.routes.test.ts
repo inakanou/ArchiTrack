@@ -184,6 +184,14 @@ describe('Projects Routes - Authentication and Authorization', () => {
       expect(response.status).toBe(401);
       expect(response.body.code).toBe('UNAUTHORIZED');
     });
+
+    it('should return 401 for GET /api/projects/:id/related-counts without authentication', async () => {
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/related-counts`);
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('UNAUTHORIZED');
+      expect(mockProjectService.getRelatedCounts).not.toHaveBeenCalled();
+    });
   });
 
   describe('Authorization failures (403 Forbidden)', () => {
@@ -275,6 +283,17 @@ describe('Projects Routes - Authentication and Authorization', () => {
       expect(response.status).toBe(403);
       expect(response.body.code).toBe('FORBIDDEN');
       expect(mockRequirePermission).toHaveBeenCalledWith('project:read');
+    });
+
+    // 削除の判断のための件数なので、閲覧ではなく削除の権限を求める（9.5、design D5）
+    it('should return 403 for GET /api/projects/:id/related-counts without project:delete permission', async () => {
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/related-counts`);
+
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe('FORBIDDEN');
+      expect(mockRequirePermission).toHaveBeenCalledWith('project:delete');
+      expect(mockRequirePermission).not.toHaveBeenCalledWith('project:read');
+      expect(mockProjectService.getRelatedCounts).not.toHaveBeenCalled();
     });
   });
 

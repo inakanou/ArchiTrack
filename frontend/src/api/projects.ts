@@ -35,6 +35,10 @@ import type { ProjectEstimateRequestSummary } from '../types/estimate-request.ty
 import type { EstimateSummary } from './estimates';
 import type { ContractType, ContractStatus } from './contracts';
 import type { ExecutionBudgetSectionInfo } from '../components/projects/ExecutionBudgetSectionCard';
+import type { RelatedCounts } from '../components/projects/DeleteConfirmationDialog';
+
+// 関連データの件数の型は削除確認ダイアログと共有する（Task 80.4）
+export type { RelatedCounts };
 
 // ============================================================================
 // 契約書セクションサマリー型（detail-summary API用）
@@ -92,6 +96,39 @@ export interface ScheduleSectionSummaryItem {
 export interface ScheduleSectionSummary {
   totalCount: number;
   latestSchedules: ScheduleSectionSummaryItem[];
+}
+
+// ============================================================================
+// 受領見積書セクションサマリー型（detail-summary API用）
+// ============================================================================
+
+/**
+ * 受領見積書セクションの直近の一件
+ *
+ * Task 77.3: 受領見積書セクション
+ * Requirements (project-management): 42.5, 42.6, 43.2
+ */
+export interface ReceivedQuotationSectionItem {
+  id: string;
+  name: string;
+  vendorName: string;
+  /** 提出日（ISO 8601） */
+  submittedAt: string;
+  /** NET金額（未入力は null） */
+  netAmount: number | null;
+  /** 登録日時（ISO 8601） */
+  createdAt: string;
+}
+
+/**
+ * 受領見積書セクションサマリー
+ *
+ * Task 77.3: 受領見積書セクション
+ * Requirements (project-management): 42.4, 42.5, 43.2
+ */
+export interface ReceivedQuotationSectionSummary {
+  totalCount: number;
+  latestReceivedQuotations: ReceivedQuotationSectionItem[];
 }
 
 // ============================================================================
@@ -374,6 +411,21 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 /**
+ * プロジェクトの関連データの種類ごとの件数を取得する（Task 80.4, Requirements 9.5）
+ *
+ * 削除の確認の前に呼ぶ。論理削除されていない関連データの件数を種類ごとに返す。
+ *
+ * @param id - プロジェクトID（UUID）
+ * @returns 関連データの種類ごとの件数
+ * @throws ApiError プロジェクトが見つからない・閲覧範囲の外（404）、認証エラー（401）、削除の権限が無い（403）
+ */
+export async function getProjectRelatedCounts(id: string): Promise<RelatedCounts> {
+  return withProjectNotFoundMessage(
+    apiClient.get<RelatedCounts>(`/api/projects/${id}/related-counts`)
+  );
+}
+
+/**
  * プロジェクトのステータスを変更する
  *
  * @param id - プロジェクトID（UUID）
@@ -480,6 +532,8 @@ export interface ProjectDetailSummary {
     executionBudget: ExecutionBudgetSectionInfo | null;
     /** 工事写真セクションサマリー（Task 7.2, construction-photo, Requirements 2.3） */
     constructionPhotos: ProjectConstructionPhotoSummary;
+    /** 受領見積書セクションサマリー（見積依頼の閲覧権限が無いときは無い。Requirements 42.2, 43.1, 43.4） */
+    receivedQuotations?: ReceivedQuotationSectionSummary;
   };
 }
 

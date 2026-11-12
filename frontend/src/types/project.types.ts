@@ -140,6 +140,8 @@ export interface ProjectDetail extends ProjectInfo {
   siteAddress?: string;
   /** 概要（任意） */
   description?: string;
+  /** 作成者のID */
+  createdById: string;
 }
 
 /**
@@ -246,8 +248,8 @@ export interface UpdateProjectInput {
   tradingPartnerId?: string | null;
   /** 営業担当者ID（UUID） */
   salesPersonId?: string;
-  /** 工事担当者ID（UUID） */
-  constructionPersonId?: string;
+  /** 工事担当者ID（UUID）。null は紐づけを外す */
+  constructionPersonId?: string | null;
   /** 現場住所（最大500文字） */
   siteAddress?: string | null;
   /** 概要（最大5000文字） */

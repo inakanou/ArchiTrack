@@ -42,6 +42,8 @@ export interface ToastContextValue {
   projectCreated: () => string;
   /** プロジェクト更新成功トースト */
   projectUpdated: () => string;
+  /** プロジェクト更新成功で、担当者から外れて閲覧できなくなったときのトースト（45.3） */
+  projectUpdatedWithoutAccess: () => string;
   /** プロジェクト削除成功トースト */
   projectDeleted: () => string;
   /** ステータス変更成功トースト */

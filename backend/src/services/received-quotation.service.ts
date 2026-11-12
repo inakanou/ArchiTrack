@@ -303,6 +303,36 @@ export interface FindByProjectIdOptions {
 }
 
 /**
+ * 案件の配下の受領見積書の条件（D2）。一覧と受領見積書セクションの総数・直近が同じ条件を使う
+ * （project-management の 43.3。タスク77.1）。関連データの件数（9.5。タスク80.1）も使う
+ */
+export function projectQuotationWhere(
+  projectId: string,
+  include: FindByProjectIdOptions['include']
+): Prisma.ReceivedQuotationWhereInput {
+  const liveRequest = { estimateRequest: { is: { deletedAt: null } } };
+  return include === 'all'
+    ? { projectId, deletedAt: null, OR: [{ estimateRequestId: null }, liveRequest] }
+    : { projectId, deletedAt: null, estimateRequestId: { not: null }, ...liveRequest };
+}
+
+/** 受領見積書セクションの直近の 1 件（project-management の 43.2。タスク77.1） */
+export interface ReceivedQuotationSectionItem {
+  id: string;
+  name: string;
+  vendorName: string;
+  submittedAt: string;
+  netAmount: number | null;
+  createdAt: string;
+}
+
+/** 受領見積書セクションのデータ（project-management の 42.4・42.5・43.2。タスク77.1） */
+export interface ReceivedQuotationSectionSummary {
+  totalCount: number;
+  latestReceivedQuotations: ReceivedQuotationSectionItem[];
+}
+
+/**
  * 受領見積書作成入力（改訂版: Task 61.2 netAmount追加。タスク113.1 で文脈を引数へ移した）
  */
 export interface CreateReceivedQuotationInput extends LedgerFieldsInput {
@@ -1187,11 +1217,7 @@ export class ReceivedQuotationService {
     projectId: string,
     options: FindByProjectIdOptions
   ): Promise<ProjectQuotationSummary[]> {
-    const liveRequest = { estimateRequest: { is: { deletedAt: null } } };
-    const where: Prisma.ReceivedQuotationWhereInput =
-      options.include === 'all'
-        ? { projectId, deletedAt: null, OR: [{ estimateRequestId: null }, liveRequest] }
-        : { projectId, deletedAt: null, estimateRequestId: { not: null }, ...liveRequest };
+    const where = projectQuotationWhere(projectId, options.include);
 
     const quotations = await this.prisma.receivedQuotation.findMany({
       where,
@@ -1215,6 +1241,55 @@ export class ReceivedQuotationService {
         estimateRequestName: q.estimateRequest?.name ?? null,
       };
     });
+  }
+
+  /**
+   * 案件の受領見積書の総数と直近を取得する（detail-summary の受領見積書セクション用）
+   *
+   * 条件は `findByProjectId` の include: all と同じにし、総数を一覧の件数と一致させる（43.3）。
+   * 並びは登録日時の新しい順
+   *
+   * Requirements (project-management): 42.4, 42.5, 42.6, 43.2, 43.3
+   * Task 77.1
+   *
+   * @param projectId - プロジェクトID
+   * @param limit - 直近の件数（既定: 3）
+   * @returns 総数と直近の受領見積書
+   */
+  async findLatestByProjectId(
+    projectId: string,
+    limit: number = 3
+  ): Promise<ReceivedQuotationSectionSummary> {
+    const where = projectQuotationWhere(projectId, 'all');
+
+    const [quotations, totalCount] = await Promise.all([
+      this.prisma.receivedQuotation.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          vendorName: true,
+          submittedAt: true,
+          netAmount: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.receivedQuotation.count({ where }),
+    ]);
+
+    return {
+      totalCount,
+      latestReceivedQuotations: quotations.map((q) => ({
+        id: q.id,
+        name: q.name,
+        vendorName: q.vendorName,
+        submittedAt: q.submittedAt.toISOString(),
+        netAmount: toNumberOrNull(q.netAmount),
+        createdAt: q.createdAt.toISOString(),
+      })),
+    };
   }
 
   /**

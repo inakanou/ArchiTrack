@@ -612,9 +612,10 @@ test.describe('REQ-43/44/45: 離脱ガード・未保存インジケーター・
       const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
       if (hasDeleteButton) {
         await deleteButton.click();
+        // 関連データがあるプロジェクトでは確定ボタンが「削除する」になる（REQ-9.5）
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
+          .getByRole('button', { name: /^削除(する)?$/i });
         const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
         if (hasConfirmButton) {
           await confirmButton.click();

@@ -60,6 +60,7 @@ const mockProject = {
   description: 'テスト説明',
   status: 'PREPARING' as const,
   statusLabel: '準備中',
+  createdById: 'user-1',
   siteAddress: '東京都渋谷区',
   tradingPartnerId: 'tp-1',
   tradingPartner: { id: 'tp-1', name: '取引先A', nameKana: 'トリヒキサキエー' },

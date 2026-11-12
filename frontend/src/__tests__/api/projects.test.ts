@@ -26,6 +26,7 @@ import {
   getStatusHistory,
   getAssignableUsers,
   getProjectDetailSummary,
+  getProjectRelatedCounts,
 } from '../../api/projects';
 import {
   isDuplicateProjectNameErrorResponse,
@@ -206,6 +207,7 @@ describe('projects API client', () => {
       description: 'テストプロジェクトの説明',
       status: 'PREPARING',
       statusLabel: '準備中',
+      createdById: 'user-1',
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-02T00:00:00.000Z',
     };
@@ -542,6 +544,32 @@ describe('projects API client', () => {
   });
 
   // ==========================================================================
+  // getProjectRelatedCounts - 関連データの件数（Task 80.4, Requirements 9.5）
+  // ==========================================================================
+  describe('getProjectRelatedCounts', () => {
+    it('関連データの件数の経路を呼び、応答の件数をそのまま返すこと', async () => {
+      const counts = {
+        siteSurveys: 2,
+        quantityTables: 0,
+        itemizedStatements: 1,
+        estimateRequests: 0,
+        receivedQuotations: 3,
+        estimates: 0,
+        contracts: 0,
+        schedules: 0,
+        executionBudgets: 0,
+        constructionPhotos: 5,
+      };
+      vi.mocked(apiClient.get).mockResolvedValueOnce(counts);
+
+      const result = await getProjectRelatedCounts('project-1');
+
+      expect(apiClient.get).toHaveBeenCalledWith('/api/projects/project-1/related-counts');
+      expect(result).toEqual(counts);
+    });
+  });
+
+  // ==========================================================================
   // getAssignableUsers - 担当者候補取得
   // ==========================================================================
   describe('getAssignableUsers', () => {
@@ -766,6 +794,7 @@ describe('案件の 404 の文言', () => {
     { name: 'getProject', method: 'get', call: () => getProject('p-1') },
     { name: 'getProjectDetailSummary', method: 'get', call: () => getProjectDetailSummary('p-1') },
     { name: 'getStatusHistory', method: 'get', call: () => getStatusHistory('p-1') },
+    { name: 'getProjectRelatedCounts', method: 'get', call: () => getProjectRelatedCounts('p-1') },
     {
       name: 'updateProject',
       method: 'put',

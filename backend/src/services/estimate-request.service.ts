@@ -199,7 +199,7 @@ export class EstimateRequestService {
    * @param actorId - 実行者ID
    * @returns 作成された見積依頼情報
    * @throws TradingPartnerNotSubcontractorError 取引先が協力業者ではない場合
-   * @throws ItemizedStatementNotFoundError 内訳書が存在しない場合（内訳書ありのとき）
+   * @throws ItemizedStatementNotFoundError 内訳書が存在しない、または別のプロジェクトの内訳書の場合（内訳書ありのとき）
    * @throws EmptyItemizedStatementItemsError 内訳書に項目がない場合（内訳書ありのとき）
    */
   async create(input: CreateEstimateRequestInput, actorId: string): Promise<EstimateRequestInfo> {
@@ -254,6 +254,12 @@ export class EstimateRequestService {
         });
 
         if (!itemizedStatement || itemizedStatement.deletedAt !== null) {
+          throw new ItemizedStatementNotFoundError(itemizedStatementId);
+        }
+
+        // タスク121.1（Requirements: 51.1, 51.2）: 別のプロジェクトの内訳書は不在と同じエラーにする。
+        // 項目の件数の検査より前に置き、項目の無い他のプロジェクトの内訳書でも存在を示さない
+        if (itemizedStatement.projectId !== input.projectId) {
           throw new ItemizedStatementNotFoundError(itemizedStatementId);
         }
 

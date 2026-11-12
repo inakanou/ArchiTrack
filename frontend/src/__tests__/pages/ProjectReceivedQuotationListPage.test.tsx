@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import ProjectReceivedQuotationListPage from '../../pages/ProjectReceivedQuotationListPage';
 import {
   PROJECT_QUOTATION_LIST_TEXT,
@@ -30,6 +30,7 @@ import {
 import { formatSharedOriginalNotice } from '../../components/estimate-requests/received-quotation-form-messages';
 import { RECEIVED_QUOTATION_NOT_FOUND_MESSAGE } from '../../utils/estimateRequestNotFound';
 import type { ReceivedQuotationFormProps } from '../../components/estimate-requests/ReceivedQuotationForm';
+import type { ReceivedQuotationListNavigationState } from '../../components/projects/ReceivedQuotationSectionCard';
 
 vi.mock('../../api/received-quotations');
 vi.mock('../../api/projects', () => ({
@@ -144,6 +145,31 @@ function renderPage(projectId = 'project-1') {
         />
         <Route path="/estimate-requests/:id" element={<div data-testid="request-detail-page" />} />
         <Route path="/projects" element={<div data-testid="project-list-page" />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+/** 今の遷移の状態を出す（状態が消えたことを確かめる） */
+function LocationStateProbe() {
+  const location = useLocation();
+  return <span data-testid="location-state">{JSON.stringify(location.state ?? null)}</span>;
+}
+
+/** プロジェクト詳細の新規登録から来たときの遷移の状態を付けて描く（42.11） */
+function renderPageWithState(state: unknown, projectId = 'project-1') {
+  return render(
+    <MemoryRouter initialEntries={[{ pathname: `/projects/${projectId}/quotations`, state }]}>
+      <Routes>
+        <Route
+          path="/projects/:projectId/quotations"
+          element={
+            <>
+              <ProjectReceivedQuotationListPage />
+              <LocationStateProbe />
+            </>
+          }
+        />
       </Routes>
     </MemoryRouter>
   );
@@ -349,6 +375,69 @@ describe('ProjectReceivedQuotationListPage', () => {
         PROJECT_QUOTATION_FORBIDDEN_MESSAGES.OPERATION
       );
       expect(screen.queryByText('Insufficient permissions')).toBeNull();
+    });
+  });
+
+  describe('遷移の状態で登録フォームを開く（42.11）', () => {
+    const openState: ReceivedQuotationListNavigationState = { openRegisterForm: true };
+
+    it('遷移の状態があると、一覧の読み込みの後に案件の文脈の登録フォームを開き、状態を消す', async () => {
+      renderPageWithState(openState);
+
+      expect(await screen.findByTestId('form-stub')).toBeInTheDocument();
+      // 一覧の読み込みは済んでいる
+      expect(screen.getByText('自前の見積書')).toBeInTheDocument();
+      expect(screen.getByTestId('form-stub-mode')).toHaveTextContent('create');
+      expect(JSON.parse(screen.getByTestId('form-stub-context').textContent ?? '')).toEqual({
+        kind: 'project',
+        projectId: 'project-1',
+      });
+      expect(screen.getByTestId('form-stub-initial')).toHaveTextContent('');
+      // 読み込み直しで開き直さないよう、状態は消える
+      await waitFor(() => expect(screen.getByTestId('location-state')).toHaveTextContent('null'));
+      expect(screen.getByRole('heading', { name: '受領見積書の登録' })).toBeInTheDocument();
+      // 状態を消しても一覧を取り直さない
+      expect(receivedQuotationApi.getReceivedQuotationsByProject).toHaveBeenCalledTimes(1);
+    });
+
+    it('遷移の状態が無いと登録フォームを開かない', async () => {
+      renderPageWithState(null);
+
+      expect(await screen.findByText('自前の見積書')).toBeInTheDocument();
+      expect(screen.queryByTestId('form-stub')).toBeNull();
+    });
+
+    it('プロジェクトの読み込みが 404 のときは登録フォームを開かない', async () => {
+      vi.mocked(getProject).mockRejectedValue(new ApiError(404, 'Not Found'));
+      renderPageWithState(openState);
+
+      expect(await screen.findByText(/プロジェクトが見つかりません/)).toBeInTheDocument();
+      expect(screen.queryByTestId('form-stub')).toBeNull();
+    });
+
+    it('一覧の閲覧の権限が無い（403）ときは登録フォームを開かない', async () => {
+      vi.mocked(receivedQuotationApi.getReceivedQuotationsByProject).mockRejectedValue(
+        new ApiError(403, 'Insufficient permissions')
+      );
+      renderPageWithState(openState);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        PROJECT_QUOTATION_FORBIDDEN_MESSAGES.VIEW
+      );
+      expect(screen.queryByTestId('form-stub')).toBeNull();
+    });
+
+    it('取得の失敗の後に再試行で読み込めたら登録フォームを開く', async () => {
+      vi.mocked(receivedQuotationApi.getReceivedQuotationsByProject)
+        .mockRejectedValueOnce(new ApiError(500, 'boom'))
+        .mockResolvedValueOnce([ownQuotation]);
+      const user = userEvent.setup();
+      renderPageWithState(openState);
+
+      expect(await screen.findByText(PROJECT_QUOTATION_LIST_TEXT.FETCH_FAILED)).toBeInTheDocument();
+      expect(screen.queryByTestId('form-stub')).toBeNull();
+      await user.click(screen.getByRole('button', { name: '再試行' }));
+      expect(await screen.findByTestId('form-stub')).toBeInTheDocument();
     });
   });
 

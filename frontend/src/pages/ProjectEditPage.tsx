@@ -20,6 +20,7 @@
  * - 8.5: キャンセルボタンで詳細ページに戻る
  * - 8.6: 楽観的排他制御による競合検出
  * - 8.7: 更新時にプロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
+ * - 45.1-45.5: 担当者の変更で自分が閲覧範囲から外れるときの確認と、保存の後の遷移
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -32,7 +33,10 @@ import { isDuplicateProjectNameErrorResponse } from '../types/project.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import ProjectForm from '../components/projects/ProjectForm';
 import type { ProjectFormData } from '../components/projects/ProjectForm';
+import AssigneeSelfRemovalDialog from '../components/projects/AssigneeSelfRemovalDialog';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
+import { usePermission } from '../hooks/usePermission';
 
 // ============================================================================
 // 型定義
@@ -142,7 +146,9 @@ const styles = {
 export default function ProjectEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { projectUpdated, operationFailed } = useToast();
+  const { projectUpdated, projectUpdatedWithoutAccess, operationFailed } = useToast();
+  const { user } = useAuth();
+  const { hasPermission } = usePermission();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -160,6 +166,10 @@ export default function ProjectEditPage() {
    */
   const [submitError, setSubmitError] = useState<unknown | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+  /**
+   * 確認を待っている保存の入力（自分が外れるときだけ入る。45.1）
+   */
+  const [pendingSelfRemoval, setPendingSelfRemoval] = useState<ProjectFormData | null>(null);
 
   /**
    * プロジェクトデータを取得
@@ -197,15 +207,16 @@ export default function ProjectEditPage() {
   }, [fetchProject]);
 
   /**
-   * フォーム送信ハンドラ
-   * (REQ-8.3, 8.6, 8.7, 21.21)
+   * 保存の処理
+   * (REQ-8.3, 8.6, 8.7, 21.21, 45.3, 45.4)
+   * withoutAccess が true なら、成功で 45.3 の通知を出してプロジェクト一覧へ移る
    *
    * Task 22.7: 409エラーハンドリングを追加
    * - プロジェクト名重複エラー: submitErrorにサーバーレスポンスを保存しProjectFormに渡す
    * - 楽観的排他制御エラー: submitErrorにサーバーレスポンスを保存
    */
-  const handleSubmit = useCallback(
-    async (data: ProjectFormData) => {
+  const saveProject = useCallback(
+    async (data: ProjectFormData, withoutAccess: boolean) => {
       if (!id || !project) return;
 
       setIsSubmitting(true);
@@ -226,6 +237,13 @@ export default function ProjectEditPage() {
           },
           project.updatedAt
         );
+
+        if (withoutAccess) {
+          // 自分が外れたので詳細は見られない。一覧へ移る（45.3）
+          projectUpdatedWithoutAccess();
+          navigate('/projects');
+          return;
+        }
 
         // 成功時はトースト表示と詳細ページへ遷移
         projectUpdated();
@@ -256,8 +274,53 @@ export default function ProjectEditPage() {
         setIsSubmitting(false);
       }
     },
-    [id, project, navigate, projectUpdated, operationFailed]
+    [id, project, navigate, projectUpdated, projectUpdatedWithoutAccess, operationFailed]
   );
+
+  /**
+   * 変更後に自分が閲覧範囲から外れるか（design D4: 画面で判定する）
+   * 作成者・全プロジェクトの閲覧権限の保持者・変更後の担当者のどれかなら外れない
+   */
+  const willLoseAccess = useCallback(
+    (data: ProjectFormData): boolean => {
+      if (!user || !project) return false;
+      if (project.createdById === user.id) return false;
+      if (hasPermission('project:read_all')) return false;
+      return data.salesPersonId !== user.id && data.constructionPersonId !== user.id;
+    },
+    [user, project, hasPermission]
+  );
+
+  /**
+   * フォーム送信ハンドラ
+   * 自分が外れるときは保存の前に確認を開く（45.1）。それ以外はそのまま保存する（45.4）
+   */
+  const handleSubmit = useCallback(
+    async (data: ProjectFormData) => {
+      if (willLoseAccess(data)) {
+        setPendingSelfRemoval(data);
+        return;
+      }
+      await saveProject(data, false);
+    },
+    [willLoseAccess, saveProject]
+  );
+
+  /**
+   * 確認で「保存する」を選んだとき（45.5）。終わったらダイアログを閉じる
+   */
+  const handleConfirmSelfRemoval = useCallback(async () => {
+    if (!pendingSelfRemoval) return;
+    await saveProject(pendingSelfRemoval, true);
+    setPendingSelfRemoval(null);
+  }, [pendingSelfRemoval, saveProject]);
+
+  /**
+   * 確認で「キャンセル」を選んだとき。保存せず、入力はフォームに残る（45.2）
+   */
+  const handleCancelSelfRemoval = useCallback(() => {
+    setPendingSelfRemoval(null);
+  }, []);
 
   /**
    * キャンセルハンドラ
@@ -390,6 +453,14 @@ export default function ProjectEditPage() {
           submitError={submitError}
         />
       </section>
+
+      {/* 自分が外れるときの確認 (REQ-45.1, 45.2) */}
+      <AssigneeSelfRemovalDialog
+        isOpen={pendingSelfRemoval !== null}
+        isSaving={isSubmitting}
+        onConfirm={handleConfirmSelfRemoval}
+        onCancel={handleCancelSelfRemoval}
+      />
     </main>
   );
 }

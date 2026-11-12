@@ -1086,9 +1086,12 @@ backend/
 │   │   ├── expired-token-cleanup.job.ts # 使用済み・期限切れのトークンの消去
 │   │   ├── failed-email-job-cleanup.job.ts # メールキューの失敗のジョブの掃除
 │   │   ├── inactive-user-deactivation.job.ts # 90 日の自動無効化
+│   │   ├── soft-deleted-project-purge.job.ts # 論理削除から 90 日を過ぎたプロジェクトの完全削除
 │   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
 │   ├── scripts/           # サーバー上で実行する運用スクリプト
+│   │   ├── find-cross-project-estimate-requests.ts # 別のプロジェクトの内訳書を参照する見積依頼を確かめる（npm run estimate-request:find-cross-project。読むだけ）
 │   │   ├── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）
+│   │   ├── requeue-project-purge.ts # 完全削除の対象から外したプロジェクトを対象に戻す（npm run project:purge-requeue）
 │   │   └── reset-undecryptable-two-factor.ts # 鍵の入れ替えの後に復号できない 2FA を未登録へ戻す（npm run user:reset-undecryptable-2fa。既定は確認だけ、--apply で書き込む）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約

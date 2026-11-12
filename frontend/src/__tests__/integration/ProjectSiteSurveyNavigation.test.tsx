@@ -41,6 +41,7 @@ const mockProject = {
   description: 'プロジェクトと現場調査の連携テスト用',
   status: 'SURVEYING' as const,
   statusLabel: '調査中',
+  createdById: 'user-1',
   siteAddress: '東京都新宿区1-1-1',
   tradingPartnerId: 'tp-1',
   tradingPartner: { id: 'tp-1', name: 'テスト顧客', nameKana: 'テストコキャク' },

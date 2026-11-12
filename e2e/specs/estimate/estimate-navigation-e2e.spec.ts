@@ -1054,7 +1054,11 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       });
 
       // 空状態メッセージが表示されることを確認
-      await expect(page.getByText(/見積書はまだありません/i)).toBeVisible();
+      // 詳細画面には受領見積書セクション（REQ-42）の「受領見積書はまだありません」も並ぶため、
+      // 見積書セクションの中に絞って確かめる
+      await expect(
+        page.locator('[data-testid="estimate-section"]').getByText(/見積書はまだありません/i)
+      ).toBeVisible();
 
       // 空状態でも新規作成リンクが表示されることを確認
       const createLink = page

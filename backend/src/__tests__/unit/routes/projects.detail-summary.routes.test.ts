@@ -9,6 +9,7 @@
  * - 29.3: レスポンスに各セクションのtotalCountとlatestデータを含める
  * - 29.4: 個別セクションエラー時のデフォルト値フォールバック
  * - 29.6: 既存個別APIと互換性のあるデータ構造
+ * - 43.1, 43.4, 43.5: 受領見積書のデータ（見積依頼の閲覧権限のある利用者だけ。タスク77.2）
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -56,6 +57,12 @@ const mockEstimateService = vi.hoisted(() => ({
 const mockConstructionPhotoSummaryService = vi.hoisted(() => ({
   findLatestByProjectId: vi.fn(),
 }));
+
+const mockReceivedQuotationService = vi.hoisted(() => ({
+  findLatestByProjectId: vi.fn(),
+}));
+
+const mockHasPermission = vi.hoisted(() => vi.fn());
 
 const mockAuditLogService = vi.hoisted(() => ({
   createLog: vi.fn().mockResolvedValue(undefined),
@@ -152,6 +159,28 @@ vi.mock('../../../services/construction-photo-summary.service', () => ({
     }
   },
 }));
+
+vi.mock('../../../services/received-quotation.service', () => ({
+  ReceivedQuotationService: class {
+    constructor() {
+      return mockReceivedQuotationService;
+    }
+  },
+}));
+
+// モック: 見積依頼の閲覧権限の判定（タスク77.2）
+vi.mock('../../../services/rbac.service', () => ({
+  getSharedRBACService: () => ({ hasPermission: mockHasPermission }),
+}));
+
+// モック: ストレージ。受領見積書の部品の組み立てに使う（署名付きURLの判定は実物のまま）
+vi.mock('../../../storage/index', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../storage/index.js')>();
+  return {
+    ...actual,
+    getStorageProvider: () => ({}),
+  };
+});
 
 // モック: 認証ミドルウェア
 vi.mock('../../../middleware/authenticate.middleware', () => ({
@@ -275,6 +304,48 @@ const mockEstimateResult = {
   totalCount: 1,
 };
 
+const mockReceivedQuotationSummary = {
+  totalCount: 5,
+  latestReceivedQuotations: [
+    {
+      id: 'rq-1',
+      name: '受領見積書1',
+      vendorName: '業者A',
+      submittedAt: '2026-01-20T00:00:00.000Z',
+      netAmount: 500000,
+      createdAt: '2026-01-21T00:00:00.000Z',
+    },
+  ],
+};
+
+/** 受領見積書以外のセクションを正常値で用意する */
+function arrangeOtherSections(): void {
+  mockProjectService.getProject.mockResolvedValue(mockProjectData);
+  mockProjectStatusService.getStatusHistory.mockResolvedValue(mockStatusHistory);
+  mockSiteSurveyService.findLatestByProjectId.mockResolvedValue(mockSurveySummary);
+  mockQuantityTableService.findLatestByProjectId.mockResolvedValue(mockQuantityTableSummary);
+  mockItemizedStatementService.findLatestByProjectId.mockResolvedValue(
+    mockItemizedStatementSummary
+  );
+  mockEstimateRequestService.findLatestByProjectId.mockResolvedValue(mockEstimateRequestSummary);
+  mockEstimateService.findLatestByProjectId.mockResolvedValue(mockEstimateResult);
+}
+
+/** 受領見積書以外のセクションが正常値のまま返ることを確かめる */
+function expectOtherSectionsIntact(sections: {
+  siteSurveys: { totalCount: number };
+  quantityTables: { totalCount: number };
+  itemizedStatements: { totalCount: number };
+  estimateRequests: { totalCount: number };
+  estimates: { totalCount: number };
+}): void {
+  expect(sections.siteSurveys.totalCount).toBe(3);
+  expect(sections.quantityTables.totalCount).toBe(2);
+  expect(sections.itemizedStatements.totalCount).toBe(1);
+  expect(sections.estimateRequests.totalCount).toBe(2);
+  expect(sections.estimates.totalCount).toBe(1);
+}
+
 const mockConstructionPhotoSummary = {
   totalCount: 4,
   latestAlbums: [
@@ -307,6 +378,9 @@ describe('GET /api/projects/:id/detail-summary', () => {
       totalCount: 0,
       latestAlbums: [],
     });
+
+    // 既定は見積依頼の閲覧権限なし（各テストは必要に応じて上書き）
+    mockHasPermission.mockResolvedValue(false);
 
     app = express();
     app.use(express.json());
@@ -602,5 +676,96 @@ describe('GET /api/projects/:id/detail-summary', () => {
 
     // Assert: プロジェクト基本情報・ステータス履歴は必須データなので500エラー
     expect(response.status).toBe(500);
+  });
+  describe('受領見積書のデータ（タスク77.2）', () => {
+    /**
+     * @requirement project-management/REQ-43.1
+     */
+    it('見積依頼の閲覧権限があれば sections.receivedQuotations に総数と直近を含める', async () => {
+      // Arrange
+      arrangeOtherSections();
+      mockHasPermission.mockResolvedValue(true);
+      mockReceivedQuotationService.findLatestByProjectId.mockResolvedValue(
+        mockReceivedQuotationSummary
+      );
+
+      // Act
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(mockHasPermission).toHaveBeenCalledWith('test-user-id', 'estimate_request:read');
+      expect(mockReceivedQuotationService.findLatestByProjectId).toHaveBeenCalledWith(
+        TEST_PROJECT_ID
+      );
+      expect(response.body.sections.receivedQuotations).toEqual(mockReceivedQuotationSummary);
+      expectOtherSectionsIntact(response.body.sections);
+    });
+
+    /**
+     * @requirement project-management/REQ-43.4
+     */
+    it('見積依頼の閲覧権限が無ければ受領見積書の鍵を含めず、取得もしない', async () => {
+      // Arrange
+      arrangeOtherSections();
+      mockHasPermission.mockResolvedValue(false);
+      mockReceivedQuotationService.findLatestByProjectId.mockResolvedValue(
+        mockReceivedQuotationSummary
+      );
+
+      // Act
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(mockHasPermission).toHaveBeenCalledWith('test-user-id', 'estimate_request:read');
+      expect(response.body.sections).not.toHaveProperty('receivedQuotations');
+      expect(mockReceivedQuotationService.findLatestByProjectId).not.toHaveBeenCalled();
+      expectOtherSectionsIntact(response.body.sections);
+    });
+
+    /**
+     * @requirement project-management/REQ-43.4
+     */
+    it('権限の判定が失敗したら受領見積書の鍵を含めず、他のセクションは返す', async () => {
+      // Arrange
+      arrangeOtherSections();
+      mockHasPermission.mockRejectedValue(new Error('RBAC error'));
+      mockReceivedQuotationService.findLatestByProjectId.mockResolvedValue(
+        mockReceivedQuotationSummary
+      );
+
+      // Act
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.body.sections).not.toHaveProperty('receivedQuotations');
+      expect(mockReceivedQuotationService.findLatestByProjectId).not.toHaveBeenCalled();
+      expectOtherSectionsIntact(response.body.sections);
+    });
+
+    /**
+     * @requirement project-management/REQ-43.5
+     */
+    it('取得が失敗したら 0 件・直近なしにして他のセクションは返す', async () => {
+      // Arrange
+      arrangeOtherSections();
+      mockHasPermission.mockResolvedValue(true);
+      mockReceivedQuotationService.findLatestByProjectId.mockRejectedValue(
+        new Error('Database connection error')
+      );
+
+      // Act
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.body.sections.receivedQuotations).toEqual({
+        totalCount: 0,
+        latestReceivedQuotations: [],
+      });
+      expectOtherSectionsIntact(response.body.sections);
+    });
   });
 });

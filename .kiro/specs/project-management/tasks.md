@@ -1846,3 +1846,300 @@
   - 地の文を YAML の外（`@swagger` の前の JSDoc など）へ移すか YAML として正しい形にし、生成物に `status-counts` が載ること、生成時のエラーが本ファイルについて出なくなることを確かめる。api-spec の単体テストで当該エンドポイントの存在を主張する（RED → GREEN）
   - _Requirements: 23.1_
   - _Boundary: 本スペックのプロジェクトの状態別件数 API の OpenAPI の記述_
+
+## Task 77: プロジェクト詳細画面の受領見積書セクション（利用者の判断で起票、2026-11-09）
+
+**経緯**: 利用者の判断（2026-11-09「承認します」）で起票する。roadmap（`.kiro/steering/roadmap.md`）の実施順 3。requirements.md に Requirement 42〜46 を加え、9.5・9.6・28.1 を改訂の記録つきで改めた。design.md に章「Requirements 42-46: 受領見積書のセクションと IPA の是正（2026-11-09 の追加）」を置いた。Task 77〜82 はこの章を実装する
+
+- [x] 77.1 受領見積書の件数と直近の受領見積書を返す部品を足す
+  - design.md の同章の ReceivedQuotationService のとおり、案件の受領見積書の一覧（include の全件）と同じ条件で、総数と登録日時の新しい順の直近 3 件（ID・受領見積書名・業者名・提出日・NET 金額・登録日時）を返す
+  - 単体で、見積依頼の無いもの・論理削除されていない見積依頼に紐づくものを数え、論理削除された受領見積書と論理削除された見積依頼に紐づくものを数えないこと、件数が一覧の件数と一致することを主張する。改修の前に赤になることを先に示す
+  - 単体で、総数と直近の中身と並びが一覧の条件と一致する状態になる
+  - _Requirements: 42.4, 42.5, 42.6, 43.2, 43.3_
+  - _Boundary: ReceivedQuotationService_
+
+- [x] 77.2 detail-summary の応答に、閲覧権限のある利用者にだけ受領見積書のデータを含める
+  - design.md の同章の ProjectsRoutes のとおり、ハンドラーが見積依頼の閲覧権限を判定して一括取得に渡し、権限が無ければ応答に受領見積書の鍵を含めない。取得の失敗は 0 件・直近なしにして他のセクションを返す
+  - 経路の注釈を変えたら OpenAPI の生成物（`backend/docs/api-spec.json`）を `npm --prefix backend run docs:generate` で作り直す
+  - 単体（`backend/src/__tests__/unit/routes/projects.detail-summary.routes.test.ts`）で、権限の有無による鍵の有無、取得の失敗の既定値、他のセクションが影響を受けないことを主張する。改修の前に赤になることを先に示す
+  - 単体で、権限のある利用者の応答だけに総数と直近が入り、失敗時に既定値になる状態になる
+  - _Requirements: 43.1, 43.4, 43.5_
+  - _Boundary: ProjectsRoutes_
+
+- [x] 77.3 (P) 受領見積書セクションの部品を作る
+  - design.md の同章の ReceivedQuotationSectionCard のとおり、見出し「受領見積書」・全N件・直近のカード（受領見積書名・業者名・提出日・NET 金額）・すべて見る・新規登録（登録の権限のあるときだけ）・空の表示「受領見積書はまだありません」・骨組みを、工程表セクションと同じ形で作る。カードとすべて見るは案件の受領見積書の一覧へ、新規登録は同じ画面へ登録フォームを開く遷移の状態を付けて移る
+  - 応答の型（受領見積書のデータ）を画面の API の型に足す
+  - 単体と stories を足す（Storybook の被覆）。単体で表示・空・骨組み・新規登録の出し分け・遷移先と遷移の状態を主張する
+  - 単体で、上の表示と遷移が主張どおりになり、Storybook の被覆が 100% のまま保たれる状態になる
+  - _Requirements: 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9, 42.10, 42.11, 42.12, 42.13, 42.14_
+  - _Boundary: ReceivedQuotationSectionCard_
+
+- [x] 77.4 (P) 案件の受領見積書の一覧画面が、遷移の状態を受けて登録フォームを開く
+  - design.md の同章の ProjectReceivedQuotationListPage のとおり、遷移の状態を受けたら一覧の読み込みの成功の後に登録フォームを開き、状態を消して読み込み直しで開き直さないようにする
+  - 単体（`frontend/src/__tests__/pages/ProjectReceivedQuotationListPage.test.tsx`）で、状態があると開き、無いと開かず、読み込みの失敗（404 など）では開かないことを主張する。改修の前に赤になることを先に示す
+  - 単体で、遷移の状態で登録フォームが開いた状態になる
+  - _Requirements: 42.11_
+  - _Boundary: ProjectReceivedQuotationListPage_
+
+- [x] 77.5 プロジェクト詳細画面に受領見積書セクションを組み込む
+  - 見積依頼セクションと見積書セクションの間に置き（28.1）、応答に受領見積書のデータが無ければ描かない。ロード中は見積依頼の閲覧権限があるときだけ骨組みを出す。新規登録の出し分けは design.md の同章の D1 の権限を渡す。状態遷移の後の取り直しでもデータを更新する
+  - 既存の単体（`frontend/src/__tests__/pages/ProjectDetailPage.test.tsx`）の認証の模擬に権限を足し、既存の主張を消さずに追随させる。位置・権限による出し分けを主張する
+  - 単体で、権限のある利用者には見積依頼セクションの直後に受領見積書セクションが出て、権限の無い利用者には出ない状態になる
+  - _Requirements: 42.1, 42.2, 42.13, 28.1_
+  - _Depends: 77.2, 77.3_
+  - _Boundary: ProjectDetailPage_
+
+## Task 78: プロジェクトの画面での閲覧範囲外・不在の表示（利用者の判断で起票、2026-11-09）
+
+**経緯**: Task 77 の経緯と同じ。design.md の同章の D3 を実装する
+
+- [x] 78.1 プロジェクト詳細画面の 404 を、編集画面と同じその場の不在の表示に替える
+  - 汎用の 404 の画面へ移らず、編集画面と同じ共通の不在の表示の部品で「プロジェクトが見つかりません」と一覧への戻るリンクをその場に出す（21.13 と同じ表示。design.md の同章の D3）。403 の遷移は変えない
+  - 既存の単体（`frontend/src/__tests__/pages/ProjectDetailPage.test.tsx`）の 404 の主張（汎用の画面への遷移）を新しい表示へ追随させ、名称その他の内容を出さないことも主張する。改修の前に赤になることを先に示す
+  - 単体で、404 の応答で詳細画面に不在の表示と戻るリンクが出て、プロジェクトの内容が出ない状態になる
+  - _Requirements: 44.2, 44.4_
+  - _Boundary: ProjectDetailPage_
+
+## Task 79: 担当者の変更で自分が外れるときの確認（利用者の判断で起票、2026-11-09）
+
+**経緯**: Task 77 の経緯と同じ。design.md の同章の D4 を実装する
+
+- [x] 79.1 (P) 編集で工事担当者を空にしたら紐づけを外す値を送り、画面の型に作成者を足す
+  - design.md の同章の ProjectForm と ProjectDetail の型のとおり、編集の工事担当者を空にしたら紐づけを外す値を送る。画面の更新の入力の型の工事担当者を、紐づけを外す値を受けられる形に広げる。画面の型にサーバーが返す作成者の ID を足す
+  - 単体で、空にした保存の入力が紐づけを外す値になることを主張する。既存の編集の単体（`frontend/src/__tests__/pages/ProjectEditPage.inactive-assignee.test.tsx` を含む）は主張を消さずに追随させる。改修の前に赤になることを先に示す
+  - 単体で、工事担当者を空にした保存が紐づけを外す入力を送る状態になる
+  - _Requirements: 45.1, 45.4_
+  - _Boundary: ProjectForm_
+
+- [x] 79.2 (P) 自分が外れるときの確認ダイアログを作る
+  - design.md の同章の AssigneeSelfRemovalDialog のとおり、45.1 の逐語の文言と「保存する」「キャンセル」を持つダイアログを、削除確認ダイアログと同じフォーカスの扱いで作る
+  - 単体と stories を足す。単体で文言・ボタン・保存中の扱い・フォーカスを主張する
+  - 単体で、45.1 の逐語と二つのボタンが出て、選んだボタンの通知が呼ばれる状態になる
+  - _Requirements: 45.1, 45.2_
+  - _Boundary: AssigneeSelfRemovalDialog_
+
+- [x] 79.3 プロジェクト編集画面に確認と保存の後の遷移を組み込む
+  - 作成者でも全プロジェクトの閲覧権限の保持者でもなく、変更後の担当者のどちらでもないときに確認を開く。キャンセルは保存せず入力を保つ。保存の成功で 45.3 の逐語の通知を出してプロジェクト一覧へ移る。それ以外は確認なしで従来どおり詳細画面へ移る
+  - 通知の部品に 45.3 の通知を足す
+  - 単体（`frontend/src/__tests__/pages/ProjectEditPage.test.tsx`）で、条件の組み合わせ（作成者・全閲覧権限・営業担当者に残る・工事担当者に残る・どれでもない）、キャンセル、保存の成功と失敗の遷移と通知を主張する。改修の前に赤になることを先に示す
+  - 単体で、条件どおりに確認が出て、保存後の遷移と通知が主張どおりになる状態になる
+  - _Requirements: 45.1, 45.2, 45.3, 45.4, 45.5_
+  - _Depends: 79.1, 79.2_
+  - _Boundary: ProjectEditPage_
+
+## Task 80: プロジェクトの削除の関連データの警告と保持期間の表示（利用者の判断で起票、2026-11-09）
+
+**経緯**: Task 77 の経緯と同じ。改訂した 9.5 と design.md の同章の D5 を実装する
+
+- [x] 80.1 関連データの種類ごとの件数を求める
+  - design.md の同章の ProjectService のとおり、仮の実装（常に 0）を、論理削除されていない関連データの種類ごとの件数（受領見積書は一覧と同じ条件、工事写真は論理削除されていないアルバムのもの）を求める実装に替える。件数の型を種類ごとの形に作り替え、既存の主張は新しい形へ追随させる
+  - 単体（`backend/src/__tests__/unit/services/project.service.test.ts`）で種類ごとの件数と、論理削除されたものを数えないことを主張する。改修の前に赤になることを先に示す
+  - 単体で、関連データのあるプロジェクトの種類ごとの件数が求まる状態になる
+  - _Requirements: 9.5_
+  - _Boundary: ProjectService_
+
+- [x] 80.2 関連データの件数の経路を足す
+  - design.md の同章の ProjectsRoutes のとおり、削除の権限と閲覧範囲の判定を経る経路で件数を返す。経路の注釈を足したら `npm --prefix backend run docs:generate` で OpenAPI の生成物を作り直す
+  - 経路の単体（既存の projects の経路の単体のファイルに足す）で、権限・閲覧範囲外の 404・応答の形を主張する。改修の前に赤になることを先に示す
+  - 単体で、権限のある利用者に種類ごとの件数が返り、範囲外は 404 になる状態になる
+  - _Requirements: 9.5_
+  - _Boundary: ProjectsRoutes_
+
+- [x] 80.3 (P) 削除確認ダイアログに種類ごとの件数・警告の逐語・保持期間の文を出す
+  - design.md の同章の DeleteConfirmationDialog のとおり、件数の型を 80.1 の種類ごとの項目名に揃えて作り替え、件数が 1 以上の種類だけを並べる。関連データがあるときは 9.5 の逐語と「削除する」「キャンセル」を出す。常に保持期間の文（関連データと共に 90 日後に完全に削除され元に戻せない旨）を出す
+  - 既存の単体と stories を追随させ、主張を消さない
+  - 単体で、関連データの有無で文言とボタンが切り替わり、保持期間の文が常に出る状態になる
+  - _Requirements: 9.5, 46.3, 46.4_
+  - _Depends: 80.1_
+  - _Boundary: DeleteConfirmationDialog_
+
+- [x] 80.4 プロジェクト詳細画面の削除で件数を取ってから確認を開く
+  - 画面の API に関連データの件数の取得と応答の型を足す。削除のボタンで件数を取り、関連データの有無を件数から導いてダイアログへ渡す。取得に失敗したら失敗の通知を出してダイアログを開かない
+  - 単体で、件数の取得・受け渡し・失敗の扱いを主張する。改修の前に赤になることを先に示す
+  - 単体で、関連データのあるプロジェクトの削除で警告と件数が出る状態になる
+  - _Requirements: 9.5, 9.6_
+  - _Depends: 80.2, 80.3_
+  - _Boundary: ProjectDetailPage_
+
+## Task 81: 論理削除したプロジェクトの完全削除（利用者の判断で起票、2026-11-09）
+
+**経緯**: Task 77 の経緯と同じ。design.md の同章の ProjectPurgeService・SoftDeletedProjectPurgeJob と D6〜D8 を実装する
+
+- [x] 81.1 完全削除の対象と、ファイルのキー・種類ごとの件数を集める
+  - design.md の同章の ProjectPurgeService のとおり、論理削除から 90 日を過ぎたプロジェクトを導入前の分を含めて古い順に最大 20 件選び、残りの件数を数える。プロジェクトごとに、個別に論理削除された関連データの分を含めて、現場調査の画像（原本・サムネイル・注釈つきのサムネイル）・工事写真（原本・サムネイル）・受領見積書（両方の文脈）のファイルのキーを重複なく集め、種類ごとの件数を数える
+  - 単体（新設の backend/src/__tests__/unit/services/project-purge.service.test.ts）で、90 日の境界（89 日は対象外）、件数の上限と古い順、キーの集め方と重複の除き方、件数を主張する。改修の前に赤になることを先に示す
+  - 単体で、対象とキーと件数が主張どおりに集まる状態になる
+  - _Requirements: 46.1, 46.8_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 81.2 ファイル→DB の順で完全に削除し、監査に記録する
+  - design.md の同章の ProjectPurgeService と D6・D8 のとおり、キーを 1 件ずつ消し、一つでも失敗したらそのプロジェクトの DB を残して記録し次へ進む。すべて消せたら一つのトランザクションで `Restrict` の行を葉から消してからプロジェクトの削除で残りを連鎖に任せ、同じトランザクションで監査の種別（backend の型に足す）を件数と日時だけで記録する。DB の失敗も記録して次へ進む
+  - 単体（81.1 と同じファイル）で、ファイルの削除の失敗で DB を消さないこと、DB の失敗の記録、削除の順、監査の中身（名前とキーを含まない）、結果の件数を主張する。改修の前に赤になることを先に示す
+  - 単体で、上の振る舞いが主張どおりになる状態になる
+  - _Requirements: 9.6, 46.6, 46.7, 46.9_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 81.3 完全削除を実際の DB とストレージで確かめる
+  - 統合（新設の backend/src/__tests__/integration/project-purge.integration.test.ts）で、`Restrict` を持つ全種類の関連データ（受領見積書の両方の文脈・実行予算の発注と出来高・内訳書を参照する見積依頼）とファイルを持つプロジェクトを論理削除の日時を 91 日前にして作り、完全削除の後に行もファイルも残らず監査の記録が一件あることを主張する。89 日前のもの・論理削除されていないものが残ること、監査ログが消えないことも主張する
+  - ファイルの削除の失敗は、ローカルのストレージが無いキーの削除で失敗しないため、1 回目だけ指定のキーで例外を投げるストレージの包みを部品へ注入して起こし、行が残り、包みを外した次の実行で消えることを主張する
+  - 統合で、上の主張がすべて通る状態になる
+  - _Requirements: 9.6, 46.1, 46.6, 46.7, 46.8, 46.9_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 81.4 完全削除を 1 日 1 回の定期処理として登録する
+  - design.md の同章の SoftDeletedProjectPurgeJob のとおり、既存の定期処理の形で処理を作り、定期処理の定義に足す
+  - 単体（新設の処理の単体と、`backend/src/__tests__/unit/jobs/scheduled-job-runner.test.ts`）で、定義の名前と cron、処理が部品を呼ぶこと、結果の扱いを主張する。改修の前に赤になることを先に示す
+  - 単体で、定期処理の定義に完全削除が 1 日 1 回で載る状態になる
+  - _Requirements: 46.5_
+  - _Boundary: SoftDeletedProjectPurgeJob_
+
+- [x] 81.5 (P) 監査ログの画面に完全削除の種別の表示名を足す
+  - 画面の監査の種別の型と表示名（「プロジェクトの完全削除」）を足す
+  - 既存の表示名の単体に足し、未知の種別として扱われないことを主張する
+  - 単体で、監査ログの画面で完全削除の記録が表示名つきで出る状態になる
+  - _Requirements: 46.6_
+  - _Boundary: 監査ログの画面の種別の表示名_
+
+## Task 82: E2E と関門（利用者の判断で起票、2026-11-09）
+
+**経緯**: Task 77 の経緯と同じ。design.md の同章の Testing Strategy を実装する。E2E を書くタスクは `.claude/skills/e2e-quality/SKILL.md` に従う
+
+- [x] 82.1 受領見積書セクションの E2E を足す
+  - 新設の e2e/specs/projects/project-received-quotation-section.spec.ts で、件数が一覧の画面と一致すること、カード・すべて見る・新規登録で一覧へ移り新規登録ではフォームが開くこと、見積依頼セクションの直後に出ること、閲覧権限の無い利用者に出ず応答にも件数が無いこと、登録の権限の無い利用者に新規登録が出ないこと、空の表示、detail-summary の応答を遅らせたときの骨組みを確かめる。被覆の印を置く
+  - E2E が一度で通る状態になる
+  - _Requirements: 28.1, 42.1, 42.2, 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9, 42.10, 42.11, 42.12, 42.13, 42.14, 43.1, 43.2, 43.3, 43.4_
+  - _Depends: 77.4, 77.5_
+
+- [x] 82.2 閲覧範囲外・不在・論理削除済みの表示の E2E を改める
+  - `e2e/specs/projects/project-navigation.spec.ts` の 21.13 の `test.fail()` を外し、「プロジェクトが見つかりません」と戻るリンクを主張する。`e2e/specs/projects/project-access-scope.spec.ts` の詳細画面の不在の主張を新しい表示へ追随させ（主張は消さない）、編集画面の URL・論理削除済み・不在が同じ表示になることを足す。一覧・件数に範囲外を含めない既存の主張に被覆の印を足す
+  - E2E が一度で通る状態になる
+  - _Requirements: 44.1, 44.2, 44.3, 44.4_
+  - _Depends: 78.1_
+
+- [x] 82.3 担当者の変更で自分が外れるときの E2E を足す
+  - 新設の e2e/specs/projects/project-assignee-self-removal.spec.ts で、編集画面から自分を担当者から外すと確認が出て、キャンセルで留まり、保存でプロジェクト一覧へ移って 45.3 の通知が出て、詳細を開くと不在の表示になること、担当者に残る変更では確認が出ないこと、工事担当者を空にする変更が保存されることを確かめる。被覆の印を置く
+  - E2E が一度で通る状態になる
+  - _Requirements: 45.1, 45.2, 45.3, 45.4, 45.5_
+  - _Depends: 79.3, 78.1_
+
+- [x] 82.4 関連データのあるプロジェクトの削除の E2E を改める
+  - `e2e/specs/projects/project-crud.spec.ts` の 9.5・9.6 の検証を、関連データ（現場調査・見積依頼・受領見積書など）を持つプロジェクトで、警告の逐語・種類ごとの件数・保持期間の文を確かめ、削除の後に一覧から消え、関連データの詳細の URL が不在の表示になる形へ改める。被覆の印を置く
+  - E2E が一度で通る状態になる
+  - _Requirements: 9.5, 9.6, 46.2, 46.4_
+  - _Depends: 80.4_
+
+- [x] 82.5 除外の登録と spec の関門を緑にする
+  - E2E で確かめない受入基準（design.md の同章の Testing Strategy の「E2E で確かめないもの」）を、本番に到達する被覆の印が無いものに限り、除外の台帳（`e2e/requirement-exclusions.json`）へ代替の検証つきで登録する
+  - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-measurement-freshness` などの spec の関門を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す
+  - spec の関門がすべて緑の状態になる
+  - _Requirements: 43.5, 46.1, 46.3, 46.5, 46.6, 46.7, 46.8, 46.9_
+
+## Task 83: 完全削除の失敗の扱い（利用者の判断で起票、2026-11-11）
+
+**経緯**: 機能レベルの検証（2026-11-11）で、完全削除が毎回失敗するプロジェクトが 20 件たまると新しい対象が進まないことを確かめた。利用者の判断（2026-11-11「提案の方法で進める」）で Requirement 46.10〜46.15 を加えた。design.md の章「Requirements 46.10-46.15: 完全削除の失敗の扱い」の ProjectPurgeService（変更）・ProjectPurgeState・RequeueProjectPurgeScript と D9〜D14 を実装する
+
+- [x] 83.1 完全削除の失敗の記録の表を足す
+  - design.md の同章の ProjectPurgeState のとおり、`backend/prisma/schema.prisma` にモデルと `Project` からの 1 対 1 の関係を足し、新設の migration（backend/prisma/migrations/20261111000000_project_purge_states/migration.sql）で表と索引を作る。プロジェクトの削除で記録が連鎖して消える
+  - `prisma migrate deploy` をテスト用の DB に当てて通り、Prisma の生成物を作り直して `npm --prefix backend run type-check` が緑になる状態になる（記録の連鎖の削除は 83.7 の統合で主張する）
+  - _Requirements: 46.10, 46.11, 46.14_
+  - _Boundary: ProjectPurgeState_
+
+- [x] 83.2 失敗を記録し、失敗したプロジェクトを後ろへ回す
+  - design.md の同章の「選び方」「失敗の記録」と D10・D11 のとおり、対象から外したものを除き、最後に試みた日時の無いもの→古いもの→論理削除の古い順に最大 20 件を選ぶ。段階を問わず失敗したら、削除のトランザクションの外で記録の回数を 1 増やし最後に試みた日時を付ける。残りの件数は対象から外したものを除いて数える。記録の書き込みの失敗は記録して次へ進む
+  - 単体（`backend/src/__tests__/unit/services/project-purge.service.test.ts`）で、失敗したものが次の回で試みていないものの後に選ばれること、対象から外したものを選ばないこと、記録の回数と日時、記録の書き込みの失敗で他のプロジェクトが止まらないことを主張する。改修の前に赤になることを先に示す
+  - 既存の統合（`backend/src/__tests__/integration/project-purge.integration.test.ts`）を回帰として流し、緑のままであることを確かめる
+  - 単体で、失敗したプロジェクトが後ろへ回り、他のプロジェクトの完全削除を遅らせない状態になる
+  - _Requirements: 46.10, 46.13_
+  - _Depends: 83.1_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.3 5 回続けて失敗したプロジェクトを対象から外し、全システム管理者へ知らせる
+  - design.md の同章の「対象から外す」「通知」と D12 のとおり、増やした回数が 5 に届いたら同じ書き込みで対象から外した日時を付け、監査の種別 `PROJECT_PURGE_EXCLUDED`（backend の型に足す）を回数・日時・最後の失敗の段階だけで記録する。その回で外したものがあれば、回の終わりに通知の種別 `PROJECT_PURGE_EXCLUDED`（`AdminNotificationService` の型に足す）で 1 通送る。本文はプロジェクト ID・回数・対象に戻す手順のコマンド名だけ。結果に外したプロジェクトの ID を返す
+  - 通知の部品を渡さないときは通知しない（試験と運用の手順で通知を出さないため）。定期処理（`backend/src/jobs/soft-deleted-project-purge.job.ts`）の部品の組み立てでは、`backend/src/jobs/inactive-user-deactivation.job.ts` と同じく `new AdminNotificationService(prisma, new EmailService())` を明示して渡す
+  - 単体（83.2 と同じファイルと、`backend/src/__tests__/unit/jobs/soft-deleted-project-purge.job.test.ts`）で、4 回目では外さず 5 回目で外すこと、記録と通知に名前・ファイルのキー・エラーの文言が無いこと、同じ回で 2 件外しても通知が 1 通であること、外したものが無い回は通知しないこと、通知の失敗で処理が失敗しないこと、通知の部品を渡さないと通知しないこと、定期処理が通知の部品を渡すことを主張する。結果の形の変更（外したプロジェクトの ID）に合わせて、定期処理の単体の既存の期待値を直す（主張は消さない）。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、5 回続けて失敗したプロジェクトが対象から外れ、記録と通知が出る状態になる
+  - _Requirements: 46.11, 46.12_
+  - _Depends: 83.2_
+  - _Boundary: ProjectPurgeService, SoftDeletedProjectPurgeJob（通知の部品の受け渡し）, AdminNotificationService（種別の型だけ）_
+
+- [x] 83.4 定期処理の 1 回ごとの結果を監査ログに記録する
+  - design.md の同章の「結果の記録」と D14 のとおり、回の終わりに監査の種別 `PROJECT_PURGE_RUN_COMPLETED`（backend の型に足す）を、完全に削除した件数・失敗した件数・対象から外した件数・残りの件数で記録する。対象が 0 件の回も記録する。記録の失敗は記録して結果を返す
+  - 単体（83.2 と同じファイル）で、件数の中身、0 件の回の記録、記録の失敗でも結果が返ることを主張する。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、定期処理の毎回の結果が監査ログに残る状態になる
+  - _Requirements: 46.15_
+  - _Depends: 83.3_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.5 対象から外したプロジェクトを対象に戻す部品を足す
+  - design.md の同章の「対象に戻す」のとおり、`requeue(projectId, now)` を足す。プロジェクトが無い・論理削除されていなければ `not_found`、対象から外れていなければ `not_excluded`（何も変えない）、それ以外は一つのトランザクションで回数を 0 に、日時を空にし、監査の種別 `PROJECT_PURGE_REQUEUED`（backend の型に足す。運用の手順の印と戻す前の回数・日時）を記録して `requeued` を返す
+  - 単体（83.2 と同じファイル）で、3 つの結果、記録の中身、戻したプロジェクトが次の回で先に選ばれることを主張する。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、対象から外したプロジェクトを対象に戻せる状態になる
+  - _Requirements: 46.14_
+  - _Depends: 83.4_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.6 対象に戻す運用の手順を足す
+  - design.md の同章の RequeueProjectPurgeScript のとおり、新設の backend/src/scripts/requeue-project-purge.ts と `backend/package.json` の `project:purge-requeue` を、`backend/src/scripts/reactivate-user.ts` と同じ形（ソースがあれば tsx、無ければビルド済みの dist を node）で足す。引数 `--project-id`、終了コード 0・1・2、出力にプロジェクト名を出さない。部品は定期処理と同じ本番の組み立て（`createProjectPurgeServiceForJob`。ストレージの設定が要る）で作り、通知の部品は渡さない（戻したことは監査に残す）。ストレージが設定されていないときは終了コード 1 と理由を出す。ビルドで dist に入ることを確かめる。`backend/package.json` は estimate-request のタスク121.2 も触るため、並べて流さない
+  - 単体（新設の backend/src/__tests__/unit/scripts/requeue-project-purge.test.ts）で、引数の誤り（UUID でない ID を含む）・3 つの結果ごとの終了コードと出力を主張する。改修の前に赤になることを先に示す
+  - 単体で、サーバー上でプロジェクト ID を指定して対象に戻せる状態になる
+  - _Requirements: 46.14_
+  - _Depends: 83.5_
+  - _Boundary: RequeueProjectPurgeScript_
+
+- [x] 83.7 失敗の扱いを実際の DB で確かめる
+  - 統合（`backend/src/__tests__/integration/project-purge.integration.test.ts`）で、別のプロジェクトの見積依頼が対象の内訳書を参照して DB の段で毎回失敗するプロジェクトを 20 件（参照は DB へ直接作る）と、失敗しないプロジェクトを 1 件、論理削除の日時を 91 日前にして作る。1 回目で失敗しないものが消えること、5 回の実行で失敗するものが対象から外れて記録と監査が残ること、対象から外れたものの関連データの詳細の取得（内訳書の詳細の経路 `GET /api/itemized-statements/:id` を supertest でアプリを通して呼ぶ）が 404 のままであること、`requeue` の後の回で再び試みられ参照を消せば完全に削除されること、完全削除で記録も消えることを主張する
+  - 試験の間で、作った監査の記録（`PROJECT_PURGE_RUN_COMPLETED` など、対象の種類 `ProjectPurgeRun` を含む）を片付け、他の試験の監査の件数の主張を揺らさない
+  - 1 対 1 の関係の項目での並び（記録の無いものを空として先に選ぶ）が実際の DB で想定どおりかを確かめる。想定と違えば research.md の 2026-11-11 の節に記録し、記録の有無で 2 回に分けて選ぶ形に 83.2 の実装を直し、83.2 の単体も合わせて直す
+  - 統合で、上の主張がすべて通る状態になる
+  - _Requirements: 46.10, 46.11, 46.13, 46.14, 46.15_
+  - _Depends: 83.6_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.8 (P) 監査ログの画面に失敗の扱いの種別の表示名を足す
+  - 画面の監査の種別の型と表示名（「プロジェクトの完全削除の対象外化」「プロジェクトの完全削除の対象への復帰」「プロジェクトの完全削除の定期処理の結果」）を足す
+  - 既存の表示名の単体（`frontend/src/__tests__/utils/audit-log-actions.test.ts`）に足し、未知の種別として扱われないことを主張する
+  - 単体で、監査ログの画面で 3 つの記録が表示名つきで出る状態になる
+  - _Requirements: 46.11, 46.14, 46.15_
+  - _Boundary: 監査ログの画面の種別の表示名_
+
+## Task 84: 文書と関門（利用者の判断で起票、2026-11-11）
+
+**経緯**: Task 83 の経緯と同じ。design.md の同章の Modified Files と Testing Strategy を行う
+
+- [x] 84.1 steering と運用の文書に失敗の扱いと対象に戻す手順を足す
+  - `.kiro/steering/tech.md` の定期処理の `soft-deleted-project-purge` の行に失敗の扱い（後ろへ回す・5 回で外して知らせる）を足し、`.kiro/steering/structure.md` の `scripts/` の欄に対象に戻す運用の手順を足す。`docs/deployment/data-protection.md` に、完全削除の失敗の扱いと `npm run project:purge-requeue` の手順を足す
+  - `check:steering-refs`・`check:steering-idents`・`check:steering-dir-counts` が緑の状態になる
+  - estimate-request のタスク121.3 も `.kiro/steering/structure.md` の同じ木を触るため、並べて流さない。後に流す側が木の印と件数を貼り直す
+  - _Requirements: 46.11, 46.14_
+  - _Depends: 83.6_
+
+- [x] 84.2 除外の登録と spec の関門を緑にする
+  - E2E で確かめない 46.10〜46.15（定期処理は E2E の環境で登録されず、運用の手順は画面を持たない）を、本番に到達する被覆の印が無いものに限り、除外の台帳（`e2e/requirement-exclusions.json`）へ代替の検証（83.2〜83.7 の単体と統合）つきで登録し、件数の宣言を実数に合わせる
+  - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流し、新設予定の印を外した設計文書の免除の件数や鮮度の錨が動いたら帰属つきで貼り直す
+  - estimate-request のタスク121.3 も除外の台帳の件数の宣言と鮮度の錨を触るため、並べて流さない。後に流す側が件数と錨を貼り直す
+  - spec の関門がすべて緑の状態になる
+  - _Requirements: 46.10, 46.11, 46.12, 46.13, 46.14, 46.15_
+  - _Depends: 83.7, 83.8, 84.1_
+
+## Implementation Notes
+
+- frontend の単体は `npm --prefix frontend run test -- <file>` で流す。`npm --prefix frontend exec vitest run` は作業ディレクトリが根になり、frontend の設定を読まない（77.3）
+- 詳細画面は読み込み中に画面全体の回転表示を返すため、セクションの骨組みの分岐は実行時に通らない。兄弟のセクションと同じく、骨組みは部品の単体と、E2E では回転表示の後に骨組みが残らないことの間接の確認で被覆する（40.8 の E2E の先例。82.1 も同じ形にする）（77.5）
+- 関連データの件数の型 RelatedCounts の鍵は siteSurveys, quantityTables, itemizedStatements, estimateRequests, receivedQuotations, estimates, contracts, schedules, executionBudgets, constructionPhotos（80.1。80.3 の画面の型はこれに揃える）
+- `@swagger` の注釈の中に「Task N: …」のような `key: value` の行を書くと、OpenAPI の生成物の paths に不正な鍵が入る。作業の記録は注釈の外の `//` に書く。既存の `"Task 46.3"` の鍵は未対処（80.2）
+- 関連データの件数の経路は `{ counts }` で包まず RelatedCounts をそのまま返す（80.2。80.4 の画面の型はこれに合わせる）
+- 他のプロジェクトの行が対象の木を参照していると、DB の削除が毎回 Restrict で失敗する。古い順の 20 件がそのようなプロジェクトで埋まると、新しい対象が進まない（81.2 のレビューの指摘。仕様の判断は利用者に委ねる）
+- 82.2 で除外の台帳から REQ-21.13 と分類 pending-implementation を取り下げた。design-measurements.json の錨 requirement-exclusions-total（134→133）・exclusion-categories-count-after-115314（7→6）・pending-implementation-exclusions-after-115314（1→0）が動くので、82.5 で 82.2 の帰属つきで貼り直す
+- 形式の不正なプロジェクト ID の詳細画面は、再試行のボタンだけで戻るリンクが無い（82.2 で判明。要件の範囲外で未対処）
+- プロジェクト一覧を URL の `?search=` で開いて 0 件のとき、hasSearched が立たず「検索結果がありません」ではなく「プロジェクトがありません」を出す（82.4 で判明。未対処）
+- 機能レベル検証（2026-11-10、HEAD `78b99392`）は NO-GO。既存のテストの追随漏れ 5 件（定期処理の数、見積書の空の表示の曖昧さ、プロジェクトの削除の確定ボタン「削除する」）をテストだけで直し、統合 1617/1617・該当 E2E の再実行で通した。数量表の後片付けの多くはボタンが見えないと黙って飛ばす作りで、関連データのあるプロジェクトを消し残していた（是正の後は消える。黙って飛ばさない作りへの改めは未対処）
+- backend の単体を 1 ファイルだけ流すには `npm --prefix backend exec -- vitest run --root backend <file>` を使う。`npm --prefix backend run test:unit -- <file>` は単体の全件を流す（83.2）
+- `createProjectPurgeServiceForJob` は通知の部品を常に渡す。83.6 の運用の手順は通知の部品を渡さない設計のため、組み立てに引数を足すか別に組み立てる（83.3）
+- 83.7 の統合は、失敗しないプロジェクトを 2 件にした（1 件では 1 回の 20 件の枠と区別できない）。古い方が 1 回目で、最も新しい方が 2 回目に試みた失敗のものより先に消えることで、後ろへ回す並びを実際の DB で確かめる。1 対 1 の関係の項目での並び（記録の無いものを先）は想定どおりだった（83.7）
+- 84.2 の時点で check:req-coverage は estimate-request の REQ-51.1〜51.3（タスク121）だけが未被覆で赤。project-management の 46.10〜46.15 は本番に到達する印で被覆され、除外は登録していない（84.2）
+- backend の単体のカバレッジの確認（coverage:check）は、4 つの指標のうち最も低いものがファイルごとに 80% 以上かを見る。運用の手順は直接実行の .then/.catch を単体で通せないため、関数の率が下がりやすい。単体で既定の出力先と close の順まで確かめて 84〜86% にした（機能レベルの検証の NO-GO の是正、2026-11-12）
+- 完全削除の記録の表 project_purge_states は Cascade の葉で Restrict を持たないため、完全削除の Restrict の行を葉から消す順は変わらない（46.5 の章の再検証のきっかけ。83.7 の統合で記録も消えることを主張）
+- 対象に戻す処理を ProjectPurgeRequeuer（データベースと監査だけに依存）へ切り出し、運用の手順はストレージ無しで動くようにした。定期処理の部品の通知しない指定（83.6 で足した）は使われなくなったため外した。運用の文書に不整合を確かめる手順（estimate-request:find-cross-project）への案内を足した（2026-11-12、利用者の指示「1,2を直して」）

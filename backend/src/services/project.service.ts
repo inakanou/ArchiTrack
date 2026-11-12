@@ -15,7 +15,7 @@
  * - 8.2, 8.3, 8.6: プロジェクト更新（楽観的排他制御）
  * - 8.7, 8.8: プロジェクト名の一意性チェック（更新時、自身を除外）
  * - 9.2, 9.6: プロジェクト論理削除
- * - 11.5, 11.6: 関連データ件数取得（機能フラグ対応）
+ * - 9.5: 関連データの種類ごとの件数取得（タスク80.1）
  * - 12.4, 12.6: 監査ログ連携（PROJECT_CREATED, PROJECT_UPDATED, PROJECT_DELETED）
  * - 13.4, 13.6: 担当者IDバリデーション（admin以外の有効ユーザー確認）
  * - 16.3, 22.5: フリガナ検索でひらがな・カタカナ両対応（kana-converter使用）
@@ -33,6 +33,7 @@ import type {
 } from '../schemas/project.schema.js';
 import type { ProjectStatus } from '../types/project.types.js';
 import { PROJECT_STATUS_LABELS } from '../types/project.types.js';
+import { projectQuotationWhere } from './received-quotation.service.js';
 import {
   ProjectNotFoundError,
   ProjectValidationError,
@@ -161,11 +162,19 @@ export interface PaginatedProjects {
 }
 
 /**
- * 関連データ件数
+ * 関連データの種類ごとの件数（9.5。論理削除されていないものだけを数える）
  */
 export interface RelatedCounts {
-  surveyCount: number;
-  estimateCount: number;
+  siteSurveys: number;
+  quantityTables: number;
+  itemizedStatements: number;
+  estimateRequests: number;
+  receivedQuotations: number;
+  estimates: number;
+  contracts: number;
+  schedules: number;
+  executionBudgets: number;
+  constructionPhotos: number;
 }
 
 /**
@@ -699,13 +708,13 @@ export class ProjectService {
   }
 
   /**
-   * 関連データ件数取得
+   * 関連データの種類ごとの件数取得（9.5。タスク80.1）
    *
-   * 現場調査・見積書の件数を取得する。
-   * 現時点では機能が未実装のため、常に0を返す。
+   * 論理削除されていない関連データを種類ごとに数える。
+   * 受領見積書は一覧（include: 'all'）と同じ条件、工事写真は論理削除されていないアルバムのもの。
    *
    * @param id - プロジェクトID
-   * @returns 関連データ件数
+   * @returns 関連データの種類ごとの件数
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
    */
   async getRelatedCounts(id: string): Promise<RelatedCounts> {
@@ -719,11 +728,44 @@ export class ProjectService {
       throw new ProjectNotFoundError(id);
     }
 
-    // 現場調査機能・見積機能は将来実装予定
-    // 現時点では常に0を返す
+    const live = { where: { projectId: id, deletedAt: null } };
+    const [
+      siteSurveys,
+      quantityTables,
+      itemizedStatements,
+      estimateRequests,
+      receivedQuotations,
+      estimates,
+      contracts,
+      schedules,
+      executionBudgets,
+      constructionPhotos,
+    ] = await Promise.all([
+      this.prisma.siteSurvey.count(live),
+      this.prisma.quantityTable.count(live),
+      this.prisma.itemizedStatement.count(live),
+      this.prisma.estimateRequest.count(live),
+      this.prisma.receivedQuotation.count({ where: projectQuotationWhere(id, 'all') }),
+      this.prisma.estimate.count(live),
+      this.prisma.contract.count(live),
+      this.prisma.constructionSchedule.count(live),
+      this.prisma.executionBudget.count(live),
+      this.prisma.constructionPhoto.count({
+        where: { album: { projectId: id, deletedAt: null } },
+      }),
+    ]);
+
     return {
-      surveyCount: 0,
-      estimateCount: 0,
+      siteSurveys,
+      quantityTables,
+      itemizedStatements,
+      estimateRequests,
+      receivedQuotations,
+      estimates,
+      contracts,
+      schedules,
+      executionBudgets,
+      constructionPhotos,
     };
   }
 

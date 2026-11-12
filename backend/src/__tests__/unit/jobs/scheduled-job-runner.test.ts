@@ -67,6 +67,17 @@ vi.mock('../../../jobs/security-anomaly-overflow-summary.job.js', () => ({
     sendSecurityAnomalyOverflowSummaryMock(...args),
 }));
 
+const softDeletedProjectPurgeRunMock = vi.fn();
+const createSoftDeletedProjectPurgeRunMock = vi.fn(
+  (_prisma: unknown) => softDeletedProjectPurgeRunMock
+);
+vi.mock('../../../jobs/soft-deleted-project-purge.job.js', () => ({
+  SOFT_DELETED_PROJECT_PURGE_JOB_NAME: 'soft-deleted-project-purge',
+  SOFT_DELETED_PROJECT_PURGE_CRON: '30 3 * * *',
+  createSoftDeletedProjectPurgeRun: (prisma: unknown) =>
+    createSoftDeletedProjectPurgeRunMock(prisma),
+}));
+
 import {
   ScheduledJobRunner,
   createScheduledJobDefinitions,
@@ -374,6 +385,7 @@ describe('createScheduledJobDefinitions', () => {
       { name: 'inactive-user-deactivation', cron: '0 3 * * *' },
       { name: 'audit-log-archive', cron: '0 4 1 * *' },
       { name: 'security-anomaly-overflow-summary', cron: '*/10 * * * *' },
+      { name: 'soft-deleted-project-purge', cron: '30 3 * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -429,6 +441,26 @@ describe('createScheduledJobDefinitions', () => {
     expect(job?.cron).toBe('*/10 * * * *');
     await expect(job?.run()).resolves.toEqual({ overflowSummary: 'sent' });
     expect(sendSecurityAnomalyOverflowSummaryMock).toHaveBeenCalledWith();
+  });
+
+  /**
+   * @requirement project-management/REQ-46.5
+   */
+  it('soft-deleted-project-purge を毎日 03:30 に登録し、処理は論理削除したプロジェクトの完全削除を呼ぶ', async () => {
+    const prisma = {} as PrismaClient;
+    const runResult = {
+      purgedProjectIds: ['p1'],
+      failedProjectIds: ['p2'],
+      remainingCandidates: 0,
+    };
+    softDeletedProjectPurgeRunMock.mockResolvedValue(runResult);
+
+    const jobs = createScheduledJobDefinitions(prisma);
+    const job = jobs.find(({ name }) => name === 'soft-deleted-project-purge');
+
+    expect(job?.cron).toBe('30 3 * * *');
+    expect(createSoftDeletedProjectPurgeRunMock).toHaveBeenCalledWith(prisma);
+    await expect(job?.run()).resolves.toEqual(runResult);
   });
 });
 

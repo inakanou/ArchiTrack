@@ -12,6 +12,7 @@ import type { AuditLog, AuditLogFilter, AuditLogAction } from '../types/audit-lo
 import {
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
   INVITATION_AUDIT_ACTION_LABELS,
+  PROJECT_PURGE_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
@@ -66,6 +67,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
       ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
+      ...PROJECT_PURGE_AUDIT_ACTION_LABELS,
     };
     return actionTexts[action] || action;
   };

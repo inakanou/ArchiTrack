@@ -50,6 +50,17 @@ function createMockPrisma() {
     projectStatusHistory: {
       create: vi.fn(),
     },
+    // 関連データの種類ごとの件数（9.5。タスク80.1）
+    siteSurvey: { count: vi.fn().mockResolvedValue(0) },
+    quantityTable: { count: vi.fn().mockResolvedValue(0) },
+    itemizedStatement: { count: vi.fn().mockResolvedValue(0) },
+    estimateRequest: { count: vi.fn().mockResolvedValue(0) },
+    receivedQuotation: { count: vi.fn().mockResolvedValue(0) },
+    estimate: { count: vi.fn().mockResolvedValue(0) },
+    contract: { count: vi.fn().mockResolvedValue(0) },
+    constructionSchedule: { count: vi.fn().mockResolvedValue(0) },
+    executionBudget: { count: vi.fn().mockResolvedValue(0) },
+    constructionPhoto: { count: vi.fn().mockResolvedValue(0) },
     $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
       fn({
         user: {
@@ -1160,7 +1171,7 @@ describe('ProjectService', () => {
   });
 
   describe('getRelatedCounts', () => {
-    it('関連データ件数を取得する（機能無効時は0を返す）', async () => {
+    it('関連データが無いときは全種類の件数が0になる', async () => {
       // Arrange
       mockPrisma.project.findUnique = vi.fn().mockResolvedValue(mockProject);
 
@@ -1168,9 +1179,81 @@ describe('ProjectService', () => {
       const result = await service.getRelatedCounts('project-123');
 
       // Assert
-      expect(result).toBeDefined();
-      expect(result.surveyCount).toBe(0);
-      expect(result.estimateCount).toBe(0);
+      expect(result).toEqual({
+        siteSurveys: 0,
+        quantityTables: 0,
+        itemizedStatements: 0,
+        estimateRequests: 0,
+        receivedQuotations: 0,
+        estimates: 0,
+        contracts: 0,
+        schedules: 0,
+        executionBudgets: 0,
+        constructionPhotos: 0,
+      });
+    });
+
+    it('関連データの種類ごとの件数を返す（9.5）', async () => {
+      // Arrange
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(mockProject);
+      vi.mocked(mockPrisma.siteSurvey.count).mockResolvedValue(1);
+      vi.mocked(mockPrisma.quantityTable.count).mockResolvedValue(2);
+      vi.mocked(mockPrisma.itemizedStatement.count).mockResolvedValue(3);
+      vi.mocked(mockPrisma.estimateRequest.count).mockResolvedValue(4);
+      vi.mocked(mockPrisma.receivedQuotation.count).mockResolvedValue(5);
+      vi.mocked(mockPrisma.estimate.count).mockResolvedValue(6);
+      vi.mocked(mockPrisma.contract.count).mockResolvedValue(7);
+      vi.mocked(mockPrisma.constructionSchedule.count).mockResolvedValue(8);
+      vi.mocked(mockPrisma.executionBudget.count).mockResolvedValue(1);
+      vi.mocked(mockPrisma.constructionPhoto.count).mockResolvedValue(10);
+
+      // Act
+      const result = await service.getRelatedCounts('project-123');
+
+      // Assert
+      expect(result).toEqual({
+        siteSurveys: 1,
+        quantityTables: 2,
+        itemizedStatements: 3,
+        estimateRequests: 4,
+        receivedQuotations: 5,
+        estimates: 6,
+        contracts: 7,
+        schedules: 8,
+        executionBudgets: 1,
+        constructionPhotos: 10,
+      });
+    });
+
+    it('論理削除された関連データを数えない条件で数える（9.5）', async () => {
+      // Arrange
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(mockProject);
+      const live = { where: { projectId: 'project-123', deletedAt: null } };
+
+      // Act
+      await service.getRelatedCounts('project-123');
+
+      // Assert: 各種類はプロジェクトの論理削除されていないものだけを数える
+      expect(mockPrisma.siteSurvey.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.quantityTable.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.itemizedStatement.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.estimateRequest.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.estimate.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.contract.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.constructionSchedule.count).toHaveBeenCalledWith(live);
+      expect(mockPrisma.executionBudget.count).toHaveBeenCalledWith(live);
+      // 受領見積書は一覧（include: 'all'）と同じ条件。論理削除された見積依頼に紐づくものも除く
+      expect(mockPrisma.receivedQuotation.count).toHaveBeenCalledWith({
+        where: {
+          projectId: 'project-123',
+          deletedAt: null,
+          OR: [{ estimateRequestId: null }, { estimateRequest: { is: { deletedAt: null } } }],
+        },
+      });
+      // 工事写真は論理削除されていないアルバムのもの
+      expect(mockPrisma.constructionPhoto.count).toHaveBeenCalledWith({
+        where: { album: { projectId: 'project-123', deletedAt: null } },
+      });
     });
 
     it('存在しないプロジェクトの場合はエラーを返す', async () => {

@@ -765,3 +765,10 @@ Light Discovery（Extension）を適用。design.md「見積依頼文のメー�
   - Build vs Adopt: 指紋は標準の sha256、二重の判定の直列化は PostgreSQL の勧告ロックを使い、部分一意索引は Prisma のスキーマのずれの検出と食い違うため採らなかった。回数制限は既存の `createRateLimiters` を使う
   - Simplification: 一覧の既定の応答は変えず `include=all` を足すだけにし、estimate-creation の転記を動かさない（D2）。設定のキャッシュは持たない
 - **リスク**: 既存のファイルの指紋は配備の後のスクリプトで埋めるまで判定の対象外。Vision の権限の付与は migration の `INSERT ... SELECT` が初めての形であり、統合テストで付与を確かめる
+
+## 2026-11-11: Requirement 51（見積依頼が参照する内訳書のプロジェクト）の設計の調べもの
+
+- **発見の種類**: 既存の機能の小さな追加（minimal discovery）
+- **調べたもの**: `backend/src/routes/estimate-requests.routes.ts`（作成の経路は `requireBodyItemizedStatementProjectScope` を通る）、`backend/src/middleware/estimate-request-project-scope.middleware.ts`（経路の案件と内訳書の案件の食い違いを不在と同じ 404 にする。42.10）、`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`（範囲内の他のプロジェクトの内訳書の作成が 404 になる試験）、`backend/src/services/estimate-request.service.ts`（`create` は内訳書の `projectId` を読むが比べない）、`backend/src/schemas/estimate-request.schema.ts`（更新は内訳書を受け付けない）
+- **結論**: 51.1・51.2 の振る舞いは経路の層で 2026-11-04 からある。サービスの層の確認（D15）と印の付け直しで明文化する。主な作業は 51.3 の確かめる手順
+- **使った skill**: kiro-spec-design

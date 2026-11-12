@@ -28,6 +28,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
+import { useToast } from '../../hooks/useToast';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
 import type { ProjectDetailSummary } from '../../api/projects';
@@ -38,10 +39,19 @@ import { ApiError } from '../../api/client';
 vi.mock('../../api/projects');
 
 // useAuthフックのモック
+// Task 77.5: 受領見積書セクションの出し分けのため権限を持たせる（テストごとに差し替えられる）
+const DEFAULT_PERMISSIONS = ['estimate_request:read', 'estimate_request:update'];
+const mockAuthState = vi.hoisted(() => ({ permissions: [] as string[] }));
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
-    user: { id: 'user-1', displayName: 'テストユーザー' },
+    user: {
+      id: 'user-1',
+      displayName: 'テストユーザー',
+      permissions: mockAuthState.permissions,
+    },
     isAuthenticated: true,
+    isLoading: false,
+    isInitialized: true,
   }),
 }));
 
@@ -98,6 +108,20 @@ const defaultSections: ProjectDetailSummary['sections'] = {
   constructionPhotos: { totalCount: 0, latestAlbums: [] },
 };
 
+// Task 80.4: 関連データの件数（全種類 0 件）
+const zeroRelatedCounts: projectsApi.RelatedCounts = {
+  siteSurveys: 0,
+  quantityTables: 0,
+  itemizedStatements: 0,
+  estimateRequests: 0,
+  receivedQuotations: 0,
+  estimates: 0,
+  contracts: 0,
+  schedules: 0,
+  executionBudgets: 0,
+  constructionPhotos: 0,
+};
+
 /**
  * デフォルトのProjectDetailSummaryモックデータを生成するヘルパー
  * project / statusHistory / sectionsを部分的に上書き可能
@@ -120,12 +144,27 @@ function createMockSummary(
 }
 
 /**
+ * 出ているトーストの文言を表示する（Task 80.4: 通知の主張用）
+ */
+function ToastProbe() {
+  const { toasts } = useToast();
+  return (
+    <ul data-testid="toast-probe">
+      {toasts.map((t) => (
+        <li key={t.id}>{t.message}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * テストコンポーネントのラッパー
  */
-function renderWithRouter(projectId: string = 'project-1') {
+function renderWithRouter(projectId: string = 'project-1', options: { toastProbe?: boolean } = {}) {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
       <ToastProvider>
+        {options.toastProbe && <ToastProbe />}
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           {/* 現場調査関連のルート（リンク遷移時の警告を防止） */}
@@ -140,8 +179,12 @@ function renderWithRouter(projectId: string = 'project-1') {
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Task 77.5: 既定は見積依頼の閲覧・更新の権限を持つ利用者
+    mockAuthState.permissions = [...DEFAULT_PERMISSIONS];
     // Task 49.2: getProjectDetailSummaryの一括取得モック（デフォルト）
     vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+    // Task 80.4: 削除のボタンで取る関連データの件数（既定は全種類 0 件）
+    vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({ ...zeroRelatedCounts });
   });
 
   afterEach(() => {
@@ -221,16 +264,28 @@ describe('ProjectDetailPage', () => {
   // ==========================================================================
 
   describe('エラーハンドリング', () => {
-    it('404エラー時にエラーページへ遷移する', async () => {
+    // Task 78.1: 404 は汎用の画面へ移らず、編集画面と同じ不在の表示をその場に出す（44.2, 44.4, 21.13）
+    it('404エラー時にその場で不在の表示と一覧への戻るリンクを出し、内容は出さない', async () => {
       vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
         new ApiError(404, 'Not Found')
       );
 
       renderWithRouter();
 
-      await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith('/404', { replace: true });
-      });
+      expect(
+        await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+      ).toBeInTheDocument();
+      const backLink = screen.getByRole('link', { name: 'プロジェクト一覧に戻る' });
+      expect(backLink).toHaveAttribute('href', '/projects');
+      // 汎用の 404 の画面へは移らない
+      expect(mockNavigate).not.toHaveBeenCalledWith('/404', expect.anything());
+      expect(mockNavigate).not.toHaveBeenCalledWith('/404');
+      // プロジェクトの名称その他の内容は出さない
+      expect(screen.queryByText('テストプロジェクト')).not.toBeInTheDocument();
+      expect(screen.queryByText('テスト顧客')).not.toBeInTheDocument();
+      expect(screen.queryByText('東京都渋谷区1-2-3')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
 
     it('403エラー時に権限エラーページへ遷移する', async () => {
@@ -2149,6 +2204,264 @@ describe('ProjectDetailPage', () => {
       expect(screen.getByText('新規契約')).toBeInTheDocument();
       // getProjectDetailSummaryのみ呼ばれ、個別のgetContracts APIは呼ばれない
       expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(1);
+    });
+  });
+  // ==========================================================================
+  // Task 77.5: 受領見積書セクション（Requirements 42.1, 42.2, 42.13, 28.1）
+  // ==========================================================================
+  describe('受領見積書セクション（Task 77.5, Requirements 42.1, 42.2, 42.13, 28.1）', () => {
+    const receivedQuotations = {
+      totalCount: 3,
+      latestReceivedQuotations: [
+        {
+          id: 'rq-1',
+          name: '内装工事見積',
+          vendorName: '山田工務店',
+          submittedAt: '2026-10-01T00:00:00.000Z',
+          netAmount: 1200000,
+          createdAt: '2026-10-02T00:00:00.000Z',
+        },
+      ],
+    };
+
+    it('権限のある利用者には見積依頼セクションの直後、見積書セクションの直前に出る (42.1, 28.1)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(
+        within(section).getByRole('heading', { level: 3, name: '受領見積書' })
+      ).toBeInTheDocument();
+      expect(within(section).getByText('全3件')).toBeInTheDocument();
+      expect(within(section).getByTestId('received-quotation-card-rq-1')).toBeInTheDocument();
+
+      // 見積依頼 → 受領見積書 → 見積書 の順に隣り合う
+      const estimateRequestSection = screen.getByTestId('estimate-request-section');
+      const estimateSection = screen.getByTestId('estimate-section');
+      expect(estimateRequestSection.nextElementSibling).toBe(section);
+      expect(section.nextElementSibling).toBe(estimateSection);
+    });
+
+    it('更新の権限があれば「新規登録」を出す (D1)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(
+        within(section).getByRole('link', { name: '受領見積書を新規登録' })
+      ).toBeInTheDocument();
+    });
+
+    it('閲覧の権限だけで更新の権限が無ければ「新規登録」を出さない (D1)', async () => {
+      mockAuthState.permissions = ['estimate_request:read', 'estimate_request:create'];
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(
+        createMockSummary({ sections: { receivedQuotations } })
+      );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(within(section).getByText('全3件')).toBeInTheDocument();
+      expect(
+        within(section).queryByRole('link', { name: '受領見積書を新規登録' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('権限の無い利用者には出ず、見積書セクションが見積依頼セクションの直後に出る (42.2, 28.1)', async () => {
+      mockAuthState.permissions = [];
+      // 権限が無いとき応答に鍵が無い（D2）
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('received-quotation-section')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: '受領見積書' })).not.toBeInTheDocument();
+      const estimateRequestSection = screen.getByTestId('estimate-request-section');
+      expect(estimateRequestSection.nextElementSibling).toBe(
+        screen.getByTestId('estimate-section')
+      );
+    });
+
+    it('応答に受領見積書の鍵が無ければ、画面の権限があっても描かない (42.2, D2)', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('received-quotation-section')).not.toBeInTheDocument();
+    });
+
+    it('状態遷移の後の取り直しで受領見積書のデータを更新する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.transitionStatus).mockResolvedValue({
+        ...mockProject,
+        status: 'SURVEYING',
+        statusLabel: '調査中',
+      });
+      vi.mocked(projectsApi.getProjectDetailSummary)
+        .mockResolvedValueOnce(
+          createMockSummary({
+            sections: { receivedQuotations: { totalCount: 0, latestReceivedQuotations: [] } },
+          })
+        )
+        .mockResolvedValueOnce(
+          createMockSummary({
+            project: { status: 'SURVEYING' as const, statusLabel: '調査中' },
+            sections: { receivedQuotations },
+          })
+        );
+
+      renderWithRouter();
+
+      const section = await screen.findByTestId('received-quotation-section');
+      expect(within(section).getByText('全0件')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /調査中/ }));
+
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId('received-quotation-section')).getByText('全3件')
+        ).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('received-quotation-card-rq-1')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 80.4: 削除の前に関連データの件数を取る（Requirements 9.5, 9.6）
+  // ==========================================================================
+  describe('削除の前の関連データの件数（Task 80.4, Requirements 9.5, 9.6）', () => {
+    async function waitForPage() {
+      await screen.findByRole('heading', { level: 1, name: 'テストプロジェクト' });
+    }
+
+    it('削除のボタンで件数を取得し、関連データがあれば警告と種類ごとの件数を出す', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({
+        ...zeroRelatedCounts,
+        siteSurveys: 2,
+        receivedQuotations: 1,
+        constructionPhotos: 12,
+      });
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledWith('project-1');
+      expect(
+        within(dialog).getByText('関連データがあります。本当に削除しますか？')
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('現場調査: 2件')).toBeInTheDocument();
+      expect(within(dialog).getByText('受領見積書: 1件')).toBeInTheDocument();
+      expect(within(dialog).getByText('工事写真: 12件')).toBeInTheDocument();
+      // 0 件の種類は並べない
+      expect(within(dialog).queryByText(/数量表/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '削除する' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+    });
+
+    it('警告のダイアログで「削除する」を選ぶとプロジェクトを削除する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({
+        ...zeroRelatedCounts,
+        estimates: 1,
+      });
+      vi.mocked(projectsApi.deleteProject).mockResolvedValue(undefined);
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(projectsApi.deleteProject).toHaveBeenCalledWith('project-1');
+        expect(mockNavigate).toHaveBeenCalledWith('/projects');
+      });
+    });
+
+    it('件数がすべて 0 なら警告を出さない', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledWith('project-1');
+      expect(within(dialog).queryByText(/関連データがあります/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '削除' })).toBeInTheDocument();
+    });
+
+    it('件数の取得が終わるまで削除のボタンを押せない', async () => {
+      const user = userEvent.setup();
+      let resolveCounts: (value: projectsApi.RelatedCounts) => void = () => {};
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockReturnValue(
+        new Promise((resolve) => {
+          resolveCounts = resolve;
+        })
+      );
+      renderWithRouter();
+      await waitForPage();
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await user.click(deleteButton);
+
+      expect(deleteButton).toBeDisabled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      resolveCounts({ ...zeroRelatedCounts });
+
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledTimes(1);
+    });
+
+    it('件数の取得に失敗したら失敗の通知を出し、ダイアログを開かない', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockRejectedValue(
+        new ApiError(500, 'サーバーエラーが発生しました')
+      );
+      renderWithRouter('project-1', { toastProbe: true });
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const probe = screen.getByTestId('toast-probe');
+      expect(await within(probe).findByText('サーバーエラーが発生しました')).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(projectsApi.deleteProject).not.toHaveBeenCalled();
+      // もう一度押せる
+      expect(screen.getByRole('button', { name: '削除' })).toBeEnabled();
+    });
+
+    it('ApiError でない失敗でも既定の文言で通知し、ダイアログを開かない', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockRejectedValue(new Error('network'));
+      renderWithRouter('project-1', { toastProbe: true });
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const probe = screen.getByTestId('toast-probe');
+      expect(
+        await within(probe).findByText('関連データの件数を取得できませんでした')
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 });

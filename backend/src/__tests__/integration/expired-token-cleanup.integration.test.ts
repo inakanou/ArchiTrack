@@ -289,7 +289,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(5);
+      expect(repeatables).toHaveLength(6);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -320,6 +320,12 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             name: 'security-anomaly-overflow-summary',
             id: 'security-anomaly-overflow-summary',
             cron: '*/10 * * * *',
+            tz: 'Asia/Tokyo',
+          }),
+          expect.objectContaining({
+            name: 'soft-deleted-project-purge',
+            id: 'soft-deleted-project-purge',
+            cron: '30 3 * * *',
             tz: 'Asia/Tokyo',
           }),
         ])
@@ -356,7 +362,14 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
       );
       expect(nextOverflowSummary.getUTCMinutes() % 10).toBe(0);
       expect(nextOverflowSummary.getTime() - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
-      expect(await inspector.getDelayedCount()).toBe(5);
+      // 論理削除済みプロジェクトの物理削除（タスク81.4）の次の実行は毎日 03:30 Asia/Tokyo（UTC の 18:30）
+      const nextPurge = new Date(
+        repeatables.find((job) => job.name === 'soft-deleted-project-purge')?.next ?? 0
+      );
+      expect(nextPurge.getUTCHours()).toBe(18);
+      expect(nextPurge.getUTCMinutes()).toBe(30);
+      expect(nextPurge.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
+      expect(await inspector.getDelayedCount()).toBe(6);
     } finally {
       await inspector.close();
     }

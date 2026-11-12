@@ -144,6 +144,15 @@ export function ToastProvider({ children }: ToastProviderProps) {
   }, [success]);
 
   /**
+   * プロジェクト更新成功で、担当者から外れて閲覧できなくなったときのトースト（45.3 の逐語）
+   */
+  const projectUpdatedWithoutAccess = useCallback((): string => {
+    return success(
+      'プロジェクトを更新しました。担当者から外れたため、このプロジェクトは閲覧できなくなりました'
+    );
+  }, [success]);
+
+  /**
    * プロジェクト削除成功トースト
    */
   const projectDeleted = useCallback((): string => {
@@ -181,6 +190,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
       info,
       projectCreated,
       projectUpdated,
+      projectUpdatedWithoutAccess,
       projectDeleted,
       projectStatusChanged,
       operationFailed,
@@ -195,6 +205,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
       info,
       projectCreated,
       projectUpdated,
+      projectUpdatedWithoutAccess,
       projectDeleted,
       projectStatusChanged,
       operationFailed,
