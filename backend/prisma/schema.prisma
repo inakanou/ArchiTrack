@@ -317,6 +317,7 @@ model Project {
   executionBudgets        ExecutionBudget[] // 実行予算リレーション
   constructionPhotoAlbums ConstructionPhotoAlbum[] // 工事写真アルバムリレーション
   constructionSignboards  ConstructionSignboard[] // 工事看板リレーション
+  purgeState              ProjectPurgeState? // 完全削除の失敗の記録（project-management の D9）
 
   // 検索・フィルタリング・ソート用インデックス
   @@index([name])
@@ -329,6 +330,25 @@ model Project {
   @@index([updatedAt])
   @@index([deletedAt])
   @@map("projects")
+}
+
+/**
+ * プロジェクトの完全削除の失敗の記録（project-management の Requirement 46.10・46.11・46.14、design の D9）
+ * 完全削除の関心だけの値を、プロジェクトごとに 1 行持つ。行は最初の失敗で作られ、
+ * 完全削除の成功でプロジェクトと共に連鎖して消えるため、failureCount は続けての失敗の回数になる。
+ * - lastAttemptAt: 最後に試みた日時（空のものを先に選ぶ）
+ * - excludedAt: 続けての失敗で対象から外した日時（空でなければ選ばない）
+ */
+model ProjectPurgeState {
+  projectId     String    @id @map("project_id")
+  failureCount  Int       @default(0) @map("failure_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  excludedAt    DateTime? @map("excluded_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([excludedAt, lastAttemptAt])
+  @@map("project_purge_states")
 }
 
 /**

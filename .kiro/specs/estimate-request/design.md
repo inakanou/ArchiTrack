@@ -7703,3 +7703,124 @@ class DuplicateOriginalError extends Error {
 2. 配備の後に `npm run backfill:received-quotation-file-hash -- --dry-run` で件数を確かめ、`--dry-run` を外して流す。何度流しても同じ結果になる（指紋が null の行だけを対象にする）。流すまでの間、既存のファイルは二重登録の判定の対象にならない
 3. `SystemSetting` の行は作らない（行が無いときは有効）
 - 実装の記録（タスク115.1、2026-11-08）: スクリプトは指紋が null でファイルを持つ受領見積書（論理削除済みを含む）を ID 順に区切って読み、サービスと同じ指紋の関数で埋める。指紋の埋め戻しは利用者の編集ではないため、更新日時は読んだときの値のまま書き戻す（開いている編集画面の楽観的排他を崩さない）。読んでから書くまでの間にファイルが差し替えられた行へ古い指紋を書かないよう、更新は「指紋がまだ null で格納先が読んだときと同じ」行に限る。読めないファイルは飛ばして報告し、それだけなら終了コードは 0、更新の失敗や説明のつかない残りがあれば 1 とする。二重登録の拒否は行わない（同じ組が生じうる。D6 の実装の記録のとおり見積の区別を変えて解く）
+
+## Requirement 51: 見積依頼が参照する内訳書のプロジェクト（2026-11-11 の追加）
+
+### Overview
+
+**Purpose**: 見積依頼が別のプロジェクトの内訳書を参照しないことを要件として明文化し、サービスの層でも守る（51.1・51.2）。2026-11-04 の是正より前に作られた不整合な見積依頼を、システム管理者がデータを変えずに確かめられるようにする（51.3）。project-management の完全削除（同 spec の 46.5）が毎回失敗する原因の一つを、運用の側で見つけられるようにするため。
+
+**Users**: システム管理者（不整合を確かめ、直すかを決める）。
+
+**Impact（既存前提の確認。2026-11-11 の調べもの〔読むだけ。HEAD `8a7976dc`〕）**:
+
+1. 作成の経路 `POST /api/projects/:projectId/estimate-requests` は `requireBodyItemizedStatementProjectScope('itemizedStatementId')` を通る。経路の案件と内訳書の案件が食い違えば、範囲の内外を問わず存在しない内訳書と同じ 404 を返す（42.10、2026-11-04 の #866）。結合の試験 `estimate-request-project-scope.api.integration.test.ts` の「作成の要求が範囲内の他のプロジェクトの内訳書を指すと、存在しない内訳書と同じ 404 になり…」が主張している。所在は次のファイル
+   backend/src/middleware/estimate-request-project-scope.middleware.ts
+   backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
+2. `EstimateRequestService.create` は内訳書の `projectId` を読むが、見積依頼の `projectId` と比べない。経路の検査を経ない呼び出し（今は無い）からは不整合を作れる
+3. 更新の経路（`updateEstimateRequestSchema`）は内訳書を受け付けない（9.3 は編集で内訳書を変えられると定めるが、実装は変えさせない。本章の範囲外）
+4. 2026-11-04 より前に作られた見積依頼には、別のプロジェクトの内訳書・内訳書の項目を参照するものが残りうる。数える手段は無い
+
+### Goals
+- 見積依頼のプロジェクトと内訳書のプロジェクトが食い違う見積依頼が、経路を問わず作られない
+- 既存の不整合な見積依頼の件数と ID を、データを変えずに確かめられる
+
+### Non-Goals
+- 既存の不整合な見積依頼の修正・削除（確かめた結果を見て利用者が決める）
+- 編集で内訳書を変えられるようにすること（9.3 と実装の食い違い）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- `EstimateRequestService.create` の内訳書のプロジェクトの確認
+- 不整合な見積依頼を確かめる運用の手順（スクリプト）
+
+#### Out of Boundary
+- 完全削除の失敗の扱い（project-management の 46.10〜46.14）
+- 経路の閲覧範囲の判定（既存の `requireBodyItemizedStatementProjectScope` を変えない）
+
+#### Allowed Dependencies
+- 既存の `ItemizedStatementNotFoundError`（同じ 404 の応答）
+- 運用の手順の起動の形は user-authentication の `reactivate-user.ts` に揃える
+
+#### Revalidation Triggers
+- 見積依頼の更新で内訳書を受け付けるようにした（51.1 の確認を更新にも入れる）
+- 見積依頼が内訳書以外の他の案件のデータを参照するようになった（確かめる手順の対象を見直す）
+
+### File Structure Plan
+
+#### Directory Structure
+```
+backend/
+├── package.json                                              # estimate-request:find-cross-project（変更）
+└── src/
+    ├── services/estimate-request.service.ts                  # create の内訳書のプロジェクトの確認（変更）
+    └── scripts/find-cross-project-estimate-requests.ts       # 不整合を確かめる運用の手順（新設）
+```
+
+#### Modified Files
+- `.kiro/steering/structure.md` の `scripts/` の欄に、不整合を確かめる運用の手順を足す
+- 上の欄に載せる名前は `find-cross-project-estimate-requests.ts`
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 51.1, 51.2 | 別のプロジェクトの内訳書を指す作成を不在と同じ 404 で拒む | EstimateRequestService, requireBodyItemizedStatementProjectScope | `POST /api/projects/:projectId/estimate-requests` | - |
+| 51.3 | 既存の不整合を確かめる | FindCrossProjectEstimateRequestsScript | `npm run estimate-request:find-cross-project` | - |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| EstimateRequestService（変更） | Service | 作成で内訳書のプロジェクトを確かめる | 51.1, 51.2 |
+| FindCrossProjectEstimateRequestsScript | Script | 不整合な見積依頼の件数と ID を出す | 51.3 |
+
+#### EstimateRequestService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 内訳書の `projectId` が見積依頼の `projectId` と違えば、内訳書の不在と同じエラーにする |
+| Requirements | 51.1, 51.2 |
+
+`create` の内訳書の読み出しの直後（項目の件数の検査より前）で、`itemizedStatement.projectId !== input.projectId` なら `ItemizedStatementNotFoundError(itemizedStatementId)` を投げる。応答は不在と同じ 404・同じ符号（`ITEMIZED_STATEMENT_NOT_FOUND`）で、別のプロジェクトの内訳書の名前・項目の件数を返さない（51.2）。項目の件数の検査より前に置くのは、項目の無い他のプロジェクトの内訳書で 422 を返して存在を示さないため。
+
+#### FindCrossProjectEstimateRequestsScript
+
+| Field | Detail |
+|-------|--------|
+| Intent | 別のプロジェクトの内訳書、または別のプロジェクトの内訳書の項目を参照する見積依頼を数え、ID を出す |
+| Requirements | 51.3 |
+
+`backend/src/scripts/find-cross-project-estimate-requests.ts`。`npm run estimate-request:find-cross-project`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/find-cross-project-estimate-requests.js` を node で動かす）。
+
+- 対象: 論理削除の有無を問わず、(a) 見積依頼の内訳書の `projectId` が見積依頼の `projectId` と違うもの、(b) 見積依頼の項目が指す内訳書の項目の内訳書の `projectId` が見積依頼の `projectId` と違うもの。どちらも完全削除の `Restrict` の失敗の原因になるため両方を出す
+- 出力: 件数と、見積依頼 ID・見積依頼のプロジェクト ID・参照先のプロジェクト ID・(a)(b) の別の行。名前・宛先・金額は出さない
+- 読むだけ（`SELECT` だけ）で、書き込みの経路を持たない
+- 終了コード: 0 = 確かめた（件数が 0 でも 0）、1 = 実行の失敗
+
+### Data Models
+変えない。
+
+### 決定
+
+**D15 サービスの層でも確かめる**: 経路の検査（42.10）が既に拒むが、データの整合はサービスの層の不変条件として持つ（経路を経ない呼び出しや、将来の経路の追加でも崩れないため）。応答は経路の検査と同じ 404 にし、どちらの層で拒んでも見分けがつかない
+**D16 確かめる手順の範囲**: 内訳書と内訳書の項目の両方を見る。項目だけが食い違う見積依頼も完全削除を止めるため。直す手順は作らない（直し方は不整合の中身を見て利用者が決める）
+
+### Error Handling
+- 作成の不整合は `ItemizedStatementNotFoundError` として既存のエラーハンドラーが 404 にする。トランザクションの中で投げるため、見積依頼は作られず監査も記録されない
+- 確かめる手順の DB の失敗は終了コード 1 で返す
+
+### Testing Strategy
+- **単体（backend）**: `EstimateRequestService.create` に、別のプロジェクトの内訳書（項目あり・項目なし）を渡すと `ItemizedStatementNotFoundError` になり、見積依頼の作成と監査の記録が呼ばれないことを主張する。所在は `backend/src/__tests__/unit/services/estimate-request.service.test.ts`
+- **結合（backend）**: 既存の「作成の要求が範囲内の他のプロジェクトの内訳書を指すと…」の試験に 51.1・51.2 の印を付ける。確かめる手順を実際の DB で、(a)(b) の不整合と整合した見積依頼を作って実行し、件数と ID が (a)(b) だけであり、実行の前後で行が変わらないことを主張する。新設のファイルは backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts
+- **E2E**: 51.1・51.2 は作成の画面が同じプロジェクトの内訳書しか候補に出さないため画面から起こせず、51.3 は画面を持たない。実装のタスクで除外の台帳へ代替の検証（上の単体・結合）つきで登録する
+- **実装の記録（タスク121.3、2026-11-12）**: 除外の台帳（e2e/requirement-exclusions.json）へは 51.3 だけを登録した。代替の検証は結合（backend/src/__tests__/integration/find-cross-project-estimate-requests.integration.test.ts）で、確かめる手順はサーバーの起動入口から取り込まれないため、その被覆の印は本番に到達する被覆と数えられない。51.1・51.2 は登録しない。単体（backend/src/__tests__/unit/services/estimate-request.service.test.ts）と結合（backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts）の被覆の印で、本番に到達する被覆と既に数えられているためである（project-management のタスク84.2 の 46.10〜46.15 と同じ扱い）
+- 挙動の変更は RED → GREEN で進める
+
+### Security Considerations
+- 拒む応答は存在しない内訳書と同じにし、別のプロジェクトの内訳書の存在をうかがわせない（51.2）
+- 確かめる手順はサーバー上の実行に限り、名前・宛先・金額を出さない
+
+### Migration Strategy
+- 変更は無い。導入の後に一度、確かめる手順を本番で実行し、件数が 0 でなければ利用者が扱いを決める

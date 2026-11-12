@@ -55,3 +55,15 @@
 - `docs/security/ipa-alert-20261009-remediation-plan.md` §5.3
 - `docs/deployment/data-protection.md`（データベースのバックアップの保持 最長 89 日）
 - `.kiro/specs/estimate-request/design.md` の D3（受領見積書の登録の権限）
+
+## 2026-11-11: Requirements 46.10-46.15（完全削除の失敗の扱い）の設計の調べもの
+
+- **発見の種類**: 既存の機能の拡張（light discovery）。外部の調べものは要しない（一括処理の定石: 失敗を後ろへ回し、続けて失敗したものを隔離して知らせ、手で戻す。いわゆる dead-letter の扱い）
+- **調べたもの**: `backend/src/services/project-purge.service.ts`（選び方は `deletedAt` の古い順・失敗は `logger.error` だけ）、`backend/src/jobs/soft-deleted-project-purge.job.ts`、`backend/src/services/admin-notification.service.ts`（`notifyAllAdmins` と種別の型）、`backend/src/scripts/reactivate-user.ts`（運用の手順の先例）、`backend/prisma/schema.prisma`（`AuditLog` の `targetType`・`targetId` は必須の文字列。`prisma/` は `backend/prisma` への symlink）
+- **訂正（2026-11-11）**: 機能レベルの検証で「見積依頼の作成は内訳書のプロジェクトを確かめない」としたが、サービスの層だけを見た誤りだった。経路の `requireBodyItemizedStatementProjectScope` が 2026-11-04（estimate-request の 42.10、#866）から食い違いを 404 で拒み、結合の試験もある。不整合は 2026-11-04 より前の行に残りうる。完全削除の失敗は、この古い行のほか、将来の `Restrict` の追加でも起こりうるため、選び方の是正（46.10〜46.15）は原因に依らず要る
+- **採った案と退けた案**:
+  - 記録の持ち方: 別の表（採用、D9）／`Project` の列（退けた。一覧・詳細の取得と型に完全削除の関心が混ざる）／監査ログから回数を数える（退けた。毎回の選び方に重い集計が要り、監査ログの保持・アーカイブで数えられなくなる）
+  - 並び: 最後に試みた日時の空を先（採用、D10）／成功が 20 件になるまで先へ進める（退けた。要件の改訂の記録のとおり）
+  - 対象に戻す手段: 運用のスクリプト（採用、D13）／画面（退けた。46.3 の方針）
+- **Prisma の並び**: 1 対 1 の関係の項目での並び（`orderBy: { purgeState: { lastAttemptAt: { sort: 'asc', nulls: 'first' } } }`）は、記録の無いプロジェクトを空として扱う想定。実装のタスクで統合の試験により確かめる（想定どおりでなければ、記録の有無で 2 回に分けて選ぶ）
+- **使った skill**: kiro-spec-design（design-review-gate の mechanical の検査）

@@ -336,9 +336,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // Requirements 43-50 の設計、2026-11-08）。利用者の判断で足した章「Requirements 43-50: 受領見積書の台帳の
     // 項目と IPA の是正（2026-11-08 の追加）」が部品表の 21 行と詳細節の Requirements 欄 1 つと追跡表を足し、
     // 同章の 21 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 57,
-    minTableDeclarations: 83,
-    minDetailDeclarations: 58,
+    // minPairs 57 → 59 / minTableDeclarations 83 → 85 / minDetailDeclarations 58 → 60（estimate-request の
+    // Requirement 51 の設計、2026-11-11）。章「Requirement 51: 見積依頼が参照する内訳書のプロジェクト」が部品表の
+    // 2 行と詳細節の Requirements 欄 2 つを足したため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 59,
+    minTableDeclarations: 85,
+    minDetailDeclarations: 60,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'execution-budget-management': {
@@ -377,9 +380,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     mode: 'ratchet',
     maxContradictions: 0,
     // Requirements 42-46 の章（2026-11-09）が部品表と詳細節の自己申告を 4 部品ぶん足したため、締める向きへ動かした
-    minPairs: 26,
-    minTableDeclarations: 25,
-    minDetailDeclarations: 24,
+    // minPairs 26 → 29 / minTableDeclarations 25 → 28 / minDetailDeclarations 24 → 27（Requirements 46.10-46.15 の章、
+    // 2026-11-11）。部品表と詳細節の自己申告を 3 部品ぶん足したため、締める向きへ動かした
+    minPairs: 29,
+    minTableDeclarations: 28,
+    minDetailDeclarations: 27,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
   'quantity-table-generation': {

@@ -5,6 +5,9 @@
  * - REQ-36.4: 無効化・再有効化を全てのシステム管理者へ通知する
  * - REQ-36.9: 自動無効化を全てのシステム管理者へ通知する
  *
+ * Requirements (project-management):
+ * - 46.11: 完全削除の対象から外したプロジェクトを全てのシステム管理者へ通知する（種別だけを足す）
+ *
  * 責任と境界:
  * - 主要責任: 有効なシステム管理者の全員へのメール（キュー投入）とエラー監視への通知
  * - トランザクション境界: なし（呼び出し元のコミットの後に呼ぶ）
@@ -25,7 +28,9 @@ export type AdminNotificationKind =
   | 'USERS_AUTO_DEACTIVATED'
   | 'AUDIT_ARCHIVE_FAILED'
   | 'SECURITY_ANOMALY'
-  | 'ADMIN_ROLE_CHANGED';
+  | 'ADMIN_ROLE_CHANGED'
+  // 完全削除が 5 回続けて失敗したプロジェクトを対象から外した（project-management 要件46.11）
+  | 'PROJECT_PURGE_EXCLUDED';
 
 /** 通知の内容 */
 export interface AdminNotification {

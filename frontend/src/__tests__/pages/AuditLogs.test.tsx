@@ -891,4 +891,76 @@ describe('AuditLogs Component', () => {
       });
     });
   });
+
+  describe('プロジェクトの完全削除の失敗の扱いの監査の種別（project-management 要件46.11・46.14・46.15）', () => {
+    it.each([
+      [
+        'PROJECT_PURGE_EXCLUDED',
+        'プロジェクトの完全削除の対象外化',
+        'Project',
+        'excluded-project-1',
+      ],
+      [
+        'PROJECT_PURGE_REQUEUED',
+        'プロジェクトの完全削除の対象への復帰',
+        'Project',
+        'requeued-project-1',
+      ],
+      [
+        'PROJECT_PURGE_RUN_COMPLETED',
+        'プロジェクトの完全削除の定期処理の結果',
+        'ProjectPurgeRun',
+        '2026-11-11T03:00:00.000Z',
+      ],
+    ] as const)(
+      '%s の記録を一覧で「%s」と表示し、種別のコードを出さない',
+      async (action, label, targetType, targetId) => {
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([
+          {
+            id: `log-${action}`,
+            actorId: null,
+            action,
+            targetType,
+            targetId,
+            metadata: {},
+            createdAt: '2026-11-11T03:00:00Z',
+          },
+        ] satisfies AuditLog[]);
+
+        render(<AuditLogs />);
+
+        const table = await screen.findByRole('table');
+        const row = within(table).getByText(targetId).closest('tr') as HTMLElement;
+        expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(new RegExp(`^${label}$`));
+        expect(within(table).queryByText(action)).not.toBeInTheDocument();
+      }
+    );
+
+    it.each([
+      ['PROJECT_PURGE_EXCLUDED', 'プロジェクトの完全削除の対象外化'],
+      ['PROJECT_PURGE_REQUEUED', 'プロジェクトの完全削除の対象への復帰'],
+      ['PROJECT_PURGE_RUN_COMPLETED', 'プロジェクトの完全削除の定期処理の結果'],
+    ] as const)(
+      'イベント種別の絞り込みに %s を「%s」で並べ、選ぶとその種別で再取得する',
+      async (action, label) => {
+        const user = userEvent.setup();
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([]);
+
+        render(<AuditLogs />);
+        await screen.findByText('監査ログがありません');
+
+        const actionFilter = screen.getByLabelText('イベント種別');
+        const option = within(actionFilter).getByRole('option', { name: label });
+        expect(option).toHaveValue(action);
+
+        await user.selectOptions(actionFilter, label);
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining(`action=${action}`));
+        });
+      }
+    );
+  });
 });

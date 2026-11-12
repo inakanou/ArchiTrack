@@ -3,6 +3,7 @@
  *
  * Requirements (project-management):
  * - 46.5: 1 日 1 回の定期処理で、論理削除から 90 日を過ぎたプロジェクトを関連データ・ファイルと共に完全に削除する
+ * - 46.11: 5 回続けて失敗して対象から外したプロジェクトを全システム管理者へ知らせる（タスク83.3。通知の部品を渡す）
  *
  * 定期処理の実行基盤（scheduled-job-runner.ts）から毎日 03:30（Asia/Tokyo）に呼ばれ、
  * ProjectPurgeService.purgeExpired を現在の時刻で実行する。失敗したプロジェクトがあっても処理は成功として
@@ -13,6 +14,8 @@
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
+import { AdminNotificationService } from '../services/admin-notification.service.js';
+import { EmailService } from '../services/email.service.js';
 import { ProjectPurgeService, type ProjectPurgeResult } from '../services/project-purge.service.js';
 import { getStorageProvider } from '../storage/storage-factory.js';
 
@@ -23,7 +26,7 @@ export const SOFT_DELETED_PROJECT_PURGE_JOB_NAME = 'soft-deleted-project-purge';
 export const SOFT_DELETED_PROJECT_PURGE_CRON = '30 3 * * *';
 
 /**
- * 本番の部品で ProjectPurgeService を作る
+ * 本番の部品で ProjectPurgeService を作る（対象から外したことを知らせる部品を明示して渡す）
  *
  * @param prisma - データベースのクライアント
  * @throws ストレージが設定されていないとき
@@ -33,7 +36,11 @@ export function createProjectPurgeServiceForJob(prisma: PrismaClient): ProjectPu
   if (!storageProvider) {
     throw new Error('Soft-deleted project purge requires a configured storage provider');
   }
-  return new ProjectPurgeService({ prisma, storageProvider });
+  return new ProjectPurgeService({
+    prisma,
+    storageProvider,
+    adminNotificationService: new AdminNotificationService(prisma, new EmailService()),
+  });
 }
 
 /**

@@ -2034,6 +2034,96 @@
   - spec の関門がすべて緑の状態になる
   - _Requirements: 43.5, 46.1, 46.3, 46.5, 46.6, 46.7, 46.8, 46.9_
 
+## Task 83: 完全削除の失敗の扱い（利用者の判断で起票、2026-11-11）
+
+**経緯**: 機能レベルの検証（2026-11-11）で、完全削除が毎回失敗するプロジェクトが 20 件たまると新しい対象が進まないことを確かめた。利用者の判断（2026-11-11「提案の方法で進める」）で Requirement 46.10〜46.15 を加えた。design.md の章「Requirements 46.10-46.15: 完全削除の失敗の扱い」の ProjectPurgeService（変更）・ProjectPurgeState・RequeueProjectPurgeScript と D9〜D14 を実装する
+
+- [x] 83.1 完全削除の失敗の記録の表を足す
+  - design.md の同章の ProjectPurgeState のとおり、`backend/prisma/schema.prisma` にモデルと `Project` からの 1 対 1 の関係を足し、新設の migration（backend/prisma/migrations/20261111000000_project_purge_states/migration.sql）で表と索引を作る。プロジェクトの削除で記録が連鎖して消える
+  - `prisma migrate deploy` をテスト用の DB に当てて通り、Prisma の生成物を作り直して `npm --prefix backend run type-check` が緑になる状態になる（記録の連鎖の削除は 83.7 の統合で主張する）
+  - _Requirements: 46.10, 46.11, 46.14_
+  - _Boundary: ProjectPurgeState_
+
+- [x] 83.2 失敗を記録し、失敗したプロジェクトを後ろへ回す
+  - design.md の同章の「選び方」「失敗の記録」と D10・D11 のとおり、対象から外したものを除き、最後に試みた日時の無いもの→古いもの→論理削除の古い順に最大 20 件を選ぶ。段階を問わず失敗したら、削除のトランザクションの外で記録の回数を 1 増やし最後に試みた日時を付ける。残りの件数は対象から外したものを除いて数える。記録の書き込みの失敗は記録して次へ進む
+  - 単体（`backend/src/__tests__/unit/services/project-purge.service.test.ts`）で、失敗したものが次の回で試みていないものの後に選ばれること、対象から外したものを選ばないこと、記録の回数と日時、記録の書き込みの失敗で他のプロジェクトが止まらないことを主張する。改修の前に赤になることを先に示す
+  - 既存の統合（`backend/src/__tests__/integration/project-purge.integration.test.ts`）を回帰として流し、緑のままであることを確かめる
+  - 単体で、失敗したプロジェクトが後ろへ回り、他のプロジェクトの完全削除を遅らせない状態になる
+  - _Requirements: 46.10, 46.13_
+  - _Depends: 83.1_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.3 5 回続けて失敗したプロジェクトを対象から外し、全システム管理者へ知らせる
+  - design.md の同章の「対象から外す」「通知」と D12 のとおり、増やした回数が 5 に届いたら同じ書き込みで対象から外した日時を付け、監査の種別 `PROJECT_PURGE_EXCLUDED`（backend の型に足す）を回数・日時・最後の失敗の段階だけで記録する。その回で外したものがあれば、回の終わりに通知の種別 `PROJECT_PURGE_EXCLUDED`（`AdminNotificationService` の型に足す）で 1 通送る。本文はプロジェクト ID・回数・対象に戻す手順のコマンド名だけ。結果に外したプロジェクトの ID を返す
+  - 通知の部品を渡さないときは通知しない（試験と運用の手順で通知を出さないため）。定期処理（`backend/src/jobs/soft-deleted-project-purge.job.ts`）の部品の組み立てでは、`backend/src/jobs/inactive-user-deactivation.job.ts` と同じく `new AdminNotificationService(prisma, new EmailService())` を明示して渡す
+  - 単体（83.2 と同じファイルと、`backend/src/__tests__/unit/jobs/soft-deleted-project-purge.job.test.ts`）で、4 回目では外さず 5 回目で外すこと、記録と通知に名前・ファイルのキー・エラーの文言が無いこと、同じ回で 2 件外しても通知が 1 通であること、外したものが無い回は通知しないこと、通知の失敗で処理が失敗しないこと、通知の部品を渡さないと通知しないこと、定期処理が通知の部品を渡すことを主張する。結果の形の変更（外したプロジェクトの ID）に合わせて、定期処理の単体の既存の期待値を直す（主張は消さない）。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、5 回続けて失敗したプロジェクトが対象から外れ、記録と通知が出る状態になる
+  - _Requirements: 46.11, 46.12_
+  - _Depends: 83.2_
+  - _Boundary: ProjectPurgeService, SoftDeletedProjectPurgeJob（通知の部品の受け渡し）, AdminNotificationService（種別の型だけ）_
+
+- [x] 83.4 定期処理の 1 回ごとの結果を監査ログに記録する
+  - design.md の同章の「結果の記録」と D14 のとおり、回の終わりに監査の種別 `PROJECT_PURGE_RUN_COMPLETED`（backend の型に足す）を、完全に削除した件数・失敗した件数・対象から外した件数・残りの件数で記録する。対象が 0 件の回も記録する。記録の失敗は記録して結果を返す
+  - 単体（83.2 と同じファイル）で、件数の中身、0 件の回の記録、記録の失敗でも結果が返ることを主張する。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、定期処理の毎回の結果が監査ログに残る状態になる
+  - _Requirements: 46.15_
+  - _Depends: 83.3_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.5 対象から外したプロジェクトを対象に戻す部品を足す
+  - design.md の同章の「対象に戻す」のとおり、`requeue(projectId, now)` を足す。プロジェクトが無い・論理削除されていなければ `not_found`、対象から外れていなければ `not_excluded`（何も変えない）、それ以外は一つのトランザクションで回数を 0 に、日時を空にし、監査の種別 `PROJECT_PURGE_REQUEUED`（backend の型に足す。運用の手順の印と戻す前の回数・日時）を記録して `requeued` を返す
+  - 単体（83.2 と同じファイル）で、3 つの結果、記録の中身、戻したプロジェクトが次の回で先に選ばれることを主張する。改修の前に赤になることを先に示す
+  - 既存の統合を回帰として流し、緑のままであることを確かめる
+  - 単体で、対象から外したプロジェクトを対象に戻せる状態になる
+  - _Requirements: 46.14_
+  - _Depends: 83.4_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.6 対象に戻す運用の手順を足す
+  - design.md の同章の RequeueProjectPurgeScript のとおり、新設の backend/src/scripts/requeue-project-purge.ts と `backend/package.json` の `project:purge-requeue` を、`backend/src/scripts/reactivate-user.ts` と同じ形（ソースがあれば tsx、無ければビルド済みの dist を node）で足す。引数 `--project-id`、終了コード 0・1・2、出力にプロジェクト名を出さない。部品は定期処理と同じ本番の組み立て（`createProjectPurgeServiceForJob`。ストレージの設定が要る）で作り、通知の部品は渡さない（戻したことは監査に残す）。ストレージが設定されていないときは終了コード 1 と理由を出す。ビルドで dist に入ることを確かめる。`backend/package.json` は estimate-request のタスク121.2 も触るため、並べて流さない
+  - 単体（新設の backend/src/__tests__/unit/scripts/requeue-project-purge.test.ts）で、引数の誤り（UUID でない ID を含む）・3 つの結果ごとの終了コードと出力を主張する。改修の前に赤になることを先に示す
+  - 単体で、サーバー上でプロジェクト ID を指定して対象に戻せる状態になる
+  - _Requirements: 46.14_
+  - _Depends: 83.5_
+  - _Boundary: RequeueProjectPurgeScript_
+
+- [x] 83.7 失敗の扱いを実際の DB で確かめる
+  - 統合（`backend/src/__tests__/integration/project-purge.integration.test.ts`）で、別のプロジェクトの見積依頼が対象の内訳書を参照して DB の段で毎回失敗するプロジェクトを 20 件（参照は DB へ直接作る）と、失敗しないプロジェクトを 1 件、論理削除の日時を 91 日前にして作る。1 回目で失敗しないものが消えること、5 回の実行で失敗するものが対象から外れて記録と監査が残ること、対象から外れたものの関連データの詳細の取得（内訳書の詳細の経路 `GET /api/itemized-statements/:id` を supertest でアプリを通して呼ぶ）が 404 のままであること、`requeue` の後の回で再び試みられ参照を消せば完全に削除されること、完全削除で記録も消えることを主張する
+  - 試験の間で、作った監査の記録（`PROJECT_PURGE_RUN_COMPLETED` など、対象の種類 `ProjectPurgeRun` を含む）を片付け、他の試験の監査の件数の主張を揺らさない
+  - 1 対 1 の関係の項目での並び（記録の無いものを空として先に選ぶ）が実際の DB で想定どおりかを確かめる。想定と違えば research.md の 2026-11-11 の節に記録し、記録の有無で 2 回に分けて選ぶ形に 83.2 の実装を直し、83.2 の単体も合わせて直す
+  - 統合で、上の主張がすべて通る状態になる
+  - _Requirements: 46.10, 46.11, 46.13, 46.14, 46.15_
+  - _Depends: 83.6_
+  - _Boundary: ProjectPurgeService_
+
+- [x] 83.8 (P) 監査ログの画面に失敗の扱いの種別の表示名を足す
+  - 画面の監査の種別の型と表示名（「プロジェクトの完全削除の対象外化」「プロジェクトの完全削除の対象への復帰」「プロジェクトの完全削除の定期処理の結果」）を足す
+  - 既存の表示名の単体（`frontend/src/__tests__/utils/audit-log-actions.test.ts`）に足し、未知の種別として扱われないことを主張する
+  - 単体で、監査ログの画面で 3 つの記録が表示名つきで出る状態になる
+  - _Requirements: 46.11, 46.14, 46.15_
+  - _Boundary: 監査ログの画面の種別の表示名_
+
+## Task 84: 文書と関門（利用者の判断で起票、2026-11-11）
+
+**経緯**: Task 83 の経緯と同じ。design.md の同章の Modified Files と Testing Strategy を行う
+
+- [x] 84.1 steering と運用の文書に失敗の扱いと対象に戻す手順を足す
+  - `.kiro/steering/tech.md` の定期処理の `soft-deleted-project-purge` の行に失敗の扱い（後ろへ回す・5 回で外して知らせる）を足し、`.kiro/steering/structure.md` の `scripts/` の欄に対象に戻す運用の手順を足す。`docs/deployment/data-protection.md` に、完全削除の失敗の扱いと `npm run project:purge-requeue` の手順を足す
+  - `check:steering-refs`・`check:steering-idents`・`check:steering-dir-counts` が緑の状態になる
+  - estimate-request のタスク121.3 も `.kiro/steering/structure.md` の同じ木を触るため、並べて流さない。後に流す側が木の印と件数を貼り直す
+  - _Requirements: 46.11, 46.14_
+  - _Depends: 83.6_
+
+- [x] 84.2 除外の登録と spec の関門を緑にする
+  - E2E で確かめない 46.10〜46.15（定期処理は E2E の環境で登録されず、運用の手順は画面を持たない）を、本番に到達する被覆の印が無いものに限り、除外の台帳（`e2e/requirement-exclusions.json`）へ代替の検証（83.2〜83.7 の単体と統合）つきで登録し、件数の宣言を実数に合わせる
+  - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流し、新設予定の印を外した設計文書の免除の件数や鮮度の錨が動いたら帰属つきで貼り直す
+  - estimate-request のタスク121.3 も除外の台帳の件数の宣言と鮮度の錨を触るため、並べて流さない。後に流す側が件数と錨を貼り直す
+  - spec の関門がすべて緑の状態になる
+  - _Requirements: 46.10, 46.11, 46.12, 46.13, 46.14, 46.15_
+  - _Depends: 83.7, 83.8, 84.1_
+
 ## Implementation Notes
 
 - frontend の単体は `npm --prefix frontend run test -- <file>` で流す。`npm --prefix frontend exec vitest run` は作業ディレクトリが根になり、frontend の設定を読まない（77.3）
@@ -2046,3 +2136,10 @@
 - 形式の不正なプロジェクト ID の詳細画面は、再試行のボタンだけで戻るリンクが無い（82.2 で判明。要件の範囲外で未対処）
 - プロジェクト一覧を URL の `?search=` で開いて 0 件のとき、hasSearched が立たず「検索結果がありません」ではなく「プロジェクトがありません」を出す（82.4 で判明。未対処）
 - 機能レベル検証（2026-11-10、HEAD `78b99392`）は NO-GO。既存のテストの追随漏れ 5 件（定期処理の数、見積書の空の表示の曖昧さ、プロジェクトの削除の確定ボタン「削除する」）をテストだけで直し、統合 1617/1617・該当 E2E の再実行で通した。数量表の後片付けの多くはボタンが見えないと黙って飛ばす作りで、関連データのあるプロジェクトを消し残していた（是正の後は消える。黙って飛ばさない作りへの改めは未対処）
+- backend の単体を 1 ファイルだけ流すには `npm --prefix backend exec -- vitest run --root backend <file>` を使う。`npm --prefix backend run test:unit -- <file>` は単体の全件を流す（83.2）
+- `createProjectPurgeServiceForJob` は通知の部品を常に渡す。83.6 の運用の手順は通知の部品を渡さない設計のため、組み立てに引数を足すか別に組み立てる（83.3）
+- 83.7 の統合は、失敗しないプロジェクトを 2 件にした（1 件では 1 回の 20 件の枠と区別できない）。古い方が 1 回目で、最も新しい方が 2 回目に試みた失敗のものより先に消えることで、後ろへ回す並びを実際の DB で確かめる。1 対 1 の関係の項目での並び（記録の無いものを先）は想定どおりだった（83.7）
+- 84.2 の時点で check:req-coverage は estimate-request の REQ-51.1〜51.3（タスク121）だけが未被覆で赤。project-management の 46.10〜46.15 は本番に到達する印で被覆され、除外は登録していない（84.2）
+- backend の単体のカバレッジの確認（coverage:check）は、4 つの指標のうち最も低いものがファイルごとに 80% 以上かを見る。運用の手順は直接実行の .then/.catch を単体で通せないため、関数の率が下がりやすい。単体で既定の出力先と close の順まで確かめて 84〜86% にした（機能レベルの検証の NO-GO の是正、2026-11-12）
+- 完全削除の記録の表 project_purge_states は Cascade の葉で Restrict を持たないため、完全削除の Restrict の行を葉から消す順は変わらない（46.5 の章の再検証のきっかけ。83.7 の統合で記録も消えることを主張）
+- 対象に戻す処理を ProjectPurgeRequeuer（データベースと監査だけに依存）へ切り出し、運用の手順はストレージ無しで動くようにした。定期処理の部品の通知しない指定（83.6 で足した）は使われなくなったため外した。運用の文書に不整合を確かめる手順（estimate-request:find-cross-project）への案内を足した（2026-11-12、利用者の指示「1,2を直して」）

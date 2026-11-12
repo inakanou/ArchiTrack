@@ -3,6 +3,7 @@
  *
  * Requirements (project-management):
  * - 46.5: 1 日 1 回の定期処理で、論理削除から 90 日を過ぎたプロジェクトを完全に削除する
+ * - 46.11: 対象から外したことを全システム管理者へ知らせる部品を渡す（タスク83.3）
  *
  * 部品は最初の実行のときに一度だけ作り、実行のたびに現在の時刻で ProjectPurgeService を呼ぶこと、
  * 失敗したプロジェクトがあっても処理は成功として結果を返すことを確かめる。
@@ -18,11 +19,18 @@ import {
   createProjectPurgeServiceForJob,
   createSoftDeletedProjectPurgeRun,
 } from '../../../jobs/soft-deleted-project-purge.job.js';
+import { AdminNotificationService } from '../../../services/admin-notification.service.js';
 import { ProjectPurgeService } from '../../../services/project-purge.service.js';
 import { getStorageProvider } from '../../../storage/storage-factory.js';
 
 vi.mock('../../../storage/storage-factory.js', () => ({
   getStorageProvider: vi.fn(() => null),
+}));
+
+vi.mock('../../../services/email.service.js', () => ({
+  EmailService: function EmailService() {
+    return { sendAdminNotificationEmail: vi.fn() };
+  },
 }));
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -53,11 +61,13 @@ describe('soft-deleted-project-purge', () => {
       .mockResolvedValueOnce({
         purgedProjectIds: ['p1'],
         failedProjectIds: [],
+        excludedProjectIds: [],
         remainingCandidates: 3,
       })
       .mockResolvedValueOnce({
         purgedProjectIds: [],
         failedProjectIds: [],
+        excludedProjectIds: [],
         remainingCandidates: 0,
       });
     const createService = vi.fn(() => ({ purgeExpired }));
@@ -70,11 +80,13 @@ describe('soft-deleted-project-purge', () => {
     await expect(run()).resolves.toEqual({
       purgedProjectIds: ['p1'],
       failedProjectIds: [],
+      excludedProjectIds: [],
       remainingCandidates: 3,
     });
     await expect(run()).resolves.toEqual({
       purgedProjectIds: [],
       failedProjectIds: [],
+      excludedProjectIds: [],
       remainingCandidates: 0,
     });
 
@@ -90,7 +102,12 @@ describe('soft-deleted-project-purge', () => {
    * @requirement project-management/REQ-46.5
    */
   it('失敗したプロジェクトがあっても処理は成功として結果を返す（次の回でやり直す）', async () => {
-    const result = { purgedProjectIds: [], failedProjectIds: ['p1', 'p2'], remainingCandidates: 0 };
+    const result = {
+      purgedProjectIds: [],
+      failedProjectIds: ['p1', 'p2'],
+      excludedProjectIds: ['p2'],
+      remainingCandidates: 0,
+    };
     const purgeExpired = vi.fn().mockResolvedValue(result);
 
     const run = createSoftDeletedProjectPurgeRun({} as PrismaClient, () => ({ purgeExpired }));
@@ -103,14 +120,33 @@ describe('soft-deleted-project-purge', () => {
     vi.mocked(getStorageProvider).mockReturnValue(storageProvider);
     expect(createProjectPurgeServiceForJob({} as PrismaClient)).toBeInstanceOf(ProjectPurgeService);
 
-    const purgeExpired = vi
-      .fn()
-      .mockResolvedValue({ purgedProjectIds: [], failedProjectIds: [], remainingCandidates: 0 });
+    const purgeExpired = vi.fn().mockResolvedValue({
+      purgedProjectIds: [],
+      failedProjectIds: [],
+      excludedProjectIds: [],
+      remainingCandidates: 0,
+    });
     const before = Date.now();
     await createSoftDeletedProjectPurgeRun({} as PrismaClient, () => ({ purgeExpired }))();
     const now = purgeExpired.mock.calls[0]?.[0] as Date;
     expect(now.getTime()).toBeGreaterThanOrEqual(before);
     expect(now.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  /**
+   * @requirement project-management/REQ-46.11
+   */
+  it('既定の部品は全システム管理者への通知の部品を明示して渡す（46.11）', () => {
+    const storageProvider = { delete: vi.fn() } as unknown as StorageProvider;
+    vi.mocked(getStorageProvider).mockReturnValue(storageProvider);
+    const prisma = {} as PrismaClient;
+
+    const service = createProjectPurgeServiceForJob(prisma);
+
+    const deps = (service as unknown as { deps: Record<string, unknown> }).deps;
+    expect(deps.prisma).toBe(prisma);
+    expect(deps.storageProvider).toBe(storageProvider);
+    expect(deps.adminNotificationService).toBeInstanceOf(AdminNotificationService);
   });
 
   it('ストレージが設定されていないときは処理を失敗にし、DB を消さない', async () => {

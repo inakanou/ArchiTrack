@@ -877,6 +877,8 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
      * target と other の両方が範囲内である。
      *
      * @requirement estimate-request/REQ-42.10
+     * @requirement estimate-request/REQ-51.1
+     * @requirement estimate-request/REQ-51.2
      */
     it('作成の要求が範囲内の他のプロジェクトの内訳書を指すと、存在しない内訳書と同じ 404 になり、見積依頼を作成せず記録もしない', async () => {
       const beforeTarget = await snapshot(target);
