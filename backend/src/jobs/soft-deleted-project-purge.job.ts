@@ -26,16 +26,12 @@ export const SOFT_DELETED_PROJECT_PURGE_JOB_NAME = 'soft-deleted-project-purge';
 export const SOFT_DELETED_PROJECT_PURGE_CRON = '30 3 * * *';
 
 /**
- * 本番の部品で ProjectPurgeService を作る（既定では対象から外したことを知らせる部品を明示して渡す）
+ * 本番の部品で ProjectPurgeService を作る（対象から外したことを知らせる部品を明示して渡す）
  *
  * @param prisma - データベースのクライアント
- * @param options.notify - 通知の部品を渡すか（既定は渡す。対象に戻す運用の手順は渡さない。タスク83.6）
  * @throws ストレージが設定されていないとき
  */
-export function createProjectPurgeServiceForJob(
-  prisma: PrismaClient,
-  options: { notify?: boolean } = {}
-): ProjectPurgeService {
+export function createProjectPurgeServiceForJob(prisma: PrismaClient): ProjectPurgeService {
   const storageProvider = getStorageProvider();
   if (!storageProvider) {
     throw new Error('Soft-deleted project purge requires a configured storage provider');
@@ -43,9 +39,7 @@ export function createProjectPurgeServiceForJob(
   return new ProjectPurgeService({
     prisma,
     storageProvider,
-    ...((options.notify ?? true)
-      ? { adminNotificationService: new AdminNotificationService(prisma, new EmailService()) }
-      : {}),
+    adminNotificationService: new AdminNotificationService(prisma, new EmailService()),
   });
 }
 

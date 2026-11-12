@@ -1,7 +1,7 @@
 {
   "feature_name": "project-management",
   "created_at": "2025-12-05T00:00:00Z",
-  "updated_at": "2026-11-12T12:00:00Z",
+  "updated_at": "2026-11-12T14:00:00Z",
   "language": "ja",
   "phase": "implementation-complete",
   "description": "プロジェクト詳細画面の改善：(1)detail-summary APIの現場調査サムネイル署名付きURL変換修正（Requirement 30）。(2)パンくずナビゲーション更新（Requirement 31）。(3)「一覧に戻る」リンク削除（Requirement 32）。(4)基本情報のクリップボードコピー機能追加（Requirement 33）。(5)基本情報の作成日時・更新日時を非表示（Requirement 34）。(6)ステータス変更履歴の表示制限と全件表示ダイアログ（Requirement 35）。プロジェクト一覧画面の改善：(7)パンくずナビゲーションを「ダッシュボード > プロジェクト一覧」に変更（Requirement 21 AC 14更新）。(8)テーブルから「作成日」列を削除（Requirement 2 AC 2更新）。(9)フィルタから「作成日」を削除（Requirement 5 AC 2-3削除）。プロジェクト詳細画面の契約書セクション追加：(10)契約書セクション表示（Requirement 36）。(11)detail-summary APIへの契約書セクション統合（Requirement 37）。プロジェクト詳細画面の工程表セクション追加：(12)工程表セクション表示（Requirement 38）。(13)detail-summary APIへの工程表セクション統合（Requirement 39）。プロジェクト詳細画面の実行予算セクション追加：(14)実行予算セクション表示（Requirement 40）。(15)detail-summary APIへの実行予算セクション統合（Requirement 41）。受領見積書と IPA の是正（2026-11-09。roadmap の実施順 3、是正計画 §5.3）：(16)プロジェクト詳細画面の受領見積書セクション（Requirement 42）。(17)detail-summary APIへの受領見積書セクション統合（Requirement 43）。(18)プロジェクトの画面での閲覧範囲外の表示（Requirement 44）。(19)担当者の変更で自分が閲覧範囲から外れるときの確認（Requirement 45）。(20)論理削除したプロジェクトの保持期間（90日）と完全削除（Requirement 46）。既存条文の改訂: 9.5・9.6・28.1。",
@@ -21,6 +21,10 @@
   },
   "ready_for_implementation": true,
   "update_history": [
+    {
+      "date": "2026-11-12T14:00:00Z",
+      "changes": "機能レベルの検証の Info の 2 点を利用者の指示（2026-11-12「1,2を直して」）で直した。(1) 対象に戻す処理を ProjectPurgeRequeuer に切り出し、運用の手順をストレージに頼らずデータベースだけで組み立てる（design.md の RequeueProjectPurgeScript の節と D13 に改訂を記した）。(2) docs/deployment/data-protection.md の原因の調べ方に npm run estimate-request:find-cross-project への案内を足した"
+    },
     {
       "date": "2026-11-12T12:00:00Z",
       "changes": "Task 83〜84（Requirements 46.10-46.15）を /kiro-impl の自律モードで実装した（各タスクは独立の見直しで承認。84.1 は 1 回差し戻し）。/kiro-validate-impl は 1 回目 NO-GO（requeue-project-purge.ts のファイルごとのカバレッジ 76.9%）で、単体を足して是正（e6cf9a48）し、2 回目 GO: backend の単体 7647・統合 1626、frontend の単体 13355、Storybook 862、E2E 3004 がすべて緑、ファイルごとのカバレッジ 181/181・408/408、spec の関門はすべて緑。phase を implementation-complete にした"

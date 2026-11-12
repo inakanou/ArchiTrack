@@ -4,8 +4,9 @@
  * Requirements (project-management):
  * - 46.14: 対象から外したプロジェクトを、サーバー上の運用の手順でプロジェクト ID を指定して対象に戻す
  *
- * 引数の読み取り・3 つの結果ごとの終了コードと出力・ストレージが無いときの扱い・接続の後始末と、
- * 出力にプロジェクト名とエラーの文言を出さないことを確かめる。データベースには触れない。
+ * 引数の読み取り・3 つの結果ごとの終了コードと出力・接続の後始末と、出力にプロジェクト名とエラーの文言を
+ * 出さないことを確かめる。対象に戻す部品はストレージに頼らない（ストレージの不調が完全削除の失敗の原因でも
+ * 戻せる）。データベースには触れない。
  * 実データベースでの対象への復帰は統合検証（integration/project-purge.integration.test.ts）で確かめる。
  */
 
@@ -48,7 +49,7 @@ import {
   runRequeueProjectPurge,
   type RequeueProjectPurgeContext,
 } from '../../../scripts/requeue-project-purge.js';
-import { ProjectPurgeService } from '../../../services/project-purge.service.js';
+import { ProjectPurgeRequeuer } from '../../../services/project-purge.service.js';
 
 const PROJECT_ID = '3f2b8c1e-7d4a-4b9e-9c21-5a6d7e8f9012';
 const PROJECT_NAME = '秘密の改修工事';
@@ -155,17 +156,6 @@ describe('runRequeueProjectPurge', () => {
     expect(ctx.lines).toEqual([`err:論理削除したプロジェクトが見つかりません: ${PROJECT_ID}`]);
   });
 
-  it('ストレージが設定されていないときは対象に戻さずに 1 で終わり、理由を出す', async () => {
-    const ctx = createContext(vi.fn(), { service: null });
-
-    await expect(runRequeueProjectPurge({ projectId: PROJECT_ID }, ctx)).resolves.toBe(
-      EXIT_CODE.FAILURE
-    );
-    expect(ctx.lines).toEqual([
-      'err:対象に戻せませんでした: ストレージが設定されていません（STORAGE_TYPE などの設定を確かめてください）',
-    ]);
-  });
-
   it('実行の失敗は 1 で終わり、エラーの種類だけを出す（エラーの文言を出さない）', async () => {
     const error = Object.assign(new Error(`connection failed for ${PROJECT_NAME}`), {
       code: 'P1001',
@@ -250,11 +240,11 @@ describe('main', () => {
     );
     expect(failed.close).toHaveBeenCalledTimes(1);
 
-    const noStorage = createContext(vi.fn(), { service: null });
-    await expect(main(['--project-id', PROJECT_ID], async () => noStorage)).resolves.toBe(
+    const notFound = createContext(vi.fn().mockResolvedValue('not_found'));
+    await expect(main(['--project-id', PROJECT_ID], async () => notFound)).resolves.toBe(
       EXIT_CODE.FAILURE
     );
-    expect(noStorage.close).toHaveBeenCalledTimes(1);
+    expect(notFound.close).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -265,17 +255,14 @@ describe('createDefaultContext', () => {
     disconnectStorage.mockClear();
   });
 
-  it('定期処理と同じ本番の組み立てで部品を作り、通知の部品は渡さない', async () => {
-    const storageProvider = { delete: vi.fn() };
-    getStorageProvider.mockReturnValue(storageProvider);
-
+  it('データベースだけで部品を作り、ストレージにも通知にも頼らない', async () => {
     const ctx = await createDefaultContext();
 
-    expect(ctx.service).toBeInstanceOf(ProjectPurgeService);
+    expect(ctx.service).toBeInstanceOf(ProjectPurgeRequeuer);
     const deps = (ctx.service as unknown as { deps: Record<string, unknown> }).deps;
+    expect(Object.keys(deps)).toEqual(['prisma']);
     expect(deps.prisma).toBe(prismaClient);
-    expect(deps.storageProvider).toBe(storageProvider);
-    expect(deps.adminNotificationService).toBeUndefined();
+    expect(getStorageProvider).not.toHaveBeenCalled();
 
     const before = Date.now();
     const now = ctx.now();
@@ -283,23 +270,19 @@ describe('createDefaultContext', () => {
     expect(now.getTime()).toBeLessThanOrEqual(Date.now());
 
     await ctx.close();
-    expect(disconnectStorage).toHaveBeenCalledTimes(1);
     expect(disconnectPrisma).toHaveBeenCalledTimes(1);
+    expect(disconnectStorage).not.toHaveBeenCalled();
   });
 
-  it('ストレージが設定されていないときは部品を空にし、close で接続を閉じる', async () => {
+  it('ストレージが設定されていなくても対象に戻せる（データベースのトランザクションで戻す）', async () => {
     getStorageProvider.mockReturnValue(null);
+    prismaClient.$transaction.mockResolvedValueOnce('requeued');
 
     const ctx = await createDefaultContext();
 
-    expect(ctx.service).toBeNull();
-    await ctx.close();
-    expect(disconnectStorage).toHaveBeenCalledTimes(1);
-    expect(disconnectPrisma).toHaveBeenCalledTimes(1);
-    // ストレージを閉じてからデータベースを閉じる
-    expect(disconnectStorage.mock.invocationCallOrder[0]).toBeLessThan(
-      disconnectPrisma.mock.invocationCallOrder[0]!
-    );
+    await expect(ctx.service.requeue(PROJECT_ID, NOW)).resolves.toBe('requeued');
+    expect(prismaClient.$transaction).toHaveBeenCalledTimes(1);
+    expect(getStorageProvider).not.toHaveBeenCalled();
   });
 
   it('出力は標準出力と標準エラーへ出す', async () => {

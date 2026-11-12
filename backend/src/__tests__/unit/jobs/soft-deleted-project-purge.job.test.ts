@@ -149,29 +149,6 @@ describe('soft-deleted-project-purge', () => {
     expect(deps.adminNotificationService).toBeInstanceOf(AdminNotificationService);
   });
 
-  /**
-   * @requirement project-management/REQ-46.14
-   */
-  it('通知をしない指定のときは通知の部品を渡さない（対象に戻す運用の手順で使う。タスク83.6）', () => {
-    const storageProvider = { delete: vi.fn() } as unknown as StorageProvider;
-    vi.mocked(getStorageProvider).mockReturnValue(storageProvider);
-    const prisma = {} as PrismaClient;
-
-    const service = createProjectPurgeServiceForJob(prisma, { notify: false });
-
-    const deps = (service as unknown as { deps: Record<string, unknown> }).deps;
-    expect(deps.prisma).toBe(prisma);
-    expect(deps.storageProvider).toBe(storageProvider);
-    expect(deps.adminNotificationService).toBeUndefined();
-    expect(
-      (
-        createProjectPurgeServiceForJob(prisma, { notify: true }) as unknown as {
-          deps: Record<string, unknown>;
-        }
-      ).deps.adminNotificationService
-    ).toBeInstanceOf(AdminNotificationService);
-  });
-
   it('ストレージが設定されていないときは処理を失敗にし、DB を消さない', async () => {
     vi.mocked(getStorageProvider).mockReturnValue(null);
     const prisma = {} as PrismaClient;

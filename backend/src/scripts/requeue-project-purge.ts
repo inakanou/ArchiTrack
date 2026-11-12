@@ -13,10 +13,11 @@
  * 開発・試験の環境はソースを tsx で、本番のイメージ（src を運ばない）はビルド済みの
  * dist/src/scripts/requeue-project-purge.js を node で実行する（package.json の project:purge-requeue が選ぶ）。
  *
- * - 部品は定期処理と同じ本番の組み立て（createProjectPurgeServiceForJob）で作るため、ストレージの設定が要る。
+ * - 部品はデータベースだけで組み立てる（ProjectPurgeRequeuer）。ストレージにも通知にも頼らないため、
+ *   ストレージの不調が完全削除の失敗の原因でも対象に戻せる。
  *   通知の部品は渡さない（戻したことは実行者の無い監査 `PROJECT_PURGE_REQUEUED` に残る。ProjectPurgeService.requeue）
  * - 出力にプロジェクト名とエラーの文言を出さない（ID と結果、失敗はエラーの種類だけ）
- * - 終了コード: 0 = 対象に戻した、または既に対象、1 = 該当するプロジェクトが無い・ストレージが無い・実行の失敗、
+ * - 終了コード: 0 = 対象に戻した、または既に対象、1 = 該当するプロジェクトが無い・実行の失敗、
  *   2 = 引数の誤り（ID が UUID の形でない場合を含む）
  *
  * @module scripts/requeue-project-purge
@@ -25,9 +26,7 @@
 import 'dotenv/config';
 import { pathToFileURL } from 'url';
 import getPrismaClient, { disconnectPrisma } from '../db.js';
-import { createProjectPurgeServiceForJob } from '../jobs/soft-deleted-project-purge.job.js';
-import type { ProjectPurgeService } from '../services/project-purge.service.js';
-import { disconnectStorage, getStorageProvider } from '../storage/storage-factory.js';
+import { ProjectPurgeRequeuer } from '../services/project-purge.service.js';
 
 /** 終了コード */
 export const EXIT_CODE = {
@@ -85,8 +84,8 @@ export function parseRequeueProjectPurgeArgs(argv: readonly string[]): ParseResu
  * スクリプトの実行の部品
  */
 export interface RequeueProjectPurgeContext {
-  /** 対象に戻す部品（ストレージが設定されていないときは null） */
-  service: Pick<ProjectPurgeService, 'requeue'> | null;
+  /** 対象に戻す部品 */
+  service: Pick<ProjectPurgeRequeuer, 'requeue'>;
   out: (line: string) => void;
   err: (line: string) => void;
   /** 現在の時刻（記録の日時） */
@@ -114,14 +113,7 @@ export async function runRequeueProjectPurge(
   args: RequeueProjectPurgeArgs,
   ctx: Omit<RequeueProjectPurgeContext, 'close'>
 ): Promise<number> {
-  if (!ctx.service) {
-    ctx.err(
-      '対象に戻せませんでした: ストレージが設定されていません（STORAGE_TYPE などの設定を確かめてください）'
-    );
-    return EXIT_CODE.FAILURE;
-  }
-
-  let outcome: Awaited<ReturnType<ProjectPurgeService['requeue']>>;
+  let outcome: Awaited<ReturnType<ProjectPurgeRequeuer['requeue']>>;
   try {
     outcome = await ctx.service.requeue(args.projectId, ctx.now());
   } catch (error) {
@@ -143,13 +135,11 @@ export async function runRequeueProjectPurge(
 }
 
 /**
- * 本番の部品を作る（データベース・ストレージ。通知の部品は渡さない）
+ * 本番の部品を作る（データベースだけ。ストレージにも通知にも頼らない）
  */
 export async function createDefaultContext(): Promise<RequeueProjectPurgeContext> {
   const prisma = getPrismaClient();
-  const service = getStorageProvider()
-    ? createProjectPurgeServiceForJob(prisma, { notify: false })
-    : null;
+  const service = new ProjectPurgeRequeuer({ prisma });
 
   return {
     service,
@@ -157,7 +147,6 @@ export async function createDefaultContext(): Promise<RequeueProjectPurgeContext
     err: (line) => console.error(line),
     now: () => new Date(),
     close: async () => {
-      await disconnectStorage();
       await disconnectPrisma();
     },
   };

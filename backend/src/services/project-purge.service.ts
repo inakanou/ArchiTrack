@@ -207,54 +207,16 @@ export class ProjectPurgeService {
   }
 
   /**
-   * 対象から外したプロジェクトを対象に戻す（運用の手順から呼ぶ。46.14、D11・D13）
-   *
-   * 失敗の回数を 0 に、最後に試みた日時と対象から外した日時を空にし、戻したことを監査に記録する。
-   * 最後に試みた日時が空のものは次の回に先に選ばれる。読み・書き・記録を一つのトランザクションに
-   * まとめ、記録に失敗したら戻さない。書き換えは「対象から外れている」ことを条件にし、読んだ後に
-   * 他の実行が戻していたら（0 件）not_excluded として記録しない。原因を直したかは確かめない。
-   * ストレージには触れず、通知もしない。
+   * 対象から外したプロジェクトを対象に戻す（46.14）。処理は ProjectPurgeRequeuer に任せる
    *
    * @param projectId - プロジェクトの ID
    * @param now - 現在の時刻（記録の日時）
    */
   async requeue(projectId: string, now: Date): Promise<ProjectPurgeRequeueOutcome> {
-    return this.deps.prisma.$transaction(async (tx) => {
-      const project = await tx.project.findUnique({
-        where: { id: projectId },
-        select: {
-          deletedAt: true,
-          purgeState: { select: { failureCount: true, excludedAt: true } },
-        },
-      });
-      if (!project || project.deletedAt === null) return 'not_found';
-      const state = project.purgeState;
-      if (!state || state.excludedAt === null) return 'not_excluded';
-
-      const updated = await tx.projectPurgeState.updateMany({
-        where: { projectId, excludedAt: { not: null } },
-        data: { failureCount: 0, lastAttemptAt: null, excludedAt: null },
-      });
-      if (updated.count === 0) return 'not_excluded';
-
-      // 回数と日時だけを記録する。名前とキーは入れない
-      await this.auditLogService.createLog(
-        {
-          action: 'PROJECT_PURGE_REQUEUED',
-          actorId: null,
-          targetType: PROJECT_PURGE_AUDIT_TARGET_TYPE,
-          targetId: projectId,
-          metadata: {
-            trigger: 'operator_script',
-            previousFailureCount: state.failureCount,
-            previousExcludedAt: state.excludedAt.toISOString(),
-            requeuedAt: now.toISOString(),
-          },
-        },
-        tx
-      );
-      return 'requeued';
-    }, connectBudgetTransactionOptions());
+    return new ProjectPurgeRequeuer({
+      prisma: this.deps.prisma,
+      auditLogService: this.auditLogService,
+    }).requeue(projectId, now);
   }
 
   /**
@@ -586,5 +548,77 @@ export class ProjectPurgeService {
         files: fileKeys.length,
       },
     };
+  }
+}
+
+/** 対象に戻す部品の依存（データベースと監査だけ。ストレージにも通知にも頼らない） */
+export interface ProjectPurgeRequeuerDependencies {
+  prisma: PrismaClient;
+  /** 監査の記録（省略時は prisma で作る） */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+}
+
+/**
+ * 完全削除の対象から外したプロジェクトを対象に戻す部品（46.14、D13）
+ *
+ * 運用の手順（scripts/requeue-project-purge.ts）がデータベースだけで組み立てられるよう、
+ * ProjectPurgeService から切り出した。
+ */
+export class ProjectPurgeRequeuer {
+  private readonly auditLogService: Pick<IAuditLogService, 'createLog'>;
+
+  constructor(private readonly deps: ProjectPurgeRequeuerDependencies) {
+    this.auditLogService = deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma });
+  }
+
+  /**
+   * 対象から外したプロジェクトを対象に戻す（運用の手順から呼ぶ。46.14、D11・D13）
+   *
+   * 失敗の回数を 0 に、最後に試みた日時と対象から外した日時を空にし、戻したことを監査に記録する。
+   * 最後に試みた日時が空のものは次の回に先に選ばれる。読み・書き・記録を一つのトランザクションに
+   * まとめ、記録に失敗したら戻さない。書き換えは「対象から外れている」ことを条件にし、読んだ後に
+   * 他の実行が戻していたら（0 件）not_excluded として記録しない。原因を直したかは確かめない。
+   * ストレージには触れず、通知もしない（ストレージの不調が完全削除の失敗の原因でも戻せる）。
+   *
+   * @param projectId - プロジェクトの ID
+   * @param now - 現在の時刻（記録の日時）
+   */
+  async requeue(projectId: string, now: Date): Promise<ProjectPurgeRequeueOutcome> {
+    return this.deps.prisma.$transaction(async (tx) => {
+      const project = await tx.project.findUnique({
+        where: { id: projectId },
+        select: {
+          deletedAt: true,
+          purgeState: { select: { failureCount: true, excludedAt: true } },
+        },
+      });
+      if (!project || project.deletedAt === null) return 'not_found';
+      const state = project.purgeState;
+      if (!state || state.excludedAt === null) return 'not_excluded';
+
+      const updated = await tx.projectPurgeState.updateMany({
+        where: { projectId, excludedAt: { not: null } },
+        data: { failureCount: 0, lastAttemptAt: null, excludedAt: null },
+      });
+      if (updated.count === 0) return 'not_excluded';
+
+      // 回数と日時だけを記録する。名前とキーは入れない
+      await this.auditLogService.createLog(
+        {
+          action: 'PROJECT_PURGE_REQUEUED',
+          actorId: null,
+          targetType: PROJECT_PURGE_AUDIT_TARGET_TYPE,
+          targetId: projectId,
+          metadata: {
+            trigger: 'operator_script',
+            previousFailureCount: state.failureCount,
+            previousExcludedAt: state.excludedAt.toISOString(),
+            requeuedAt: now.toISOString(),
+          },
+        },
+        tx
+      );
+      return 'requeued';
+    }, connectBudgetTransactionOptions());
   }
 }

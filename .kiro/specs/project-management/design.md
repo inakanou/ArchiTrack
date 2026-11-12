@@ -4522,7 +4522,7 @@ graph TB
   Purge --> State[(project_purge_states)]
   Purge --> Audit[AuditLogService]
   Purge --> Notify[AdminNotificationService]
-  Script[requeue-project-purge script] --> Requeue[ProjectPurgeService.requeue]
+  Script[requeue-project-purge script] --> Requeue[ProjectPurgeRequeuer.requeue]
   Requeue --> State
   Requeue --> Audit
 ```
@@ -4673,6 +4673,8 @@ model ProjectPurgeState {
 
 `backend/src/scripts/requeue-project-purge.ts`。`npm run project:purge-requeue -- --project-id <ID>`（`user:reactivate` と同じく、ソースがあれば tsx、無ければ `dist/src/scripts/requeue-project-purge.js` を node で動かす）。終了コードは 0 = 戻した、または既に対象（`not_excluded`）、1 = 該当するプロジェクトが無い・実行の失敗、2 = 引数の誤り（ID が UUID の形でない場合を含む）。出力にプロジェクト名を出さない。
 
+**2026-11-12 の改訂（利用者の指示「1,2を直して」）**: 対象に戻す処理を `ProjectPurgeRequeuer`（`ProjectPurgeService` と同じファイル。データベースと監査だけに依存）へ切り出し、運用の手順はこれをデータベースだけで組み立てる。`ProjectPurgeService.requeue` は `ProjectPurgeRequeuer` に任せる。当初は定期処理と同じ組み立て（ストレージが要る）で作っており、ストレージの不調が完全削除の失敗の原因のときに戻す手順まで止まっていた（機能レベルの検証の指摘）。
+
 ### Data Models
 - 表 `project_purge_states` を足す（上の `ProjectPurgeState`）。プロジェクトの完全削除で `Cascade` により消える。既存の行は持たない（導入の後の最初の失敗で作られる）
 - 監査の種別 `PROJECT_PURGE_EXCLUDED`・`PROJECT_PURGE_REQUEUED`・`PROJECT_PURGE_RUN_COMPLETED` は文字列の列に入るため DB の変更を要しない。frontend の表示名はそれぞれ「プロジェクトの完全削除の対象外化」「プロジェクトの完全削除の対象への復帰」「プロジェクトの完全削除の定期処理の結果」
@@ -4683,7 +4685,7 @@ model ProjectPurgeState {
 **D10 後ろへ回す並び**: 最後に試みた日時の空を先、古い順を後にする。失敗したものは試みた日時が付いて後ろへ回り、新しく 90 日を過ぎたものが先に選ばれる。全件が失敗しても、20 件の枠を毎回違うプロジェクトが使う
 **D11 続けての失敗の数え方**: 成功すれば記録ごと消えるため、記録の回数は常に続けての失敗の回数になる。対象に戻すと 0 に戻る
 **D12 通知の単位**: 回ごとに 1 通にまとめる（同じ回で複数を外しても通知は 1 通）。通知には ID と回数だけを入れる（46.12。完全削除の前のプロジェクトでも名前を外へ出さない）
-**D13 対象に戻す手段**: 運用の手順のスクリプトとする（46.3 の画面を作らない方針と、`user:reactivate` の先例に合わせる）。原因を直したかは確かめない（直さずに戻せば、また 5 回で外れて知らせが来る）
+**D13 対象に戻す手段**: 運用の手順のスクリプトとする（46.3 の画面を作らない方針と、`user:reactivate` の先例に合わせる）。原因を直したかは確かめない（直さずに戻せば、また 5 回で外れて知らせが来る）。手順はストレージに頼らず、データベースだけで組み立てる（2026-11-12 の改訂。RequeueProjectPurgeScript の節）
 **D14 結果の記録**: 対象が 0 件の回も `PROJECT_PURGE_RUN_COMPLETED` を残す。1 日 1 件で量は小さく、定期処理が止まっていることに監査ログから気づける
 
 ### Error Handling
