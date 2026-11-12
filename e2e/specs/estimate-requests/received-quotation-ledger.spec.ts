@@ -52,6 +52,10 @@ const MISSING_ID = '00000000-0000-4000-8000-000000120101';
 const PDF_A = 'e2e/fixtures/test-file.pdf';
 const PDF_B = 'e2e/fixtures/test-text-pdf.pdf';
 
+/** 各 PDF の読み取りの結果に含まれる文（どちらもテキスト入りの PDF） */
+const PDF_A_TEXT = 'Test Quotation Document';
+const PDF_B_TEXT = 'Test PDF Document';
+
 /** 一意の接尾辞 */
 function uniqueSuffix(): string {
   return `${Date.now()}-${randomBytes(3).toString('hex')}`;
@@ -264,6 +268,28 @@ async function openLineDetail(page: Page, row: number): Promise<void> {
 /** 台帳の情報の欄の見出し（開閉の釦） */
 function ledgerHeader(page: Page) {
   return page.getByTestId('ledger-info-section-header');
+}
+
+/**
+ * ファイルを選び、そのファイルのプレビューと読み取り（OCR）の表示が出そろうまで待つ
+ *
+ * ファイルを選ぶと、PDF のプレビューの操作の列と読み取りの結果が後から描かれ、その下の保存の釦が
+ * 下へずれる。ずれの途中で釦を押すと、押し下げは釦に当たって離しは別の場所に当たり、送信されない
+ * （フォームは開いたまま、POST が出ずに応答の待ちが時間切れになる）。描画の落ち着いた状態を待ってから押す。
+ *
+ * @param expectedText - 選んだファイルの読み取りの結果に含まれる文（前のファイルの結果と取り違えない）
+ */
+async function selectFileAndWaitForReading(
+  page: Page,
+  filePath: string,
+  expectedText: string
+): Promise<void> {
+  await page.getByTestId('file-input').setInputFiles(filePath);
+  await expect(page.getByTestId('zoom-level-text')).toBeVisible({ timeout: getTimeout(15000) });
+  await expect(page.getByTestId('ocr-extracted-text')).toContainText(expectedText, {
+    timeout: getTimeout(30000),
+  });
+  await expect(page.getByTestId('ocr-progress-indicator')).toHaveCount(0);
 }
 
 /** 案件の文脈の登録の保存を押し、その POST の応答を返す */
@@ -1276,7 +1302,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await page.locator('#submitted-at').fill('2026-10-05');
     await vendorInput(page).fill('原本の業者');
     await vendorInput(page).press('Escape');
-    await page.getByTestId('file-input').setInputFiles(PDF_A);
+    await selectFileAndWaitForReading(page, PDF_A, PDF_A_TEXT);
     expect((await submitProjectCreate(page, project.id)).status()).toBe(201);
     await expectFormClosed(page);
     // 他の案件の同じ原本は数えない
@@ -1293,7 +1319,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await page.locator('#quotation-name').fill(secondName);
     await vendorInput(page).fill('別案の業者');
     await vendorInput(page).press('Escape');
-    await page.getByTestId('file-input').setInputFiles(PDF_A);
+    await selectFileAndWaitForReading(page, PDF_A, PDF_A_TEXT);
     const rejected = await submitProjectCreate(page, project.id);
     expect(rejected.status()).toBe(409);
     const duplicateError = page.getByTestId('duplicate-original-error');
@@ -1329,7 +1355,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await page.locator('#quotation-name').fill(thirdName);
     await vendorInput(page).fill('原本Bの業者');
     await vendorInput(page).press('Escape');
-    await page.getByTestId('file-input').setInputFiles(PDF_B);
+    await selectFileAndWaitForReading(page, PDF_B, PDF_B_TEXT);
     expect((await submitProjectCreate(page, project.id)).status()).toBe(201);
     await expectFormClosed(page);
     await expect(page.getByTestId('shared-original-notice')).toHaveCount(0);
@@ -1339,7 +1365,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     // 3 件目のファイルを A に差し替える: 指紋を求め直し、1 件目と同じ組になるため止まり、データは変わらない
     await openEditForm(page, thirdName);
     await page.getByRole('button', { name: '削除', exact: true }).click();
-    await page.getByTestId('file-input').setInputFiles(PDF_A);
+    await selectFileAndWaitForReading(page, PDF_A, PDF_A_TEXT);
     const replaceRejected = await submitUpdate(page, third.id);
     expect(replaceRejected.status()).toBe(409);
     await expect(page.getByTestId('duplicate-original-error')).toContainText(
