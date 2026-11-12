@@ -46,6 +46,42 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// TwoFactorVerificationFormコンポーネントをモック
+// Vitest 5 では vi.mock をモジュールのトップレベル以外で呼ぶとエラーになるため、ここで定義する
+vi.mock('../../components/TwoFactorVerificationForm', () => ({
+  default: ({
+    onVerifyTOTP,
+    onVerifyBackupCode,
+    onCancel,
+  }: {
+    onVerifyTOTP: (code: string) => Promise<{ success: boolean; error?: string }>;
+    onVerifyBackupCode: (code: string) => Promise<{ success: boolean; error?: string }>;
+    onCancel: () => void;
+  }) => (
+    <div data-testid="two-factor-form">
+      <button
+        data-testid="verify-totp-btn"
+        onClick={async () => {
+          await onVerifyTOTP('123456');
+        }}
+      >
+        TOTP検証
+      </button>
+      <button
+        data-testid="verify-backup-btn"
+        onClick={async () => {
+          await onVerifyBackupCode('BACKUP123');
+        }}
+      >
+        バックアップコード検証
+      </button>
+      <button data-testid="cancel-2fa-btn" onClick={onCancel}>
+        キャンセル
+      </button>
+    </div>
+  ),
+}));
+
 // LoginFormコンポーネントをモック
 vi.mock('../../components/LoginForm', () => ({
   default: ({
@@ -493,43 +529,6 @@ describe('LoginPage Component', () => {
   });
 
   describe('2FA認証フロー', () => {
-    // TwoFactorVerificationFormコンポーネントをモック
-    beforeEach(() => {
-      vi.mock('../../components/TwoFactorVerificationForm', () => ({
-        default: ({
-          onVerifyTOTP,
-          onVerifyBackupCode,
-          onCancel,
-        }: {
-          onVerifyTOTP: (code: string) => Promise<{ success: boolean; error?: string }>;
-          onVerifyBackupCode: (code: string) => Promise<{ success: boolean; error?: string }>;
-          onCancel: () => void;
-        }) => (
-          <div data-testid="two-factor-form">
-            <button
-              data-testid="verify-totp-btn"
-              onClick={async () => {
-                await onVerifyTOTP('123456');
-              }}
-            >
-              TOTP検証
-            </button>
-            <button
-              data-testid="verify-backup-btn"
-              onClick={async () => {
-                await onVerifyBackupCode('BACKUP123');
-              }}
-            >
-              バックアップコード検証
-            </button>
-            <button data-testid="cancel-2fa-btn" onClick={onCancel}>
-              キャンセル
-            </button>
-          </div>
-        ),
-      }));
-    });
-
     it('2FA要求時にTwoFactorVerificationFormを表示する', async () => {
       mockTwoFactorState = { required: true };
 
