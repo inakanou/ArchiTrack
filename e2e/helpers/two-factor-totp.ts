@@ -17,7 +17,7 @@ import { createCipheriv, randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { expect, type Page } from '@playwright/test';
-import { authenticator } from 'otplib';
+import { generateSync } from 'otplib';
 import { getPrismaClient } from '../fixtures/database';
 import { invalidateUserStateCache } from './user-state-cache';
 
@@ -83,7 +83,7 @@ export function encryptTotpSecret(secret: string = E2E_TOTP_SECRET): string {
  * 秘密鍵から現在の TOTP コードを計算する
  */
 export function generateTotpCode(secret: string = E2E_TOTP_SECRET): string {
-  return authenticator.generate(secret);
+  return generateSync({ secret });
 }
 
 /**

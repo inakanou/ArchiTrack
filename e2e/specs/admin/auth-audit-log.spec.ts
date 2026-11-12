@@ -26,7 +26,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { authenticator } from 'otplib';
+import { generateSync } from 'otplib';
 import { getPrismaClient } from '../../fixtures/database';
 import {
   SESSION_USER_EMAIL_PREFIX,
@@ -68,11 +68,10 @@ function uniqueUnknownEmail(): string {
  * backend はずれを許すため、前後のステップのコードも避ける（偶然の一致で検証が成功しないように）
  */
 function wrongTotpCode(secret: string = E2E_TOTP_SECRET): string {
-  const now = Date.now();
+  // otplib 13 の epoch は Unix 秒（12 はミリ秒）
+  const now = Math.floor(Date.now() / 1000);
   const valid = new Set(
-    [-2, -1, 0, 1, 2].map((offset) =>
-      authenticator.clone({ epoch: now + offset * 30_000 }).generate(secret)
-    )
+    [-2, -1, 0, 1, 2].map((offset) => generateSync({ secret, epoch: now + offset * 30 }))
   );
   const candidate = ['000000', '111111', '222222', '333333', '444444', '555555'].find(
     (code) => !valid.has(code)
