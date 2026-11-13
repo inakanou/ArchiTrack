@@ -42,7 +42,7 @@ import {
   type CreatedUser,
 } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { loginViaApi } from '../../helpers/auth-api';
+import { loginViaApi, waitForAuthenticatedSession } from '../../helpers/auth-api';
 import { TEST_USERS } from '../../helpers/test-users';
 import { API_BASE_URL } from '../../config';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
@@ -378,6 +378,10 @@ test.describe('案件の閲覧範囲', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: '404 - ページが見つかりません', exact: true })
     ).toBeVisible({ timeout: getTimeout(15000) });
+    // 汎用の 404 の画面はセッションの復元（Cookie によるリフレッシュ）を待たずに出る。復元の途中で次の
+    // 画面へ移ると、ローテーション済みのリフレッシュトークンの応答が届かず、次の画面の復元が再利用の検知
+    // （要件33.6）でセッションごと失効する。復元が終わってから次の URL を開く
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 200 });
 
     // 要件39.2・44.2: 詳細の URL を直接開くと「見つかりません」になり、本文は不在・論理削除と同じ
     const outOfScopeDetail = await expectDetailNotFound(page, project.id, project.name);
