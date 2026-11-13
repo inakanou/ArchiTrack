@@ -24,7 +24,7 @@
  * @module e2e/helpers/auth-api
  */
 
-import { request as playwrightRequest } from '@playwright/test';
+import { expect, request as playwrightRequest } from '@playwright/test';
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { API_BASE_URL, FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../config';
 import { TEST_USERS, type TestUser } from './test-users';
@@ -248,11 +248,51 @@ export async function fetchSessionUser(page: Page): Promise<SessionUserObservati
 }
 
 /**
- * 画面のセッションが認証済み（認証済みの API が成功する）になるまで待つ（画面の状態の観測用）
+ * 画面のセッションが認証済みか（認証済みの API が成功するか）を一度だけ確かめる
  *
  * 2FA 未登録・初回のパスワード変更中の利用者は `/api/v1/auth/me` も状態の照合で 403
  * （`TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED`）になる（user-authentication 要件34.2・37.7、
  * タスク47.6）。そのコードはアクセストークンの検証を通った後にだけ返るため、認証済みとして扱う。
+ *
+ * @param page - ページ
+ */
+async function isSessionAuthenticated(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    const client = (window as unknown as { __apiClient?: { get: (p: string) => Promise<unknown> } })
+      .__apiClient;
+    if (!client || window.location.pathname.startsWith('/login')) {
+      return false;
+    }
+    try {
+      await client.get('/api/v1/auth/me');
+      return true;
+    } catch (error) {
+      const response =
+        error && typeof error === 'object' && 'response' in error
+          ? (error as { response?: { code?: unknown } }).response
+          : undefined;
+      const status =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: unknown }).statusCode)
+          : 0;
+      return (
+        status === 403 &&
+        (response?.code === 'TWO_FACTOR_SETUP_REQUIRED' ||
+          response?.code === 'PASSWORD_CHANGE_REQUIRED')
+      );
+    }
+  });
+}
+
+/**
+ * 画面のセッションが認証済み（認証済みの API が成功する）になるまで待つ（画面の状態の観測用）
+ *
+ * 認証済みの判定は {@link isSessionAuthenticated} を参照。上限までに認証済みにならなければ失敗する。
+ *
+ * 確かめは非同期（API の応答を待つ）のため、`page.waitForFunction` を使わない。`waitForFunction` は
+ * 述語の戻り値の真偽で待ちを終えるので、非同期の述語が返す Promise（常に真）で初回に終わり、
+ * 確かめの結果が偽でも待たずに戻る（再読み込みのセッションの復元の途中で API を送ってしまう）。
+ * 確かめの途中の画面の遷移（実行の文脈の破棄）も再試行の対象とする。
  *
  * @param page - ページ
  * @param options - 待機の上限と間隔
@@ -261,36 +301,9 @@ export async function waitForAuthenticatedSession(
   page: Page,
   options: { timeout: number; polling: number }
 ): Promise<void> {
-  await page.waitForFunction(
-    async () => {
-      const client = (
-        window as unknown as { __apiClient?: { get: (p: string) => Promise<unknown> } }
-      ).__apiClient;
-      if (!client || window.location.pathname.startsWith('/login')) {
-        return false;
-      }
-      try {
-        await client.get('/api/v1/auth/me');
-        return true;
-      } catch (error) {
-        const response =
-          error && typeof error === 'object' && 'response' in error
-            ? (error as { response?: { code?: unknown } }).response
-            : undefined;
-        const status =
-          error && typeof error === 'object' && 'statusCode' in error
-            ? Number((error as { statusCode: unknown }).statusCode)
-            : 0;
-        return (
-          status === 403 &&
-          (response?.code === 'TWO_FACTOR_SETUP_REQUIRED' ||
-            response?.code === 'PASSWORD_CHANGE_REQUIRED')
-        );
-      }
-    },
-    null,
-    options
-  );
+  await expect(async () => {
+    expect(await isSessionAuthenticated(page), '画面のセッションが認証済みになる').toBe(true);
+  }).toPass({ timeout: options.timeout, intervals: [options.polling] });
 }
 
 /**
