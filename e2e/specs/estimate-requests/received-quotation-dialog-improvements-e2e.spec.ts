@@ -881,6 +881,16 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const ocrHeader = page.locator('[data-testid="ocr-section-header"]');
       await expect(ocrHeader).toBeVisible({ timeout: getTimeout(15000) });
       await expect(ocrHeader).toHaveAttribute('aria-expanded', 'true');
+      // プレビューの操作の列と読み取りの結果が後から描かれ、下のキャンセルの釦がずれる。
+      // ずれの途中で押すと押し下げと離しが別の場所に当たり、ダイアログが閉じない。描画が出そろうまで待つ
+      await expect(page.getByTestId('zoom-level-text')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('ocr-extracted-text')).toContainText(
+        'Test Quotation Document',
+        { timeout: getTimeout(30000) }
+      );
+      await expect(page.getByTestId('ocr-progress-indicator')).toHaveCount(0);
 
       // ヘッダクリックで折りたたみ
       await ocrHeader.click();

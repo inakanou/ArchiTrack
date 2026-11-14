@@ -935,6 +935,103 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
     });
 
     /**
+     * 同じプロジェクトの論理削除された内訳書を指す作成は、存在しない内訳書と同じ応答（状態コードと
+     * 本文）で拒み、見積依頼を作成せず記録もしない（design.md の D17）
+     *
+     * @requirement estimate-request/REQ-51.4
+     */
+    it('作成の要求が同じプロジェクトの論理削除された内訳書を指すと、存在しない内訳書と同じ本文の 404 になり、見積依頼を作成せず記録もしない', async () => {
+      const deletedStatementId = await createItemizedStatement(target.projectId, 'deleted');
+      await prisma.itemizedStatement.update({
+        where: { id: deletedStatementId },
+        data: { deletedAt: new Date() },
+      });
+      const beforeTarget = await snapshot(target);
+      const path = `/api/projects/${target.projectId}/estimate-requests`;
+
+      const missing = await request(app)
+        .post(path)
+        .set(...auth(sales))
+        .send({
+          name: `${MARK}-deleted-statement`,
+          tradingPartnerId,
+          itemizedStatementId: MISSING_ID,
+        })
+        .expect(404);
+      const deniedBefore = await deniedCount(sales);
+      const deleted = await request(app)
+        .post(path)
+        .set(...auth(sales))
+        .send({
+          name: `${MARK}-deleted-statement`,
+          tradingPartnerId,
+          itemizedStatementId: deletedStatementId,
+        })
+        .expect(404);
+
+      expect(deleted.body.code).toBe('NOT_FOUND');
+      expect(withoutInstance(deleted.body)).toEqual(withoutInstance(missing.body));
+      expect(JSON.stringify(deleted.body)).not.toContain(deletedStatementId);
+      expect((await deniedCount(sales)) - deniedBefore, '範囲内の論理削除は記録しない').toBe(0);
+      expect(
+        await prisma.estimateRequest.count({ where: { name: `${MARK}-deleted-statement` } }),
+        '見積依頼を作成しない'
+      ).toBe(0);
+      expect(await snapshot(target)).toEqual(beforeTarget);
+    });
+
+    /**
+     * 編集の要求に宛先と内訳書が含まれていても変えず、名前だけを変える（宛先と内訳書は作成の後に
+     * 変えない）。全案件閲覧の権限の利用者には別の内訳書も範囲内である
+     *
+     * @requirement estimate-request/REQ-9.7
+     */
+    it('編集の要求に別の取引先と別の内訳書が含まれていても、名前だけが変わり宛先と内訳書は変わらない', async () => {
+      const otherPartner = await prisma.tradingPartner.create({
+        data: {
+          name: `${MARK}-partner-2`,
+          nameKana: 'テストキョウリョクギョウシャニ',
+          address: '東京都千代田区1-1-2',
+          email: 'er103-partner-2@example.com',
+          types: { create: [{ type: 'SUBCONTRACTOR' }] },
+        },
+        select: { id: true },
+      });
+      const created = await request(app)
+        .post(`/api/projects/${target.projectId}/estimate-requests`)
+        .set(...auth(readAll))
+        .send({
+          name: `${MARK}-fixed-references`,
+          tradingPartnerId,
+          itemizedStatementId: target.itemizedStatementId,
+        })
+        .expect(201);
+      const createdId = created.body.id as string;
+
+      const updated = await request(app)
+        .put(`/api/estimate-requests/${createdId}`)
+        .set(...auth(readAll))
+        .send({
+          name: `${MARK}-fixed-references-renamed`,
+          tradingPartnerId: otherPartner.id,
+          itemizedStatementId: other.itemizedStatementId,
+          expectedUpdatedAt: created.body.updatedAt,
+        })
+        .expect(200);
+
+      expect(updated.body.name).toBe(`${MARK}-fixed-references-renamed`);
+      const stored = await prisma.estimateRequest.findUniqueOrThrow({
+        where: { id: createdId },
+        select: { name: true, tradingPartnerId: true, itemizedStatementId: true },
+      });
+      expect(stored).toEqual({
+        name: `${MARK}-fixed-references-renamed`,
+        tradingPartnerId,
+        itemizedStatementId: target.itemizedStatementId,
+      });
+    });
+
+    /**
      * @requirement estimate-request/REQ-42.2
      */
     it('二重マウントの経路で、経路の案件と見積依頼の案件が食い違うと見積依頼の不在と同じ 404 にする', async () => {

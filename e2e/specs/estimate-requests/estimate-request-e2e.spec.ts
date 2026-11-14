@@ -1408,9 +1408,12 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement estimate-request/REQ-9.3
-     * 編集ボタンをクリックしたとき、見積依頼の名前・宛先・内訳書を編集可能にする
+     * 編集ボタンをクリックしたとき、見積依頼の名前を編集可能にし、宛先と内訳書は
+     * 「宛先は変更できません」「内訳書は変更できません」と添えて読み取り専用で表示する
      */
-    test('REQ-9.3: 編集ボタンクリックで編集画面に遷移する', async ({ page }) => {
+    test('REQ-9.3: 編集画面では名前だけを編集でき、宛先と内訳書は変更できない旨を添えて表示する', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -1421,9 +1424,19 @@ test.describe('見積依頼機能', () => {
 
       // 編集ボタンはリンクとして実装されている
       await page.getByRole('link', { name: /編集/i }).click();
-
-      // 編集画面またはフォームが表示される
       await expect(page).toHaveURL(/\/edit/, { timeout: getTimeout(10000) });
+
+      const form = page.locator('form');
+      // 名前は編集できる
+      await expect(form.getByLabel(/名前/)).toBeEditable({ timeout: getTimeout(10000) });
+
+      // 宛先と内訳書は値と変更できない旨を表示し、入力の欄を持たない
+      await expect(form.getByText(tradingPartnerName, { exact: true })).toBeVisible();
+      await expect(form.getByText('宛先は変更できません', { exact: true })).toBeVisible();
+      await expect(form.getByText('見積依頼テスト用内訳書', { exact: true })).toBeVisible();
+      await expect(form.getByText('内訳書は変更できません', { exact: true })).toBeVisible();
+      await expect(form.getByRole('textbox')).toHaveCount(1);
+      await expect(form.getByRole('combobox')).toHaveCount(0);
     });
 
     /**
