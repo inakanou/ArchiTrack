@@ -14,6 +14,8 @@
  * - 33.10: アクセストークンがブラウザの永続ストレージに無い
  * - 33.11: ログイン後に再読み込みしてもログイン画面へ戻らない
  * - 33.12: CSRF のヘッダーの無い（一致しない・送信元の違う）リフレッシュとログアウトが 403 になる
+ * - 33.13: サーバーが置き換えを終えたリフレッシュの応答がページの移動で切られても、次の画面が置き換え前の
+ *   Cookie で認証済みのまま続く（置き換えの直後の猶予。タスク69.2）
  *
  * 33.2・33.3・33.7 は backend の単体・統合テストが担う（design.md「Testing Strategy」）。
  * 33.5 のうちパスワードのリセットは本 spec で扱わない。
@@ -329,6 +331,61 @@ test.describe('トークンの取り扱い（要件33）', () => {
     await page.goto('/dashboard');
     expect((await refreshWithThird).status()).toBe(401);
     await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-33.13
+   */
+  test('置き換えを終えたリフレッシュの応答がページの移動で切られても、次の画面は認証済みのまま続く', async ({
+    page,
+    context,
+  }) => {
+    const user = await createSessionUser('REGULAR_USER');
+    await loginAsUser(page, user);
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
+    const first = (await refreshCookieOfBrowser(context)).value;
+
+    // 画面の次のリフレッシュを、別の入れ物から同じ Cookie でサーバーへ届けて置き換えさせ、
+    // 応答はブラウザへ返さずに止めておく（ページの移動で切られる応答）
+    const forwarder = await contextHoldingRefreshCookie(first);
+    let release: () => void = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reportForwarded: (status: number) => void = () => {};
+    const forwarded = new Promise<number>((resolve) => {
+      reportForwarded = resolve;
+    });
+    await page.route(
+      `**${REFRESH_PATH}`,
+      async (route) => {
+        const response = await refreshWithCookie(forwarder);
+        reportForwarded(response.status());
+        await released;
+        await route.abort('aborted').catch(() => undefined);
+      },
+      { times: 1 }
+    );
+
+    await page.reload({ waitUntil: 'commit' });
+    // サーバーは置き換えを終えている（ブラウザの Cookie は置き換え前のまま）
+    expect(await forwarded).toBe(200);
+    const lost = await refreshCookieOfRequestContext(forwarder);
+    expect(lost).not.toBe(first);
+    expect((await refreshCookieOfBrowser(context)).value).toBe(first);
+
+    // 応答を待たずに次の画面へ移る。次の画面は置き換え前の Cookie を送る
+    const regrant = waitForRefreshPresenting(page, first);
+    await page.goto('/dashboard');
+    release();
+    expect((await regrant).status()).toBe(200);
+
+    // 要件33.13: 系列は失効せず、ログイン画面へ戻らずに認証済みのまま続く
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
+    await expect(page).toHaveURL(/\/dashboard/);
+    const current = (await refreshCookieOfBrowser(context)).value;
+    expect(current).not.toBe(first);
+    expect(current).not.toBe(lost);
   });
 
   /**

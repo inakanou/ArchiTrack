@@ -60,6 +60,7 @@
 - **Sources Consulted**: [OAuth 2.0 Security Best Current Practice（RFC 9700）§4.14 Refresh Token Protection](https://www.rfc-editor.org/rfc/rfc9700)、[MDN: Web Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API)。
 - **Findings**: RFC 9700 は送信者拘束が無い場合のローテーションと再利用検知を推奨する。猶予期間を設ける製品もあるが、要件33.6 は猶予を認めていない。同一ブラウザのタブ間は Web Locks で直列化でき、直列化すれば後続のタブは更新済みの Cookie を送る。
 - **Implications**: 猶予期間は設けない。フロントは `navigator.locks.request('architrack-auth-refresh', …)` でリフレッシュを直列化し、BroadcastChannel で結果を配る。
+- **Revision (2026-11-14)**: Web Locks はページの内側の直列化であり、ページの移動でブラウザが切ったリフレッシュの応答（サーバーは置き換えを終えている）は取り戻せず、次のページが置き換え前の Cookie を送って系列ごと失効していた。要件33.6 を改め 33.13 を加え、置き換えから 10 秒以内で後継が未使用の再提示に限り猶予を設けた（Okta の grace period、Auth0 の reuse interval、Supabase の `refresh_token_reuse_interval`〔既定 10 秒〕と同じ考え方）。後継が使われた後の再提示は従来どおり失効させる。
 
 ### TOTP の再利用防止
 - **Context**: 要件32.7。

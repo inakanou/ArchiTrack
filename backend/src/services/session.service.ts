@@ -50,6 +50,14 @@ export function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
+/**
+ * 置き換えの直後の猶予（ミリ秒）
+ *
+ * 置き換えからこの時間以内（境界を含む）の再提示は、後継がまだローテーションに使われていなければ
+ * 系列を失効させずに新しい後継を発行する（要件33.13）。ページの移動でブラウザが切った応答を取り直すため。
+ */
+export const REFRESH_REUSE_GRACE_MS = 10_000;
+
 export class SessionService implements ISessionService {
   // リフレッシュトークンの有効期限（デフォルト: 7日間）
   private readonly REFRESH_TOKEN_EXPIRY: number;
@@ -161,8 +169,12 @@ export class SessionService implements ISessionService {
    * 置き換え済みの行が再び提示されたら、系列の全行を消して REUSE_DETECTED を返す（要件33.6）。
    * 利用者単位の取引ロック（lockUserRefreshTokens）を取ってから行を読み直して判定するため、
    * 同じトークンの同時の提示は一方だけが置き換えに成功し、もう一方は置き換え済みの行を読んで
-   * 系列の全行を消す（先に成功した側の後継も含む。猶予は設けない。タブ間のリフレッシュの直列化は
-   * 画面の側で行う）。系列や利用者単位の失効と並行しても、後継が失効を逃れて残らない。
+   * 判定を行う。系列や利用者単位の失効と並行しても、後継が失効を逃れて残らない。
+   *
+   * 置き換えの直後の猶予（要件33.13）: 置き換えから {@link REFRESH_REUSE_GRACE_MS} 以内の再提示で、
+   * その行の後継（parentId がその行の ID の行）のどれもがまだローテーションに使われていなければ、
+   * 系列を消さずに系列の未置き換えの行（届かなかった後継）を置き換え済みにし、新しい後継を返す。
+   * 同じトークンの同時の提示は、二度目がこの猶予に当たる。
    *
    * @param presentedToken 提示されたリフレッシュトークンの原文
    * @returns 後継のリフレッシュトークンの原文、または NOT_FOUND・EXPIRED・REUSE_DETECTED
@@ -200,11 +212,45 @@ export class SessionService implements ISessionService {
         });
       };
 
+      const now = new Date();
+
+      const issueSuccessor = async (): Promise<Result<RotationResult, RotationError>> => {
+        const refreshToken = await this.tokenService.generateRefreshToken(
+          current.userId,
+          current.familyId
+        );
+        await tx.refreshToken.create({
+          data: {
+            userId: current.userId,
+            tokenHash: hashRefreshToken(refreshToken),
+            familyId: current.familyId,
+            parentId: current.id,
+            deviceInfo: current.deviceInfo,
+            expiresAt: new Date(now.getTime() + this.REFRESH_TOKEN_EXPIRY),
+          },
+        });
+        return Ok({ userId: current.userId, familyId: current.familyId, refreshToken });
+      };
+
       if (current.replacedAt) {
-        return revokeFamily();
+        if (!(await this.isWithinReuseGrace(tx, current, now))) {
+          return revokeFamily();
+        }
+        if (current.expiresAt < now) {
+          return Err({ type: 'EXPIRED' as const });
+        }
+        // 届かなかった後継を置き換え済みにしてから新しい後継を作る（系列の未置き換えの行は高々 1 行）
+        await tx.refreshToken.updateMany({
+          where: { familyId: current.familyId, replacedAt: null },
+          data: { replacedAt: now },
+        });
+        logger.info(
+          { userId: current.userId, familyId: current.familyId },
+          'Replaced refresh token re-presented within the grace period; issued a new successor'
+        );
+        return issueSuccessor();
       }
 
-      const now = new Date();
       if (current.expiresAt < now) {
         return Err({ type: 'EXPIRED' as const });
       }
@@ -218,22 +264,35 @@ export class SessionService implements ISessionService {
         return revokeFamily();
       }
 
-      const refreshToken = await this.tokenService.generateRefreshToken(
-        current.userId,
-        current.familyId
-      );
-      await tx.refreshToken.create({
-        data: {
-          userId: current.userId,
-          tokenHash: hashRefreshToken(refreshToken),
-          familyId: current.familyId,
-          deviceInfo: current.deviceInfo,
-          expiresAt: new Date(now.getTime() + this.REFRESH_TOKEN_EXPIRY),
-        },
-      });
-
-      return Ok({ userId: current.userId, familyId: current.familyId, refreshToken });
+      return issueSuccessor();
     }, connectBudgetTransactionOptions());
+  }
+
+  /**
+   * 置き換え済みの行の再提示が、置き換えの直後の猶予に当たるか（要件33.13）
+   *
+   * 置き換えから {@link REFRESH_REUSE_GRACE_MS} 以内（境界を含む）で、かつその行の後継のどれもが
+   * まだ後継を持たない（ローテーションに使われていない）ときに限り当たる。
+   */
+  private async isWithinReuseGrace(
+    tx: RefreshTokenClient,
+    row: { id: string; familyId: string; replacedAt: Date | null },
+    now: Date
+  ): Promise<boolean> {
+    if (!row.replacedAt || now.getTime() - row.replacedAt.getTime() > REFRESH_REUSE_GRACE_MS) {
+      return false;
+    }
+    const successors = await tx.refreshToken.findMany({
+      where: { familyId: row.familyId, parentId: row.id },
+      select: { id: true },
+    });
+    if (successors.length === 0) {
+      return true;
+    }
+    const used = await tx.refreshToken.count({
+      where: { familyId: row.familyId, parentId: { in: successors.map((s) => s.id) } },
+    });
+    return used === 0;
   }
 
   /**

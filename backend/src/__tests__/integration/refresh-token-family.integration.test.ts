@@ -4,6 +4,8 @@
  * 確かめる振る舞い（要件33.4〜33.7）: ログアウトはそのセッションの系列を、全デバイスのログアウトと
  * パスワードの変更・リセットは利用者の全てを使用不能にする。置き換え済みのトークンの再提示は系列の
  * 全てを失効させ、監査に記録する。保存の値は原文から復元できない形式（SHA-256）である。
+ * 置き換えから 10 秒以内で後継が未使用の再提示は系列を失効させず新しい後継を発行する（要件33.13、タスク69.1）。
+ * 猶予を過ぎた再提示は、置き換えの時刻を 10 秒より前へ戻して作る。
  *
  * モックを使わず、本物のアプリ（ログイン・リフレッシュ・ログアウトの API）と実 PostgreSQL を通す。
  * リフレッシュトークンの原文は応答の Set-Cookie から得て、リフレッシュとログアウトは画面と同じ Cookie と
@@ -32,6 +34,7 @@ import {
 import { loginForTokens } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
 import { createStoredPasswordResetToken } from './password-reset-token-fixture.js';
+import { REFRESH_REUSE_GRACE_MS } from '../../services/session.service.js';
 
 const MARK = 'test-ua452-refresh-family';
 const PASSWORD = 'Family!Passphrase-2026';
@@ -90,6 +93,15 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
 
   async function storedRows() {
     return prisma.refreshToken.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  /** 置き換えの時刻を猶予（10 秒）より前へ戻し、猶予を過ぎた再提示を作る */
+  async function ageReplacement(refreshToken: string): Promise<void> {
+    const { count } = await prisma.refreshToken.updateMany({
+      where: { tokenHash: sha256Hex(refreshToken), replacedAt: { not: null } },
+      data: { replacedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 1000) },
+    });
+    expect(count).toBe(1);
   }
 
   beforeAll(async () => {
@@ -152,15 +164,20 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       expect(previous!.replacedAt).toBeInstanceOf(Date);
       expect(successor!.replacedAt).toBeNull();
       expect(successor!.familyId).toBe(previous!.familyId);
+      expect(successor!.parentId).toBe(previous!.id);
     });
   });
 
   describe('再利用の検知', () => {
-    it('置き換え済みのトークンの再提示で後継も使えなくなり、監査が残る', async () => {
+    /**
+     * @requirement user-authentication/REQ-33.6: 猶予を過ぎた置き換え済みのトークンの再提示で、派生した全てのトークンが失効する
+     */
+    it('置き換えから 10 秒を過ぎたトークンの再提示で後継も使えなくなり、監査が残る', async () => {
       const session = await login();
       const rotated = await refresh(session.refreshToken, 200);
       const successor = issuedRefreshToken(rotated);
       const familyId = (await storedRows())[0]!.familyId;
+      await ageReplacement(session.refreshToken);
 
       await refresh(session.refreshToken, 401);
 
@@ -180,20 +197,18 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       expect(audits[0]!.metadata).toMatchObject({ familyId });
     });
 
-    it('同じトークンを同時に二度提示すると、系列の全てが失効する', async () => {
+    /**
+     * @requirement user-authentication/REQ-33.6: 後継が既にローテーションに使われていれば、10秒以内でも系列の全てが失効する
+     */
+    it('後継が使われた後の置き換え済みのトークンの再提示は、10 秒以内でも系列の全てを失効させる', async () => {
       const session = await login();
+      const second = issuedRefreshToken(await refresh(session.refreshToken, 200));
+      const third = issuedRefreshToken(await refresh(second, 200));
       const familyId = (await storedRows())[0]!.familyId;
 
-      const responses = await Promise.all([
-        refresh(session.refreshToken),
-        refresh(session.refreshToken),
-      ]);
+      await refresh(session.refreshToken, 401);
 
-      expect(responses.map((r) => r.status).filter((s) => s === 200).length).toBeLessThanOrEqual(1);
-      expect(responses.some((r) => r.status === 401)).toBe(true);
-      for (const response of responses.filter((r) => r.status === 200)) {
-        await refresh(issuedRefreshToken(response), 401);
-      }
+      await refresh(third, 401);
       await expect(prisma.refreshToken.count({ where: { familyId } })).resolves.toBe(0);
       await expect(
         prisma.auditLog.count({
@@ -202,10 +217,80 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       ).resolves.toBe(1);
     });
 
+    /**
+     * @requirement user-authentication/REQ-33.13: 置き換えから10秒以内で後継が未使用の再提示は、系列を失効させずに新しい後継を発行し、未使用の後継を置き換え済みにする
+     */
+    it('置き換えの直後で後継が未使用の再提示は、系列を残して新しい後継を発行し、届かなかった後継を置き換え済みにする', async () => {
+      const session = await login();
+      // 画面の移動で応答が届かなかった後継
+      const lost = issuedRefreshToken(await refresh(session.refreshToken, 200));
+      const familyId = (await storedRows())[0]!.familyId;
+
+      const regranted = await refresh(session.refreshToken, 200);
+      const reissued = issuedRefreshToken(regranted);
+      expect(reissued).not.toBe(lost);
+      expect(reissued).not.toBe(session.refreshToken);
+
+      const rows = await prisma.refreshToken.findMany({ where: { familyId } });
+      const byHash = new Map(rows.map((row) => [row.tokenHash, row]));
+      const original = byHash.get(sha256Hex(session.refreshToken))!;
+      expect(byHash.get(sha256Hex(lost))!.replacedAt).toBeInstanceOf(Date);
+      expect(byHash.get(sha256Hex(reissued))!.replacedAt).toBeNull();
+      expect(byHash.get(sha256Hex(reissued))!.parentId).toBe(original.id);
+      expect(rows.filter((row) => row.replacedAt === null)).toHaveLength(1);
+      await expect(
+        prisma.auditLog.count({
+          where: { action: 'REFRESH_TOKEN_REUSE_DETECTED', targetId: userId },
+        })
+      ).resolves.toBe(0);
+
+      // 新しい後継でセッションが続く
+      await refresh(reissued, 200);
+    });
+
+    it('猶予で置き換え済みにした後継を、猶予を過ぎて提示すると系列の全てが失効する', async () => {
+      const session = await login();
+      const lost = issuedRefreshToken(await refresh(session.refreshToken, 200));
+      const reissued = issuedRefreshToken(await refresh(session.refreshToken, 200));
+      const familyId = (await storedRows())[0]!.familyId;
+      await ageReplacement(lost);
+
+      await refresh(lost, 401);
+
+      await refresh(reissued, 401);
+      await expect(prisma.refreshToken.count({ where: { familyId } })).resolves.toBe(0);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.13: 同じトークンの同時の提示は直列化され、二度目は猶予で新しい後継を受け取る
+     */
+    it('同じトークンを同時に二度提示すると、どちらも成功し系列の未置き換えの行は 1 行になる', async () => {
+      const session = await login();
+      const familyId = (await storedRows())[0]!.familyId;
+
+      const responses = await Promise.all([
+        refresh(session.refreshToken),
+        refresh(session.refreshToken),
+      ]);
+
+      expect(responses.map((r) => r.status)).toEqual([200, 200]);
+      const issued = responses.map((r) => issuedRefreshToken(r));
+      expect(new Set(issued).size).toBe(2);
+      const active = await prisma.refreshToken.findMany({ where: { familyId, replacedAt: null } });
+      expect(active).toHaveLength(1);
+      expect(issued.map(sha256Hex)).toContain(active[0]!.tokenHash);
+      await expect(
+        prisma.auditLog.count({
+          where: { action: 'REFRESH_TOKEN_REUSE_DETECTED', targetId: userId },
+        })
+      ).resolves.toBe(0);
+    });
+
     it('他の系列（別のセッション）は再利用の検知で失効しない', async () => {
       const victim = await login();
       const other = await login();
       await refresh(victim.refreshToken, 200);
+      await ageReplacement(victim.refreshToken);
 
       await refresh(victim.refreshToken, 401);
 

@@ -4,7 +4,7 @@
   "language": "Japanese",
   "phase": "implementation-complete",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-31T03:00:00Z",
+  "updated_at": "2026-11-14T00:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -190,6 +190,17 @@
       ],
       "tasks_added": ["66.1", "67.1", "68.1"],
       "decision": "利用者の判断 2026-10-30「推奨案で進める」。各業務 spec の解決関数とサービスの照合の切り替え（design.md の起票先の一覧）と、見積依頼文のコピーへの適用は各 spec のタスクで行う"
+    },
+    "requirement_update_2026_11_14": {
+      "updated_at": "2026-11-14T00:00:00Z",
+      "description": "リフレッシュトークンの置き換えの直後 10 秒の猶予（ページの移動で切られたリフレッシュの応答による正規の利用者のログアウトの防止）",
+      "revised_criteria": [
+        "33.6（受入基準13の猶予に当たる場合を除く。改訂の記録は requirements.md の要件33）"
+      ],
+      "new_criteria_added": ["33.13"],
+      "tasks_added": ["69.1", "69.2", "69.3"],
+      "decision": "利用者の判断 2026-11-14「防ぐよう対応してください」。方式は短い猶予、長さは 10 秒、要件・設計・タスクは一括で承認",
+      "trigger": "E2E（project-access-scope.spec.ts）の不安定さの調査で、復元の途中のページの移動により系列ごと失効することを再現した（#898）"
     }
   },
   "ready_for_implementation": true

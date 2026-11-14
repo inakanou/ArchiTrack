@@ -4954,7 +4954,7 @@ sequenceDiagram
 |---|---|---|
 | `#### トークンストレージ戦略`（Frontend Architecture）と `### トークンストレージ戦略`（Security Considerations） | アクセストークンはメモリだけに保持し、リフレッシュトークンは HttpOnly Cookie だけで扱う。localStorage には置かない | 33.8〜33.11 |
 | `#### 要件16A実装: 認証状態初期化時のUIチラつき防止` の localStorage からの復元 | Cookie によるリフレッシュで復元する | 33.11 |
-| `#### 決定2: トークンリフレッシュの自動化とRace Condition対策` のタブ間の同期 | Web Locks による直列化と BroadcastChannel による結果の配布 | 33.6、33.10 |
+| `#### 決定2: トークンリフレッシュの自動化とRace Condition対策` のタブ間の同期 | Web Locks による直列化と BroadcastChannel による結果の配布。ページの移動で切られたリフレッシュの応答は、サーバーの置き換えの直後の猶予（SessionService の節）で取り直す | 33.6、33.10、33.13 |
 | `### ログインフロー`・`### 二要素認証（2FA）設定フロー` | 2FA 待ちの資格を介した検証と、2FA 未登録時の設定画面への遷移 | 32、34 |
 | `#### TwoFactorService` の `disableTwoFactor` と API 表の `POST /api/v1/auth/2fa/disable` | 自己の無効化は拒否する。管理者による再設定と利用者による再登録に置き換える | 34.6、34.7、34.11 |
 | `### 監査ログの保持期間・ローテーション戦略` の保存先・暗号化 | アーカイブは `StorageProvider` へ AES-256-GCM で暗号化して保存し、鍵は本番で必須とする | 41 |
@@ -5292,6 +5292,7 @@ sequenceDiagram
 | 33.9 | 応答本文にリフレッシュトークンを含めない | AuthService | 認証系の応答 | — |
 | 33.11 | 再読み込み時の復元 | AuthContext | `AuthContext` の初期化 | リフレッシュとローテーション |
 | 33.12 | Cookie で受ける状態変更の CSRF 検証 | CsrfProtection | `csrfProtection` | リフレッシュとローテーション |
+| 33.13 | 置き換えの直後の猶予（10 秒以内で後継が未使用の再提示は新しい後継を発行） | SessionService | `SessionService.rotate`、`POST /api/v1/auth/refresh` | リフレッシュとローテーション |
 | 34.1, 34.5 | 2FA 未登録・招待登録の直後に設定画面へ | AuthContext, ProtectedRoute | `ProtectedRoute` | 利用者の状態の照合 |
 | 34.2 | 2FA 未登録の API を 403 | AuthenticateMiddleware | `authenticate` | 利用者の状態の照合 |
 | 34.3, 34.8 | 2FA 未登録・再設定後は設定画面だけ | ProtectedRoute | `ProtectedRoute` | 利用者の状態の照合 |
@@ -5596,7 +5597,7 @@ type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
 | Field | Detail |
 |-------|--------|
 | Intent | リフレッシュトークンをハッシュで保存し、系列で再利用を検知する |
-| Requirements | 33.4, 33.5, 33.6, 33.7 |
+| Requirements | 33.4, 33.5, 33.6, 33.7, 33.13 |
 
 **Contracts**: Service [x]
 
@@ -5615,6 +5616,11 @@ type RotationError =
 ```
 - 保存する値は `SHA-256(トークン)` の 16 進（33.7）。照合は `token_hash` の一意索引で行う
 - `rotate` は 1 トランザクションで、行が `replaced_at` を持てば系列の全行を消去して `REUSE_DETECTED` を返し（33.6）、持たなければ `replaced_at` を記録して後継を同じ `family_id` で作る。置き換え済みの行は有効期限まで残し、再利用の検知に使う
+- 置き換えの直後の猶予（33.13、2026-11-14 の改訂）: 後継の行に置き換え前の行の ID を `parent_id` として記録する。行が `replaced_at` を持つとき、`replaced_at` から 10 秒以内（`REFRESH_REUSE_GRACE_MS = 10_000`。境界の 10 秒ちょうどは猶予に含める）で、かつその行の後継（`parent_id` がその行の ID の行）のどれもがまだ後継を持たない（ローテーションに使われていない）ときに限り、系列を消さずに、系列の中のまだ置き換えられていない行（届かなかった後継）に `replaced_at` を記録し、同じ `family_id`・`parent_id` をその行の ID とする新しい後継を作って `Ok` を返す。それ以外の再提示は従来どおり系列の全行を消して `REUSE_DETECTED` を返す（33.6）
+  - 判定は、従来の利用者単位の取引ロック（`lockUserRefreshTokens`）の下で行を読み直してから行う。同じトークンの同時の提示は直列化され、二度目は一度目が作った後継を置き換え済みにして新しい後継を受け取る（改訂前は二度目が系列を消していた）
+  - 猶予で発行した旨はログ（info、`userId`・`familyId`）に残す。監査ログには記録しない（正規の利用者の画面の移動で日常的に起きるため、要件43の検知の件数を押し上げない）
+  - 猶予の起点は置き換えの時刻であり、猶予での発行は起点を延ばさない（置き換え前の行の `replaced_at` は書き換えない）。猶予で置き換え済みにした後継は、それ自身の `replaced_at` から 10 秒を数える
+  - `parent_id` を持たない行（改訂の前に作られた行・ログインで作った行）の後継の判定は、`parent_id` で引ける行が無いため「後継が使われていない」になる。改訂前に置き換えられた行は全て 10 秒を過ぎているため、移行の扱いは要らない
 - `REUSE_DETECTED` は監査 `REFRESH_TOKEN_REUSE_DETECTED`（metadata に familyId・ipAddress・userAgent）を記録する。応答は 401 と Cookie の消去で、本文の code は既存の `INVALID_REFRESH_TOKEN` とする（`TOKEN_INVALID` は置かなかった）
 - 利用者のリフレッシュトークンを変える取引（ローテーション・ログアウト・全デバイスのログアウト・パスワードの変更とリセット・利用者の削除）は、リフレッシュトークンの表に触れる前に `lockUserRefreshTokens`（利用者ごとの勧告ロック）を取る。他の更新と同じ取引で全てを失効させるとき（パスワードの変更とリセット・無効化・2FA の再設定）は、ロックを取ってから消す `revokeAllRefreshTokensForUser` を使う（タスク45.2）
 
@@ -6390,6 +6396,7 @@ model RefreshToken {
   tokenHash  String    @unique @map("token_hash")
   familyId   String    @map("family_id")
   replacedAt DateTime? @map("replaced_at")
+  parentId   String?   @map("parent_id")   // 置き換え前の行の ID（33.13、2026-11-14 に追加。外部キーを持たない）
   deviceInfo String?
   expiresAt  DateTime
   createdAt  DateTime  @default(now())
@@ -6416,6 +6423,7 @@ model Project {
 
 - 不変条件: `is_active=false` の利用者は有効なリフレッシュトークンを持たない（無効化と同じトランザクションで失効させる）
 - 不変条件: 同じ `family_id` の中で `replaced_at` が null の行は高々 1 行
+- `parent_id` は同じ系列の行を指し、系列の失効（行の全消去）で一緒に消える。外部キーは持たない（置き換え前の行は有効期限の掃除で先に消えうるため）
 - `audit_logs` のトリガー（生の SQL）: `BEFORE UPDATE` は常に例外、`BEFORE DELETE` は `current_setting('architrack.audit_archive', true) IS DISTINCT FROM 'on'` のとき例外
 
 #### 移行
@@ -6469,6 +6477,7 @@ model Project {
 - `TwoFactorService.verifyTOTP`: 同じステップのコードの二度目を `CODE_ALREADY_USED`。前のステップのコードの後の現在のステップは成功（32.7）。固定値 `123456` を全環境で拒否
 - `TokenService.verifyToken`: リフレッシュトークンを `access` で検証すると `TOKEN_INVALID`。発行者・利用者の違うトークンを拒否（33.1〜33.3）
 - `SessionService.rotate`: 置き換え済みの再提示で系列の全行が消える（33.6）。保存値が原文と異なり SHA-256 と一致（33.7）
+- `SessionService.rotate`: 置き換えから 10 秒以内で後継が未使用の再提示は系列を消さず新しい後継を発行し、未使用の後継を置き換え済みにする。10 秒を過ぎた再提示・後継が使われた後の再提示は系列の全行が消える（33.13・33.6）
 - `PrivilegeCeilingPolicy`: priority 50 の実行者が 100 のロールを割り当てられない。`admin` を持たない実行者の `*:*` の追加を拒否（38.1〜38.3）
 - `PrivilegeCeilingPolicy`（2026-10-26 追加）: priority 50 の実行者が既存のロールの優先度を 51 へ上げられず、50 へは上げられ、上限以下（例: 50）のロールの優先度を 40 へ下げられる。上限より上（例: 80）のロールの優先度を下げる変更は 38.6 の判定（変更後の値）を通っても 38.11 が拒否する。同じ値の再送は判定しない（38.6）。51 のロールを作れず 50 は作れる（38.7）。`project:read` だけを持つ実行者が `project:update` を追加できず、`project:read` は追加でき、`project:*` を持つ実行者は `project:update` を追加でき `*:update` は追加できない（38.8）。他の利用者から 51 のロールを外せず、50 は外せ、自分からは外せる（38.9）。`admin` の優先度を超える値は `admin` の実行者でも 400、等しい値は通る（38.10。スキーマの単体）。priority 50 の実行者が 80 のロールの優先度を 40 へ下げられず、権限の追加・削除とロールの削除もできず、50 のロールではできる。80 のロールの説明の変更はできる（38.11）。`admin`・`user` の優先度の変更は `admin` の実行者でも 403、同じ値の再送は通る（38.12）
 - `ProjectScopeService`: 営業・工事・作成者の各一致で true、無関係で false、`project:read_all` で true、論理削除で false（39.1、39.6）
