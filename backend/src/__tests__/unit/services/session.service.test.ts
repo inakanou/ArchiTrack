@@ -4,16 +4,22 @@
  * Requirements:
  * - 8.1-8.5: セッション管理（マルチデバイス対応）
  *
- * リフレッシュトークンのハッシュ保存と、系列による失効・再利用の検知（要件33.4〜33.7）も確かめる。
+ * リフレッシュトークンのハッシュ保存と、系列による失効・再利用の検知（要件33.4〜33.7）と、
+ * 置き換えの直後の猶予（要件33.13）も確かめる。
  */
 
 import { createHash } from 'crypto';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SessionService, hashRefreshToken } from '../../../services/session.service.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  REFRESH_REUSE_GRACE_MS,
+  SessionService,
+  hashRefreshToken,
+} from '../../../services/session.service.js';
 import type { TokenService } from '../../../services/token.service.js';
 import type { PrismaClient, RefreshToken } from '../../../generated/prisma/client.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const NOW = new Date('2026-11-14T03:00:00.000Z');
 
 // Prisma Clientのモック（$transaction は同じモックを取引のクライアントとして渡す）
 const mockPrismaClient = {
@@ -24,6 +30,7 @@ const mockPrismaClient = {
     deleteMany: vi.fn(),
     findMany: vi.fn(),
     updateMany: vi.fn(),
+    count: vi.fn(),
   },
   $executeRaw: vi.fn(),
   $transaction: vi.fn(),
@@ -45,7 +52,7 @@ const mockTokenService = {
 } as unknown as TokenService;
 
 const refreshTokenMock = mockPrismaClient.refreshToken as unknown as Record<
-  'create' | 'findUnique' | 'findFirst' | 'deleteMany' | 'findMany' | 'updateMany',
+  'create' | 'findUnique' | 'findFirst' | 'deleteMany' | 'findMany' | 'updateMany' | 'count',
   ReturnType<typeof vi.fn>
 >;
 
@@ -60,6 +67,7 @@ function storedRow(overrides: Partial<RefreshToken> = {}): RefreshToken {
     tokenHash: sha256Hex('presented-token'),
     familyId: 'family-1',
     replacedAt: null,
+    parentId: null,
     deviceInfo: 'Chrome on Windows',
     expiresAt: new Date(Date.now() + 7 * DAY_MS),
     createdAt: new Date(),
@@ -84,6 +92,10 @@ describe('SessionService', () => {
     refreshTokenMock.deleteMany.mockResolvedValue({ count: 0 });
     executeRawMock.mockResolvedValue(1);
     sessionService = new SessionService(mockPrismaClient, mockTokenService);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('hashRefreshToken()', () => {
@@ -170,6 +182,7 @@ describe('SessionService', () => {
           userId: 'user-1',
           tokenHash: sha256Hex('refresh-user-1-family-1-1'),
           familyId: 'family-1',
+          parentId: 'session-1',
           deviceInfo: 'Chrome on Windows',
           expiresAt: expect.any(Date),
         },
@@ -221,8 +234,15 @@ describe('SessionService', () => {
       expect(refreshTokenMock.create).not.toHaveBeenCalled();
     });
 
-    it('置き換え済みのトークンの再提示は系列の全行を消して REUSE_DETECTED', async () => {
-      refreshTokenMock.findUnique.mockResolvedValue(storedRow({ replacedAt: new Date() }));
+    /**
+     * @requirement user-authentication/REQ-33.6: 猶予を過ぎた置き換え済みのトークンの再提示は系列の全行を消す
+     */
+    it('置き換えから 10 秒を過ぎたトークンの再提示は系列の全行を消して REUSE_DETECTED', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOW);
+      refreshTokenMock.findUnique.mockResolvedValue(
+        storedRow({ replacedAt: new Date(NOW.getTime() - REFRESH_REUSE_GRACE_MS - 1) })
+      );
       refreshTokenMock.deleteMany.mockResolvedValue({ count: 3 });
 
       const result = await sessionService.rotate('presented-token');
@@ -237,6 +257,127 @@ describe('SessionService', () => {
       expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
       expect(refreshTokenMock.create).not.toHaveBeenCalled();
       expect(mockTokenService.generateRefreshToken).not.toHaveBeenCalled();
+    });
+
+    describe('置き換えの直後の猶予（要件33.13）', () => {
+      /** 置き換え済みの行と、その後継の一覧・後継の後継の数を返すように整える */
+      function arrangeReplaced(ageMs: number, successorIds: string[], usedCount: number): void {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(NOW);
+        refreshTokenMock.findUnique.mockResolvedValue(
+          storedRow({ replacedAt: new Date(NOW.getTime() - ageMs) })
+        );
+        refreshTokenMock.findMany.mockResolvedValue(successorIds.map((id) => ({ id })));
+        refreshTokenMock.count.mockResolvedValue(usedCount);
+        refreshTokenMock.updateMany.mockResolvedValue({ count: successorIds.length });
+      }
+
+      /**
+       * @requirement user-authentication/REQ-33.13: 置き換えから10秒以内で後継が未使用の再提示は、系列を失効させずに新しい後継を発行し、未使用の後継を置き換え済みにする
+       */
+      it('10 秒以内で後継が未使用なら、系列を消さずに届かなかった後継を置き換え済みにし、新しい後継を返す', async () => {
+        arrangeReplaced(1000, ['session-2'], 0);
+
+        const result = await sessionService.rotate('presented-token');
+
+        expect(result).toEqual({
+          ok: true,
+          value: {
+            userId: 'user-1',
+            familyId: 'family-1',
+            refreshToken: 'refresh-user-1-family-1-1',
+          },
+        });
+        expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+        // 後継は、提示された行を親に持つ行で引き、その後継の後継の有無で使われたかを見る
+        expect(refreshTokenMock.findMany).toHaveBeenCalledWith({
+          where: { familyId: 'family-1', parentId: 'session-1' },
+          select: { id: true },
+        });
+        expect(refreshTokenMock.count).toHaveBeenCalledWith({
+          where: { familyId: 'family-1', parentId: { in: ['session-2'] } },
+        });
+        // 系列の未置き換えの行（届かなかった後継）を置き換え済みにしてから、新しい後継を作る
+        expect(refreshTokenMock.updateMany).toHaveBeenCalledTimes(1);
+        expect(refreshTokenMock.updateMany).toHaveBeenCalledWith({
+          where: { familyId: 'family-1', replacedAt: null },
+          data: { replacedAt: NOW },
+        });
+        expect(refreshTokenMock.create).toHaveBeenCalledWith({
+          data: {
+            userId: 'user-1',
+            tokenHash: sha256Hex('refresh-user-1-family-1-1'),
+            familyId: 'family-1',
+            parentId: 'session-1',
+            deviceInfo: 'Chrome on Windows',
+            expiresAt: new Date(NOW.getTime() + 7 * DAY_MS),
+          },
+        });
+        expect(refreshTokenMock.updateMany.mock.invocationCallOrder[0]!).toBeLessThan(
+          refreshTokenMock.create.mock.invocationCallOrder[0]!
+        );
+        expectUserLockTaken('user-1');
+      });
+
+      it('置き換えからちょうど 10 秒の再提示は猶予に含める', async () => {
+        arrangeReplaced(REFRESH_REUSE_GRACE_MS, ['session-2'], 0);
+
+        const result = await sessionService.rotate('presented-token');
+
+        expect(result.ok).toBe(true);
+        expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+        expect(refreshTokenMock.create).toHaveBeenCalledTimes(1);
+      });
+
+      /**
+       * @requirement user-authentication/REQ-33.6: 後継が既にローテーションに使われていれば、10秒以内でも系列の全行を消す
+       */
+      it('10 秒以内でも、後継が既にローテーションに使われていれば系列の全行を消して REUSE_DETECTED', async () => {
+        arrangeReplaced(1000, ['session-2'], 1);
+
+        const result = await sessionService.rotate('presented-token');
+
+        expect(result).toEqual({
+          ok: false,
+          error: { type: 'REUSE_DETECTED', userId: 'user-1', familyId: 'family-1' },
+        });
+        expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({
+          where: { familyId: 'family-1' },
+        });
+        expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
+        expect(refreshTokenMock.create).not.toHaveBeenCalled();
+      });
+
+      it('10 秒以内で後継の行が無ければ（後継の後継を数えずに）猶予に当たる', async () => {
+        arrangeReplaced(1000, [], 0);
+
+        const result = await sessionService.rotate('presented-token');
+
+        expect(result.ok).toBe(true);
+        expect(refreshTokenMock.count).not.toHaveBeenCalled();
+        expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+        expect(refreshTokenMock.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('猶予に当たっても有効期限の切れたトークンは EXPIRED で、系列を消さず後継も作らない', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(NOW);
+        refreshTokenMock.findUnique.mockResolvedValue(
+          storedRow({
+            replacedAt: new Date(NOW.getTime() - 1000),
+            expiresAt: new Date(NOW.getTime() - 1),
+          })
+        );
+        refreshTokenMock.findMany.mockResolvedValue([]);
+
+        await expect(sessionService.rotate('presented-token')).resolves.toEqual({
+          ok: false,
+          error: { type: 'EXPIRED' },
+        });
+        expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+        expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
+        expect(refreshTokenMock.create).not.toHaveBeenCalled();
+      });
     });
 
     it('同時の提示で先に置き換えられていたとき（条件付きの更新が 0 件）は再利用として系列を消す', async () => {

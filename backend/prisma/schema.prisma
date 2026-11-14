@@ -101,6 +101,9 @@ model RefreshToken {
   familyId   String    @map("family_id")
   // ローテーションで置き換えた日時。置き換え済みの行は有効期限まで残し、再提示を再利用として検知する（要件33.6）
   replacedAt DateTime? @map("replaced_at")
+  // 置き換え前の行の ID（ローテーションの後継に記録する。置き換えの直後の猶予の判定に使う。要件33.13）
+  // 置き換え前の行は有効期限の掃除で先に消えうるため、外部キーは持たない
+  parentId   String?   @map("parent_id")
   deviceInfo String? // User-Agent情報（オプション）
   expiresAt  DateTime
   createdAt  DateTime  @default(now())

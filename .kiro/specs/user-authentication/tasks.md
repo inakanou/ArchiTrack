@@ -1991,6 +1991,34 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
   - _Requirements: 39.8, 40.10_
 
+## タスク69: リフレッシュトークンの置き換えの直後の猶予（要件33.6 の改訂・33.13）
+
+**経緯**: 画面は全ページの読み込みのたびに Cookie によるリフレッシュでセッションを復元する。復元の途中で利用者が別の画面へ移る・再読み込みすると、サーバーは置き換えを終えているのに後継の Cookie がブラウザに届かず、次の読み込みが置き換え前の Cookie を送って再利用の検知（33.6）で系列ごと失効し、正規の利用者がログアウトされていた（#898 の調査で再現）。利用者の判断（2026-11-14「防ぐよう対応してください」「短い猶予を設ける」「10秒」、要件・設計・タスクは一括で承認）で 33.6 を改め 33.13 を加えた（requirements.md の要件33 の改訂の記録）。design.md の SessionService の節の「置き換えの直後の猶予」に従う
+
+- [x] 69.1 置き換えから 10 秒以内で後継が未使用の再提示に、系列を消さずに新しい後継を発行する
+  - `RefreshToken` に `parentId`（`parent_id`、NULL 許容、外部キーなし）を足す migration を作り、`SessionService.rotate` が後継に置き換え前の行の ID を記録し、置き換え済みの行の再提示のうち `replaced_at` から 10 秒以内で後継のどれもがまだ後継を持たないものに限り、系列の未置き換えの行を置き換え済みにして新しい後継を返すようにする。それ以外の再提示は従来どおり系列の全行を消して `REUSE_DETECTED` を返す
+  - 単体テスト（`backend/src/__tests__/unit/services/session.service.test.ts`）で、猶予内・境界の 10 秒ちょうど・10 秒を過ぎた再提示・後継が使われた後の再提示の分岐を確かめる。統合テスト（`backend/src/__tests__/integration/refresh-token-family.integration.test.ts`）で、実 DB の上で、直後の再提示が 200 で系列が残り届かなかった後継が置き換え済みになること、置き換えの時刻を 10 秒より前へ戻すと系列ごと失効し監査 `REFRESH_TOKEN_REUSE_DETECTED` が残ること、後継が使われた後の再提示で系列ごと失効すること、同時の二度の提示がどちらも成功し未置き換えの行が 1 行であることを主張する（改訂前の「同時に二度提示すると系列の全てが失効する」の主張は改訂の内容に合わせて改める）
+  - 上の単体・統合テストが緑の状態になる
+  - _Boundary: SessionService, backend/prisma, backend/src/services/session.service.ts_
+  - _Requirements: 33.6, 33.13_
+
+- [x] 69.2 ページの移動で切られたリフレッシュの後もセッションが続くことを E2E で確かめる
+  - `e2e/specs/auth/token-handling.spec.ts` に、画面のリフレッシュの要求をサーバーへ届けて置き換えさせた上で応答をブラウザへ返さずに切り、次の読み込みが置き換え前の Cookie を送ってもログイン画面へ戻らず認証済みのままであることを確かめる試験を置く（専用の利用者で行う）。既存の 33.6 の試験（first → second → third の後の first の再提示で系列ごと失効する）が緑のままの状態になる
+  - _Depends: 69.1_
+  - _Boundary: e2e/specs/auth_
+  - _Requirements: 33.13_
+
+- [x] 69.3 全ての単体・統合テストと関門を通し、文書を揃える
+  - backend の全単体・統合テストと、リフレッシュに触れる E2E を回す。関門は名指しで一本ずつ回す。`docs/security/ipa-alert-20261009-remediation-plan.md` に 33.6 の改訂の記述があれば揃える
+  - _Depends: 69.1, 69.2_
+  - _Boundary: 全体の検証_
+  - _Requirements: 33.6, 33.13_
+
+**タスク69の記録（2026-11-14）**:
+- 69.1: `parent_id` の列（migration `20261114000000_refresh_token_parent`）と `REFRESH_REUSE_GRACE_MS = 10_000`、`SessionService.isWithinReuseGrace`。単体（猶予内・境界の 10 秒ちょうど・10 秒を過ぎた再提示・後継が使われた後・後継の行が無い・猶予内の有効期限切れ）と統合（直後の再提示・猶予を過ぎた再提示・後継が使われた後の再提示・猶予で置き換え済みにした後継の猶予後の提示・同時の二度の提示）が緑。改訂前の「同時に二度提示すると系列の全てが失効する」と「直後の再提示で失効する」の主張は、改訂の内容（33.13）に合わせて書き換えた（猶予を過ぎた再提示は置き換えの時刻を 10 秒より前へ戻して作る）
+- 69.2: `token-handling.spec.ts` の 33.13 の試験は、画面のリフレッシュを別の入れ物から同じ Cookie でサーバーへ届けて置き換えさせ、応答を止めたまま次の画面へ移る。再試行なしの 5 回の繰り返しで緑。反実仮想: `REFRESH_REUSE_GRACE_MS` を 0 にすると同じ試験が 401 で赤になることを確かめた（改訂前の振る舞い）
+- 69.3: backend の単体 7,650 件・統合 1,629 件、`e2e/specs/auth` と `project-access-scope.spec.ts` の 265 件が緑。上流 site-survey の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 597→598 へ動いた（`session.service.test.ts` が user-authentication をちょうど一つ名乗るようになった）ため錨と値を貼り直した。画面の側の再送しない方針（`TokenRefreshManager`・`ApiClient`）は変えず、注記だけを猶予に合わせて改めた
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）

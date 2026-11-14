@@ -749,7 +749,8 @@ class ApiClient {
     const send = async (): Promise<T> => {
       await this.fetchCsrfToken();
       // 再試行しない: backend がローテーション・失効を確定した後に応答を失うと、ブラウザの Cookie は
-      // 置き換え前のまま残る。再送はその古い Cookie を再提示し、再利用の検知で系列ごと失効させる（要件33.6）
+      // 置き換え前のまま残る。再送はその古い Cookie を再提示し、置き換えの直後 10 秒の猶予（要件33.13）を
+      // 過ぎていれば再利用の検知で系列ごと失効させる（要件33.6）
       return this.request<T>(
         path,
         { method: 'POST', disableRetry: true },
