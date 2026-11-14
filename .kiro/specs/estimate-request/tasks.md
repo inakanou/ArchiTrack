@@ -2783,5 +2783,29 @@
   - estimate-request の要件 43〜50 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
   - _Requirements: 44.9, 45.13, 48.8, 49.7, 50.1_
   - _Depends: 120.1, 120.2, 115.1, 113.5_
-- 見積依頼の作成で、別のプロジェクトの内訳書と存在しない内訳書はどちらも経路の層の汎用の 404（NOT_FOUND）で、応答は同じ。サービスの層の確認（D15）は経路を経ない呼び出しのための不変条件で、HTTP からは届かない。同じプロジェクトの論理削除された内訳書は経路を通り、サービスの ITEMIZED_STATEMENT_NOT_FOUND になる（存在しない ID の NOT_FOUND と符号が違う。Requirement 51 の範囲外で未対処）（121.1）
+- 見積依頼の作成で、別のプロジェクトの内訳書と存在しない内訳書はどちらも経路の層の汎用の 404（NOT_FOUND）で、応答は同じ。サービスの層の確認（D15）は経路を経ない呼び出しのための不変条件で、HTTP からは届かない。同じプロジェクトの論理削除された内訳書は経路を通り、サービスの ITEMIZED_STATEMENT_NOT_FOUND になる（存在しない ID の NOT_FOUND と符号が違う。Requirement 51 の範囲外で未対処。2026-11-14 にタスク122.1 で 51.4 として対処）（121.1）
 - 運用の手順（backend/src/scripts）は本番の入口から到達しないため、結合の試験に印を置いても check:req-coverage は本番に到達しない被覆として数えない。51.3 は除外の台帳に代替の検証つきで登録する（121.2）
+
+## タスク122: 見積依頼の宛先と内訳書を作成の後に変えないことと、論理削除された内訳書の応答（利用者の判断で起票、2026-11-14）
+
+**経緯**: タスク121 の記録に残した二つの既知の点（9.3 と実装の食い違い、論理削除された内訳書の応答の符号の違い）について、利用者の判断（2026-11-14「推奨案で進めて下さい」「宛先も変えない」、要件・設計・タスクは一括承認）で Requirement 9.3 を改め、9.7・51.4 を加え、51.1 を作成に絞った。design.md の章「Requirement 9.3・9.7・51.4: 見積依頼の宛先と内訳書を作成の後に変えないことと、論理削除された内訳書の応答（2026-11-14 の改訂）」の EstimateRequestRoutes（変更）・D17・D18・Testing Strategy を行う
+
+- [x] 122.1 作成の要求で内訳書が使えないときの応答を汎用の 404 にそろえる
+  - design.md の同章の EstimateRequestRoutes（変更）と D17 のとおり、作成の経路の処理で `ItemizedStatementNotFoundError` を `NotFoundError` として共通のエラーハンドラーへ渡す
+  - 経路の単体（`backend/src/__tests__/unit/routes/estimate-requests.routes.test.ts`）の `ITEMIZED_STATEMENT_NOT_FOUND` の主張を、404・符号 `NOT_FOUND`・本文に内訳書の ID を含まない主張に改める。結合（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）に、同じプロジェクトの論理削除された内訳書を指す作成が存在しない内訳書と同じ本文の 404 になり、見積依頼を作らず記録もしない試験を足す。改修の前に赤になることを先に示す
+  - 同じ結合のファイルに、編集の要求に別の取引先と別の内訳書を含めても名前だけが変わる試験を足す（9.7。今の実装で緑になる）
+  - 単体と結合で、作成の要求の内訳書の不在と論理削除が同じ応答になり、編集で宛先と内訳書が変わらない状態になる
+  - _Requirements: 9.7, 51.4_
+  - _Boundary: EstimateRequestRoutes_
+
+- [x] 122.2 9.3 の E2E を改めた条文に合わせ、spec の関門を通す
+  - `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の 9.3 の試験を、編集の画面で名前の入力が編集でき、宛先と内訳書が「宛先は変更できません」「内訳書は変更できません」と添えて表示され、入力の欄を持たないことを主張する形に改める（主張を弱めない）
+  - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す
+  - E2E と関門で、9.3・9.7・51.4 が被覆として数えられ、関門がすべて緑になる状態になる
+  - _Requirements: 9.3, 9.7, 51.4_
+  - _Depends: 122.1_
+
+**タスク122の記録（2026-11-14）**:
+
+- 122.1: 作成の経路の処理で `ItemizedStatementNotFoundError` を `NotFoundError` として共通のエラーハンドラーへ渡した。改修の前に、経路の単体（符号の主張）と結合（同じプロジェクトの論理削除された内訳書を指す作成）が `ITEMIZED_STATEMENT_NOT_FOUND` を受けて赤になることを確かめ、改修の後に緑になった。経路の単体の試験の app のエラーハンドラーは `ApiError` を扱わず 500 にしていたため、本番の `errorHandler` と同じく `ApiError` を Problem Details で返す分岐を足した。9.7 の結合は今の実装（編集の要求の検査が宛先・内訳書を読み捨てる）で初めから緑である
+- 122.2: 9.3 の E2E を、名前の入力が編集でき、宛先と内訳書が値と「宛先は変更できません」「内訳書は変更できません」で表示され、フォームの入力の欄が名前の 1 つだけで選択の欄を持たないことを主張する形に改めた。`estimate-request-e2e.spec.ts` と `estimate-creation-project-scope.spec.ts` を再試行なしで流して 95 件が緑

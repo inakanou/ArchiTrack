@@ -180,14 +180,10 @@ router.post(
 
       res.status(201).json(estimateRequest);
     } catch (error) {
+      // 内訳書の不在・論理削除・プロジェクトの食い違いは、経路の検査の不在と同じ汎用の 404 にする
+      // （本文に内訳書の ID を含めない。estimate-request の要件 51.4、design.md の D17）
       if (error instanceof ItemizedStatementNotFoundError) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/itemized-statement-not-found',
-          title: 'Itemized Statement Not Found',
-          status: 404,
-          detail: error.message,
-          code: 'ITEMIZED_STATEMENT_NOT_FOUND',
-        });
+        next(new NotFoundError());
         return;
       }
       if (error instanceof NotFoundError) {

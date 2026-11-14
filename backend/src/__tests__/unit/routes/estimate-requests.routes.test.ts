@@ -146,7 +146,7 @@ import {
   MissingContactInfoError,
 } from '../../../errors/estimateRequestError.js';
 import { ItemizedStatementNotFoundError } from '../../../errors/itemizedStatementError.js';
-import { ValidationError } from '../../../errors/apiError.js';
+import { ApiError, ValidationError } from '../../../errors/apiError.js';
 
 describe('estimate-requests.routes', () => {
   let app: express.Express;
@@ -180,7 +180,7 @@ describe('estimate-requests.routes', () => {
     app.use('/api/estimate-requests', estimateRequestsRoutes);
 
     // エラーハンドラー
-    app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
       if (err instanceof ValidationError) {
         res.status(400).json({
           type: 'https://api.architrack.com/errors/validation-error',
@@ -190,6 +190,11 @@ describe('estimate-requests.routes', () => {
           code: 'VALIDATION_ERROR',
           errors: err.details,
         });
+        return;
+      }
+      // 本番の errorHandler と同じく ApiError は Problem Details で返す
+      if (err instanceof ApiError) {
+        res.status(err.statusCode).json(err.toProblemDetails(req.url));
         return;
       }
       console.error('Test error:', err);
@@ -255,7 +260,13 @@ describe('estimate-requests.routes', () => {
       expect(response.body.code).toBe('TRADING_PARTNER_NOT_SUBCONTRACTOR');
     });
 
-    it('should return 404 when itemized statement not found', async () => {
+    /**
+     * 内訳書の不在・論理削除・プロジェクトの食い違いは、経路の検査の不在と同じ汎用の 404 にする
+     * （design.md の D17）
+     *
+     * @requirement estimate-request/REQ-51.4
+     */
+    it('should return the generic 404 without the itemized statement id when itemized statement not found', async () => {
       mockCreate.mockRejectedValue(new ItemizedStatementNotFoundError(itemizedStatementId));
 
       const response = await request(app)
@@ -263,7 +274,8 @@ describe('estimate-requests.routes', () => {
         .send(validCreateInput);
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+      expect(response.body.code).toBe('NOT_FOUND');
+      expect(JSON.stringify(response.body)).not.toContain(itemizedStatementId);
     });
 
     it('should return 422 when itemized statement has no items', async () => {

@@ -300,7 +300,7 @@ sequenceDiagram
 | 6.1-6.10 | 見積依頼文表示 | EstimateRequestTextPanel | GET /api/estimate-requests/:id/text | テキスト生成 |
 | 7.1-7.6 | クリップボードコピー機能 | ClipboardCopyButton, copy-to-clipboard.ts | - | クリップボード操作 |
 | 8.1-8.5 | 見積依頼データ管理 | EstimateRequestService | CRUD APIs | データ管理 |
-| 9.1-9.6 | 見積依頼編集・削除 | EstimateRequestEditPage | PUT/DELETE APIs | 編集・削除 |
+| 9.1-9.7 | 見積依頼編集・削除（宛先と内訳書は作成の後に変えない。2026-11-14 改訂） | EstimateRequestEditPage | PUT/DELETE APIs | 編集・削除 |
 | 10.1-10.4 | 権限管理（Requirement 42 の案件の閲覧範囲で読む。2026-10-27 改訂） | authorize.middleware | RBAC | 権限制御 |
 | 11.1-11.8 | 受領見積書登録（フォーム・ファイル） | ReceivedQuotationForm, FileInlinePreview | POST /api/estimate-requests/:id/quotations | 受領見積書登録 |
 | 11.9-11.21 | 受領見積書登録（構造化データ入力） | LineItemEditor | POST /api/estimate-requests/:id/quotations | 明細行入力 |
@@ -7766,7 +7766,7 @@ backend/
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 51.1, 51.2 | 別のプロジェクトの内訳書を指す作成を不在と同じ 404 で拒む | EstimateRequestService, requireBodyItemizedStatementProjectScope | `POST /api/projects/:projectId/estimate-requests` | - |
+| 51.1, 51.2 | 別のプロジェクトの内訳書を指す作成を不在と同じ 404 で拒む（51.1 は 2026-11-14 に作成へ絞った） | EstimateRequestService, requireBodyItemizedStatementProjectScope | `POST /api/projects/:projectId/estimate-requests` | - |
 | 51.3 | 既存の不整合を確かめる | FindCrossProjectEstimateRequestsScript | `npm run estimate-request:find-cross-project` | - |
 
 ### Components and Interfaces
@@ -7824,3 +7824,90 @@ backend/
 
 ### Migration Strategy
 - 変更は無い。導入の後に一度、確かめる手順を本番で実行し、件数が 0 でなければ利用者が扱いを決める
+
+## Requirement 9.3・9.7・51.4: 見積依頼の宛先と内訳書を作成の後に変えないことと、論理削除された内訳書の応答（2026-11-14 の改訂）
+
+### Overview
+
+**Purpose**: 要件 9.3 を実装（宛先と内訳書は読み取り専用）に合わせ、編集の要求で宛先と内訳書を変えないことを 9.7 で固定する。作成の要求で同じプロジェクトの論理削除された内訳書を指定したときの応答を、存在しない内訳書の応答（経路の検査の汎用の 404）にそろえる（51.4）。
+
+**Users**: 見積依頼を編集・作成する利用者。
+
+**Impact（既存前提の確認。2026-11-14 の調べもの〔読むだけ。HEAD `8e857aea`〕）**:
+
+1. 編集の画面 `EstimateRequestEditPage` は名前だけを入力でき、宛先と内訳書は「宛先は変更できません」「内訳書は変更できません」と添えた読み取り専用の表示である。内訳書のない見積依頼は内訳書の欄を出さない
+2. 編集の要求の検査 `updateEstimateRequestSchema` は名前・見積依頼方法・本文への内訳の記載・`expectedUpdatedAt` だけを持ち、含まれない項目（`tradingPartnerId`・`itemizedStatementId`）は読み捨てる
+3. 作成の経路は `requireBodyItemizedStatementProjectScope` を通る。解決関数は内訳書の論理削除を区別せず、同じプロジェクトの論理削除された内訳書は検査を通る。`EstimateRequestService.create` が `ItemizedStatementNotFoundError` を投げ、経路の処理が独自の本文（符号 `ITEMIZED_STATEMENT_NOT_FOUND`、本文に内訳書の ID）の 404 を返す。存在しない内訳書は判定部品の汎用の 404（`NotFoundError`、符号 `NOT_FOUND`）である
+4. 画面は見積依頼の作成の 404 を、符号を問わず「プロジェクトまたは内訳書が見つかりません。存在しないか、削除されています。」と表示する（`getEstimateRequestNotFoundMessage` の `projectOrItemizedStatement`）
+
+### Goals
+- 9.3 の条文と編集の画面・要求が一致する
+- 作成の要求で内訳書が使えないときの応答が、存在しない場合と論理削除された場合で同じになる
+
+### Non-Goals
+- 編集で宛先・内訳書を変えられるようにすること
+- 経路の閲覧範囲の判定（`requireBodyItemizedStatementProjectScope`）の変更と、範囲外の論理削除された内訳書の記録（42.4・42.10）の変更
+- 画面の表示の変更
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 作成の経路の処理が `ItemizedStatementNotFoundError` を返す応答の形
+
+#### Out of Boundary
+- 判定部品の汎用の 404 の本文（user-authentication の ProjectScopeGuard が所管）
+- 内訳書の機能の経路の `ITEMIZED_STATEMENT_NOT_FOUND`（itemized-statement-generation が所管。本章は見積依頼の作成の応答だけを変える）
+
+#### Allowed Dependencies
+- 既存の `NotFoundError`（`backend/src/errors/apiError.ts`）と共通のエラーハンドラー
+
+#### Revalidation Triggers
+- 判定部品の汎用の 404 の本文を変えた（51.4 は同じ本文であることを主張する）
+- 編集の要求で宛先・内訳書を受け付けるようにした（9.7 と 51.1 を見直す）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.3 | 編集の画面で名前を編集でき、宛先と内訳書は読み取り専用 | EstimateRequestEditPage | `PUT /api/estimate-requests/:id` | 編集・削除 |
+| 9.7 | 編集の要求に宛先・内訳書が含まれていても変えない | EstimateRequestRoutes | `PUT /api/estimate-requests/:id` | 編集・削除 |
+| 51.4 | 作成の要求で論理削除された内訳書を指すと、存在しない内訳書と同じ応答 | EstimateRequestRoutes | `POST /api/projects/:projectId/estimate-requests` | - |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| EstimateRequestEditPage（変更なし） | Frontend/Page | 名前の編集と、宛先・内訳書の読み取り専用の表示 | 9.3 |
+| EstimateRequestRoutes（変更） | Backend/Route | 作成の `ItemizedStatementNotFoundError` を汎用の 404 にする。編集の要求の検査は変えない | 9.7, 51.4 |
+
+#### EstimateRequestRoutes（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 作成の要求で内訳書が使えないときの応答を、判定部品の汎用の 404 と同じにする |
+| Requirements | 9.7, 51.4 |
+
+- 作成の経路の処理は、`EstimateRequestService.create` が投げた `ItemizedStatementNotFoundError` を独自の本文で返さず、`next(new NotFoundError())` で共通のエラーハンドラーへ渡す。判定部品の不在の応答と同じく `NotFoundError` の既定の文言・符号・problem type になり、本文に内訳書の ID を含めない。D15 のサービスの層の食い違いの確認も同じ応答になる
+- 編集の経路は変えない。`updateEstimateRequestSchema` が `tradingPartnerId`・`itemizedStatementId` を読み捨て、サービスはこれらを更新しない（9.7）
+
+### 決定
+
+**D17 応答をそろえる層**: 経路の処理で `ItemizedStatementNotFoundError` を汎用の 404 に変える。判定部品の解決関数で論理削除された内訳書を不在（null）にする案は、閲覧範囲外のプロジェクトの論理削除された内訳書を指す要求の記録（42.4・42.10）が消え、論理削除されていても実在する限り実際の案件で判定して記録する 42.12 の考え方と揃わないため採らない。経路の処理で変えれば、範囲外の判定と記録は判定部品のまま変わらず、範囲内の不在だけが同じ応答になる
+**D18 編集の要求の宛先・内訳書を拒まない**: 含まれていても 400 にせず、今の検査のとおり読み捨てる。画面はこれらを送らず、拒む形に変えると検査の方針（含まれない項目を読み捨てる）が経路ごとに揃わなくなるため
+
+### Error Handling
+- 作成の内訳書の不在・論理削除・プロジェクトの食い違い（D15）は、いずれも汎用の 404（符号 `NOT_FOUND`）。トランザクションの中で投げるため、見積依頼は作られず監査も記録されない（従来どおり）
+
+### Testing Strategy
+- **単体（backend）**: 作成の経路の単体の試験で、サービスが `ItemizedStatementNotFoundError` を投げたとき、応答が 404・符号 `NOT_FOUND`・本文に内訳書の ID を含まないことを主張する（従来の `ITEMIZED_STATEMENT_NOT_FOUND` の主張を改める）。所在は `backend/src/__tests__/unit/routes/estimate-requests.routes.test.ts`
+- **結合（backend）**: 実際の DB で、同じプロジェクトの論理削除された内訳書を指す作成が、存在しない内訳書を指す作成と `instance` を除いて同じ本文の 404 になり、見積依頼を作らず範囲外の記録もしないことを主張する（51.4）。編集の要求に別の取引先と別の内訳書を含めても、200 で名前だけが変わり、宛先と内訳書が変わらないことを主張する（9.7）。所在は次の段落のファイル
+- **結合の所在**: `backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`
+- **E2E の所在**: `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`
+- **E2E**: 上の E2E の所在の 9.3 の試験は編集の画面へ移ることだけを確かめていた。名前の入力が編集でき、宛先と内訳書が「宛先は変更できません」「内訳書は変更できません」と添えて表示され、入力の欄を持たないことを主張する形に改める。9.7・51.4 は画面から起こせない（画面は宛先・内訳書を送らず、作成の候補に論理削除された内訳書を出さない）ため、上の結合の被覆の印で数える
+- 挙動の変更は RED → GREEN で進める
+
+### Security Considerations
+- 51.4 の応答は内訳書の ID を本文に含めない（従来の `ITEMIZED_STATEMENT_NOT_FOUND` の本文は ID を含んでいた）
+
+### Migration Strategy
+- 変更は無い

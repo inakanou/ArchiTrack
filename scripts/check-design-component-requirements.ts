@@ -339,9 +339,13 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // minPairs 57 → 59 / minTableDeclarations 83 → 85 / minDetailDeclarations 58 → 60（estimate-request の
     // Requirement 51 の設計、2026-11-11）。章「Requirement 51: 見積依頼が参照する内訳書のプロジェクト」が部品表の
     // 2 行と詳細節の Requirements 欄 2 つを足したため、締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 59,
-    minTableDeclarations: 85,
-    minDetailDeclarations: 60,
+    // minPairs 59 → 61 / minTableDeclarations 85 → 87 / minDetailDeclarations 60 → 61（estimate-request の
+    // タスク122 の起票、2026-11-14）。利用者の判断で足した章「Requirement 9.3・9.7・51.4: 見積依頼の宛先と
+    // 内訳書を作成の後に変えないことと、論理削除された内訳書の応答」が部品表の 2 行と詳細節の Requirements 欄
+    // 1 つを足したため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 61,
+    minTableDeclarations: 87,
+    minDetailDeclarations: 61,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'execution-budget-management': {
