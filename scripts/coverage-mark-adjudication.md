@@ -418,7 +418,7 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 - `e2e/specs/trading-partners/trading-partner-additional.spec.ts` の区間 `取引先作成時に監査ログが記録される (trading-partner-management/REQ-7.4, REQ-7.6)` — tpm/7.6: 主題は取引先の更新で、更新そのものを確かめている。未観測は同時に記録されるべき監査ログ。
 - `e2e/specs/trading-partners/trading-partner-data-integrity.spec.ts` の区間 `一般ユーザーが取引先の作成・編集操作を実行できる (trading-partner-management/REQ-7.2, REQ-7.5)` — tpm/7.5: 主題は取引先の参照整合性で、関連の維持を確かめている。未観測は削除時の扱いの一部。
 - `e2e/specs/trading-partners/trading-partner-composite-unique.spec.ts` の区間 `同一の取引先名で部課/支店/支社名が空と値ありの組み合わせは別の取引先として作成できる (trading-partner-management/REQ-2.11)` — tpm/2.11: 主題は取引先名と部課名の組み合わせの一意性で、重複時のエラー表示を確かめている。未観測は大文字小文字・空白の正規化。
-- `e2e/specs/company-info/company-info-api.spec.ts` の区間 `REQ-6.7: 自社情報の閲覧にcompany_info:read権限を要求する（認証済みユーザーはアクセス可能）` / `REQ-6.8: 自社情報の保存にcompany_info:update権限を要求する（認証済みユーザーは保存可能）` — company-info/6.7・6.8: 原文は「閲覧/保存に権限を要求する」という無条件の規範であり、主題は同じ。権限を持つ側で 200 と保存成功を確かめており、未観測は権限を欠く側の応答。
+- `e2e/specs/company-info/company-info-api.spec.ts` の区間 `REQ-6.7: 自社情報の閲覧にcompany_info:read権限を要求する（認証済みユーザーはアクセス可能）` / `REQ-6.8: 自社情報の保存にcompany_info:update権限を要求する（権限を持つシステム管理者は保存可能）` — company-info/6.7・6.8: 原文は「閲覧/保存に権限を要求する」という無条件の規範であり、主題は同じ。権限を持つ側で 200 と保存成功を確かめており、未観測は権限を欠く側の応答。
 
 **追加登録（タスク 115.250。2026-09-03）。以下の一件は §3（本タスクで是正した被覆印）にも §4 にも
 登録されず、§6 の引き継ぎ項目としてのみ扱われていた。** 115.220 が `project-management/REQ-27.4` の

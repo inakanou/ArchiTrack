@@ -239,9 +239,10 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'company-info': {
     mode: 'ratchet',
     maxContradictions: 1,
-    minPairs: 5,
-    minTableDeclarations: 6,
-    minDetailDeclarations: 6,
+    // 2026-11-15 の company-info のタスク10（要件6.11・6.12 の章）で、部品 4 件の章が増えた実測へ上げた
+    minPairs: 9,
+    minTableDeclarations: 10,
+    minDetailDeclarations: 8,
     reason:
       '本タスク（115.247）の境界は `site-survey` の是正にある。他機能で検出した矛盾は是正せず開示にとどめ、現況を上限として固定する',
   },
@@ -431,9 +432,10 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'trading-partner-management': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 14,
-    minTableDeclarations: 16,
-    minDetailDeclarations: 15,
+    // 2026-11-15 の trading-partner-management のタスク34（要件5.6・5.7・7.7 の章）で、部品 4 件の章が増えた実測へ上げた
+    minPairs: 17,
+    minTableDeclarations: 20,
+    minDetailDeclarations: 17,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
   'user-authentication': {
