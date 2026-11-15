@@ -669,10 +669,10 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     // 外部の AI での読み取りの専用の権限（estimate-request の 49.6）
     // 見積依頼を閲覧できる一般ユーザーは受領見積書の OCR で使える（管理者は *:* で持つ）
     { resource: 'claude_vision', action: 'use' },
-    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
-    // 一般ユーザーは自社情報の閲覧・更新が可能
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7）
+    // 一般ユーザーは自社情報の閲覧だけが可能。保存（company_info:update）は既定で割り当てない
+    // （company-info の要件6.11。管理者は *:* で保存でき、必要な利用者には管理者がロールで付ける）
     { resource: 'company_info', action: 'read' },
-    { resource: 'company_info', action: 'update' },
     // 見積書関連権限（estimate-creation/REQ-11）
     // 一般ユーザーは見積書の作成・閲覧・更新・削除が可能
     { resource: 'estimate', action: 'create' },

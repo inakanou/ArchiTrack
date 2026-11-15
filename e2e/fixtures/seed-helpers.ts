@@ -569,9 +569,10 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'estimate', action: 'read' },
     { resource: 'estimate', action: 'update' },
     { resource: 'estimate', action: 'delete' },
-    // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
+    // 自社情報関連権限（company-info/REQ-6.6, 6.7）
+    // 一般ユーザーは閲覧だけ。保存（company_info:update）は既定で割り当てない
+    // （company-info/REQ-6.11。backend seed と同期。管理者は *:* で保存できる）
     { resource: 'company_info', action: 'read' },
-    { resource: 'company_info', action: 'update' },
     // 工程表関連権限
     { resource: 'schedule', action: 'create' },
     { resource: 'schedule', action: 'read' },
