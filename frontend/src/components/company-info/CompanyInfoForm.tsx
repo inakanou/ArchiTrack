@@ -51,6 +51,11 @@ export interface CompanyInfoFormProps {
   onDirtyChange: (isDirty: boolean) => void;
   /** 送信中フラグ */
   isSubmitting: boolean;
+  /**
+   * 読み取り専用（保存の権限を持たない利用者。company-info の要件6.12）。
+   * 入力欄を readOnly にし、保存・リセットのボタンを描かず、権限が無い旨を表示する
+   */
+  readOnly?: boolean;
 }
 
 // ============================================================================
@@ -100,6 +105,7 @@ function CompanyInfoForm({
   onReset,
   onDirtyChange,
   isSubmitting,
+  readOnly = false,
 }: CompanyInfoFormProps) {
   // ============================================================================
   // 状態管理
@@ -238,6 +244,10 @@ function CompanyInfoForm({
    */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // 読み取り専用では送信しない（要件6.12。保存の経路も権限で 403 を返す）
+    if (readOnly) {
+      return;
+    }
 
     // 全フィールドをタッチ済みにする
     setTouched({
@@ -345,6 +355,20 @@ function CompanyInfoForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
+      {readOnly && (
+        <p
+          role="note"
+          style={{
+            marginBottom: '1rem',
+            padding: '0.75rem 1rem',
+            backgroundColor: STYLES.colors.disabledBg,
+            color: STYLES.colors.text,
+            borderRadius: STYLES.borderRadius,
+          }}
+        >
+          自社情報を変更する権限がありません
+        </p>
+      )}
       {/* ========== 必須フィールド ========== */}
 
       {/* 会社名 */}
@@ -379,6 +403,7 @@ function CompanyInfoForm({
             handleTextFieldBlur('companyName', e.target.value)
           }
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="会社名"
           aria-required="true"
           aria-invalid={!!errors.companyName}
@@ -433,6 +458,7 @@ function CompanyInfoForm({
             handleTextFieldBlur('address', e.target.value)
           }
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="住所"
           aria-required="true"
           aria-invalid={!!errors.address}
@@ -487,6 +513,7 @@ function CompanyInfoForm({
             handleTextFieldBlur('representative', e.target.value)
           }
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="代表者"
           aria-required="true"
           aria-invalid={!!errors.representative}
@@ -538,6 +565,7 @@ function CompanyInfoForm({
           onFocus={() => setFocusedField('phone')}
           onBlur={(e: FocusEvent<HTMLInputElement>) => handleTextFieldBlur('phone', e.target.value)}
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="電話番号"
           aria-invalid={!!errors.phone}
           aria-describedby={errors.phone ? phoneErrorId : undefined}
@@ -586,6 +614,7 @@ function CompanyInfoForm({
           onFocus={() => setFocusedField('fax')}
           onBlur={(e: FocusEvent<HTMLInputElement>) => handleTextFieldBlur('fax', e.target.value)}
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="FAX番号"
           aria-invalid={!!errors.fax}
           aria-describedby={errors.fax ? faxErrorId : undefined}
@@ -634,6 +663,7 @@ function CompanyInfoForm({
           onFocus={() => setFocusedField('email')}
           onBlur={(e: FocusEvent<HTMLInputElement>) => handleTextFieldBlur('email', e.target.value)}
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="メールアドレス"
           aria-invalid={!!errors.email}
           aria-describedby={errors.email ? emailErrorId : undefined}
@@ -685,6 +715,7 @@ function CompanyInfoForm({
             handleTextFieldBlur('invoiceRegistrationNumber', e.target.value)
           }
           disabled={isSubmitting}
+          readOnly={readOnly}
           aria-label="適格請求書発行事業者登録番号"
           aria-invalid={!!errors.invoiceRegistrationNumber}
           aria-describedby={errors.invoiceRegistrationNumber ? invoiceErrorId : undefined}
@@ -706,68 +737,70 @@ function CompanyInfoForm({
         )}
       </div>
 
-      {/* ボタン */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '1rem',
-          justifyContent: 'flex-end',
-        }}
-      >
-        <button
-          type="button"
-          onClick={handleReset}
-          disabled={isSubmitting}
+      {/* ボタン（読み取り専用では描かない。要件6.12） */}
+      {!readOnly && (
+        <div
           style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: STYLES.colors.white,
-            color: STYLES.colors.text,
-            border: `1px solid ${STYLES.colors.border}`,
-            borderRadius: STYLES.borderRadius,
-            fontSize: '1rem',
-            fontWeight: 500,
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
-            ...(isSubmitting ? { backgroundColor: '#e5e7eb', color: '#525b6a' } : {}),
-          }}
-        >
-          リセット
-        </button>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          style={{
-            padding: '0.75rem 1.5rem',
-            backgroundColor: isSubmitting ? STYLES.colors.disabled : STYLES.colors.primary,
-            color: STYLES.colors.white,
-            border: 'none',
-            borderRadius: STYLES.borderRadius,
-            fontSize: '1rem',
-            fontWeight: 600,
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
+            gap: '1rem',
+            justifyContent: 'flex-end',
           }}
         >
-          {isSubmitting && (
-            <span
-              role="status"
-              aria-label="ローディング中"
-              style={{
-                display: 'inline-block',
-                width: '1rem',
-                height: '1rem',
-                border: '2px solid white',
-                borderTopColor: 'transparent',
-                borderRadius: '50%',
-                animation: 'spin 0.6s linear infinite',
-              }}
-            />
-          )}
-          {isSubmitting ? '保存中...' : '保存'}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={isSubmitting}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: STYLES.colors.white,
+              color: STYLES.colors.text,
+              border: `1px solid ${STYLES.colors.border}`,
+              borderRadius: STYLES.borderRadius,
+              fontSize: '1rem',
+              fontWeight: 500,
+              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+              ...(isSubmitting ? { backgroundColor: '#e5e7eb', color: '#525b6a' } : {}),
+            }}
+          >
+            リセット
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: isSubmitting ? STYLES.colors.disabled : STYLES.colors.primary,
+              color: STYLES.colors.white,
+              border: 'none',
+              borderRadius: STYLES.borderRadius,
+              fontSize: '1rem',
+              fontWeight: 600,
+              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            {isSubmitting && (
+              <span
+                role="status"
+                aria-label="ローディング中"
+                style={{
+                  display: 'inline-block',
+                  width: '1rem',
+                  height: '1rem',
+                  border: '2px solid white',
+                  borderTopColor: 'transparent',
+                  borderRadius: '50%',
+                  animation: 'spin 0.6s linear infinite',
+                }}
+              />
+            )}
+            {isSubmitting ? '保存中...' : '保存'}
+          </button>
+        </div>
+      )}
 
       {/* アニメーション定義 */}
       <style>

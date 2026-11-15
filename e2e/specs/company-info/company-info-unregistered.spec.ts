@@ -7,6 +7,10 @@
  * Requirements:
  * - Requirement 1.4: 自社情報が未登録の場合、空のフォームを表示する
  * - Requirement 3.3: 自社情報が未登録の状態でリセットボタンをクリックした場合、フォームを空の状態にリセットする
+ *
+ * 保存・リセット・入力の編集を伴うテストは、保存の権限（company_info:update）を持つ
+ * システム管理者（ADMIN_USER）で操作する。一般ユーザーは既定で保存の権限を持たず、
+ * 画面は読み取り専用になる（company-info/REQ-6.11, REQ-6.12。tasks.md 10.3）。
  */
 
 import { test, expect } from '@playwright/test';
@@ -72,7 +76,7 @@ test.describe('自社情報未登録状態のテスト', () => {
     test('REQ-3.3: 自社情報が未登録の状態でリセットボタンをクリックした場合、フォームを空の状態にリセットする', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 

@@ -75,3 +75,23 @@ export const Submitting: Story = {
     isSubmitting: true,
   },
 };
+
+/**
+ * 読み取り専用（保存の権限を持たない利用者。company-info の要件6.12）
+ */
+export const ReadOnly: Story = {
+  args: {
+    initialData: {
+      companyName: '株式会社サンプル',
+      address: '東京都千代田区千代田1-1-1',
+      representative: '山田 太郎',
+      phone: '03-1234-5678',
+      fax: '03-1234-5679',
+      email: 'info@sample.co.jp',
+      invoiceRegistrationNumber: 'T1234567890123',
+      version: 1,
+    },
+    isSubmitting: false,
+    readOnly: true,
+  },
+};

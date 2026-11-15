@@ -27,6 +27,15 @@ import * as companyInfoApi from '../../api/company-info';
 import type { CompanyInfoFormData } from '../../types/company-info.types';
 
 vi.mock('../../api/company-info');
+// ページは保存の権限を見る（company-info の要件6.12）。本試験はフォーカスの表示だけを見るため、保存できる利用者とする
+vi.mock('../../hooks/usePermission', () => ({
+  usePermission: () => ({
+    hasPermission: () => true,
+    hasAllPermissions: () => true,
+    hasAnyPermission: () => true,
+    isLoading: false,
+  }),
+}));
 vi.mock('../../hooks/useToast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
 }));

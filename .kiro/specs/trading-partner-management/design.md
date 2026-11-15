@@ -1370,3 +1370,129 @@ ALTER TABLE trading_partners ADD CONSTRAINT "name_branchName_deletedAt"
    - 現況: 実装済み。上の Requirement 12 関連の表の routes.tsx・AppHeader・Dashboard の 3 行の `Status（現況）` 列を参照（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
 8. **Phase 8**: テスト実装（Unit、Integration、E2E）
    - 現況: Task 20.1〜20.3 が `[x]`。上のテストの表の 4 行の `Status` 列のとおりテストが実在し、単体テストは走らせて通過を確かめた。結合テストと E2E は本タスクでは走らせておらず、実在とテスト件数だけを測った（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
+
+## Requirement 5.6・5.7・7.7: 取引先の監査ログに個人情報の値を残さないことと、論理削除した取引先の個人情報を消すこと（2026-11-15 の改訂）
+
+### Overview
+
+**Purpose**: IPA の注意喚起（2026-10-09）の是正計画 5.12 に沿い、取引先の作成・更新・削除の監査ログに個人情報の欄の値を残さない（7.7）。論理削除から 90 日を過ぎた取引先の個人情報を、毎日の定期処理で空にして記録する（5.6・5.7）。
+
+**Users**: 取引先を登録・更新・削除する利用者と、監査ログを読むシステム管理者。
+
+**Impact（既存前提の確認。2026-11-15 の調べもの〔読むだけ。HEAD `61ff2600`〕）**:
+
+1. `TradingPartnerService` は、作成の記録の変更後、更新の記録の変更前・変更後、削除の記録の変更前に、取引先の全ての欄（代表者名・住所・電話番号・FAX番号・メールアドレス・備考を含む）の値を入れる。所在は次の行のファイルである
+   - `backend/src/services/trading-partner.service.ts`
+2. 監査ログは 13 か月の保持の後、暗号化したアーカイブとして 8 年残る（user-authentication の監査ログのアーカイブ）
+3. 取引先の行は、プロジェクト・見積依頼・受領見積書・契約書（監理者）・実行予算の項目・発注から参照される。削除の拒否（5.5）はプロジェクトとの紐付けだけを見るため、論理削除した取引先が見積依頼などから参照されていることがある
+4. 住所の列（`address`）は必須（空を許さない）。代表者名・電話番号・FAX番号・メールアドレス・備考は空を許す
+5. 論理削除したプロジェクトの完全削除（project-management の要件46）は、定期処理の実行基盤の毎日 03:30（Asia/Tokyo）のジョブで、実行者なしの監査ログ（`actorId` が空）を残す。本章はこれに倣う。実行基盤の所在は次の行のファイルである
+   - `backend/src/jobs/scheduled-job-runner.ts`
+
+### Goals
+- 新しく記録する取引先の監査ログに、個人情報の欄の値が残らない
+- 論理削除から 90 日を過ぎた取引先の個人情報が DB から消える。消したことが記録に残る
+- 取引先を参照する記録（見積依頼・発注など）の宛先の名前は残る
+
+### Non-Goals
+- 既に記録した監査ログとアーカイブの書き換え
+- 取引先の行の完全な削除
+- 監査ログの画面の種別の一覧への取引先の種別の追加（取引先の作成・更新・削除の種別も今は一覧に無い）
+- 論理削除した取引先を戻す機能
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 取引先の監査ログに記録する欄
+- 論理削除した取引先の個人情報を消す部品と、その定期処理の定義
+
+#### Out of Boundary
+- 定期処理の実行基盤の作り（キュー・登録・実行。user-authentication が所管。本章は定義を 1 件足すだけ）
+- 監査ログの保持とアーカイブ（user-authentication が所管）
+- 取引先を参照する画面での、個人情報を消した取引先の表示（参照する機能の spec が所管。名前は残るため表示は崩れない）
+
+#### Allowed Dependencies
+- 既存の `AuditLogService`（実行者なしの記録）
+- 既存の定期処理の実行基盤 `createScheduledJobDefinitions`
+
+#### Revalidation Triggers
+- 取引先に個人情報の欄を足した（記録に残さない欄と、消す欄に加える）
+- 取引先の行を参照する表を足した（行を消さない前提の確認）
+- 住所の列の必須を外した（空の文字列でなく空にできる）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 5.6 | 論理削除から 90 日を過ぎた取引先の個人情報を毎日の定期処理で空にする | TradingPartnerPersonalDataEraseService, SoftDeletedTradingPartnerEraseJob | 定期処理 `soft-deleted-trading-partner-erase` | - |
+| 5.7 | 空にしたことを ID と日時だけで記録する | TradingPartnerPersonalDataEraseService | `TRADING_PARTNER_PERSONAL_DATA_ERASED` | - |
+| 7.7 | 作成・更新・削除の記録に個人情報の値を残さず、更新では変わった欄の名前だけを残す | TradingPartnerService | `TRADING_PARTNER_CREATED`・`TRADING_PARTNER_UPDATED`・`TRADING_PARTNER_DELETED` | - |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| TradingPartnerService（変更） | Backend/Service | 監査ログに記録する欄を個人情報でないものに限る | 7.7 |
+| TradingPartnerPersonalDataEraseService（新規） | Backend/Service | 論理削除から 90 日を過ぎた取引先の個人情報を空にして記録する | 5.6, 5.7 |
+| SoftDeletedTradingPartnerEraseJob（新規） | Backend/Job | 毎日 03:45（Asia/Tokyo）に上の部品を呼ぶ | 5.6 |
+| ScheduledJobRunner（変更） | Backend/Job | 定期処理の定義に上のジョブを 1 件足す | 5.6 |
+
+#### TradingPartnerService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 監査ログに記録する欄を個人情報でないものに限る |
+| Requirements | 7.7 |
+
+- 記録の変更前・変更後に入れる欄を、取引先名・フリガナ・部課/支店/支社名・取引先種別・請求締日・支払月・支払日に限る（記録の形を作る関数を 1 つにまとめる）
+- 個人情報の欄は、代表者名・住所・電話番号・FAX番号・メールアドレス・備考とする（備考は人の名前や連絡先を書かれうるため個人情報の欄に含める）
+- 更新の記録は、値の変わった個人情報の欄の名前を付加情報 `metadata.changedPersonalFields`（欄の名前の配列。変わらなければ空の配列）に残す
+
+#### TradingPartnerPersonalDataEraseService（新規）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 論理削除から 90 日を過ぎた取引先の個人情報を空にして記録する |
+| Requirements | 5.6, 5.7 |
+
+- 所在は次の行のファイルである
+  - `backend/src/services/trading-partner-personal-data-erase.service.ts`
+- `eraseExpired(now)`: 論理削除の日時が `now` の 90 日前以前で、個人情報の欄のどれかが残る（住所が空の文字列でない、または他の欄のどれかが空でない）取引先を、論理削除の古い順に最大 100 件選ぶ
+- 1 件ずつトランザクションの中で、代表者名・電話番号・FAX番号・メールアドレス・備考を空にし、住所を空の文字列にし、監査ログ `TRADING_PARTNER_PERSONAL_DATA_ERASED`（実行者なし。対象は取引先の ID。付加情報は論理削除の日時と空にした日時だけ）を記録する。更新の条件に「論理削除されていること」を含め、選んだ後に状態が変わったものは数えない
+- 結果として、空にした件数と、まだ残る対象の件数を返す。1 件の失敗は記録して次へ進み、失敗の件数として返す（次の回でやり直す）
+- 欄を空にした取引先は、条件（個人情報の欄が残る）に当たらなくなるため、次の回で選ばれない
+
+#### SoftDeletedTradingPartnerEraseJob（新規）
+
+- 所在は次の行のファイルである
+  - `backend/src/jobs/soft-deleted-trading-partner-erase.job.ts`
+- ジョブ名 `soft-deleted-trading-partner-erase`、周期 `45 3 * * *`（毎日 03:45、Asia/Tokyo。プロジェクトの完全削除の 15 分後）。現在の時刻で `eraseExpired` を呼ぶ
+
+### 決定
+
+**D1 行を消さず個人情報の欄を空にする**: 取引先は見積依頼・発注・契約書などから参照され、行を消すと宛先が分からなくなる。参照の有無で消すか空にするかを分ける案は、参照の種類が増えるたびに見直しが要るため採らない（利用者の判断「90 日後に個人情報を消す」）
+**D2 既に記録した監査ログを書き換えない**: 監査ログは改ざんを防ぐ記録で、書き換えは記録の信頼を損なう。既存の記録は保持の期間の経過で消える
+**D3 1 回の件数の上限**: 1 回最大 100 件とする。1 件ずつの更新と記録で、トランザクションの時間を短く保つ。超えた分は次の回に回り、回ごとに古い順に進む
+
+### Error Handling
+- 1 件の更新・記録の失敗は、取引先の ID とエラーの種類だけをアプリログに残し（値は残さない）、次の取引先へ進む
+- 定期処理の実行そのものの失敗は、定期処理の実行基盤の扱い（ログと次の回のやり直し）に従う
+
+### Testing Strategy
+- **単体（backend）**: service の単体の試験で、作成・更新・削除の記録に個人情報の欄の値が無いことと、更新で変わった欄の名前が付加情報に残ることを主張する（従来の全ての欄の主張を改める）。消す部品の単体の試験で、選ぶ条件（90 日・欄が残る・古い順・100 件）、空にする欄、記録の内容、1 件の失敗で止まらないことを主張する。ジョブの単体の試験で、名前・周期・現在の時刻で呼ぶことと、実行基盤の定義に含まれることを主張する
+- **単体の所在**: 次のファイル
+  - `backend/src/__tests__/unit/services/trading-partner.service.test.ts`
+  - `backend/src/__tests__/unit/services/trading-partner-personal-data-erase.service.test.ts`
+  - `backend/src/__tests__/unit/jobs/soft-deleted-trading-partner-erase.job.test.ts`
+  - `backend/src/__tests__/unit/jobs/scheduled-job-runner.test.ts`
+- **結合（backend）**: 実際の DB で、作成・更新・削除の記録に個人情報の値が無いこと、90 日を過ぎた論理削除の取引先だけが空になり（89 日のもの・論理削除していないものは残る）、参照する見積依頼が残り、記録が残り、2 回目の実行で何もしないことを主張する
+- **結合の所在**: `backend/src/__tests__/integration/trading-partner-personal-data.integration.test.ts`
+- **E2E**: 画面の挙動は変わらない（監査ログの中身と定期処理は画面から起こせない）ため、上の結合の被覆の印で数える
+- 挙動の変更は RED → GREEN で進める
+
+### Security Considerations
+- 監査ログとアーカイブに、取引先の担当者の個人情報が新しく入らない
+- 使わなくなった個人情報を、DB のバックアップの最長の保持（89 日）を超える 90 日で消す
+
+### Migration Strategy
+- 表の構造は変えない（migration は無い）。デプロイの後、最初の定期処理で、論理削除から 90 日を過ぎた既存の取引先の個人情報が、1 回 100 件ずつ空になる

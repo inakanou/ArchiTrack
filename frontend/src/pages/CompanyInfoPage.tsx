@@ -30,6 +30,7 @@ import Breadcrumb from '../components/common/Breadcrumb';
 import ConflictDialog from '../components/common/ConflictDialog';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useToast } from '../hooks/useToast';
+import { usePermission } from '../hooks/usePermission';
 import type { CompanyInfo, CompanyInfoFormData } from '../types/company-info.types';
 import {
   isCompanyInfo,
@@ -108,6 +109,9 @@ function CompanyInfoPage() {
   const [isDirty, setIsDirty] = useState(false);
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  // 保存の権限を持たない利用者には読み取り専用で表示する（company-info の要件6.12）
+  const { hasPermission } = usePermission();
+  const canUpdate = hasPermission('company_info:update');
 
   const toast = useToast();
   const navigate = useNavigate();
@@ -313,6 +317,7 @@ function CompanyInfoPage() {
           onReset={handleReset}
           onDirtyChange={handleDirtyChange}
           isSubmitting={isSubmitting}
+          readOnly={!canUpdate}
         />
       )}
 

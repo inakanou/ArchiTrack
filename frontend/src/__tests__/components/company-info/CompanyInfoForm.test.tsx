@@ -675,4 +675,97 @@ describe('CompanyInfoForm', () => {
       });
     });
   });
+
+  // ============================================================================
+  // 読み取り専用（company-info の要件6.12）
+  // ============================================================================
+  describe('読み取り専用', () => {
+    const registered: CompanyInfoFormData = {
+      companyName: '登録済みの会社',
+      address: '東京都千代田区1-1-1',
+      representative: '代表 太郎',
+      phone: '03-1234-5678',
+      fax: '03-1234-5679',
+      email: 'info@example.com',
+      invoiceRegistrationNumber: 'T1234567890123',
+      version: 3,
+    };
+
+    /**
+     * @requirement company-info/REQ-6.12
+     */
+    it('入力欄を読み取り専用にし、保存とリセットのボタンを表示せず、権限が無い旨を表示する', () => {
+      render(
+        <CompanyInfoForm
+          initialData={registered}
+          onSubmit={mockOnSubmit}
+          onReset={mockOnReset}
+          onDirtyChange={mockOnDirtyChange}
+          isSubmitting={false}
+          readOnly
+        />
+      );
+
+      expect(screen.getByText('自社情報を変更する権限がありません')).toBeInTheDocument();
+      const fields = [
+        /会社名/,
+        /^住所$/,
+        /^代表者$/,
+        /電話番号/,
+        /FAX番号/,
+        /メールアドレス/,
+        /適格請求書発行事業者登録番号/,
+      ];
+      for (const label of fields) {
+        const input = screen.getByLabelText(label);
+        expect(input).toHaveAttribute('readonly');
+        // 値の選択と読み上げのため、無効（disabled）にはしない（設計の D2）
+        expect(input).not.toBeDisabled();
+      }
+      expect(screen.getByLabelText(/会社名/)).toHaveValue('登録済みの会社');
+      expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'リセット' })).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement company-info/REQ-6.12
+     */
+    it('読み取り専用のフォームで Enter を押しても送信しない', async () => {
+      const user = userEvent.setup();
+      render(
+        <CompanyInfoForm
+          initialData={registered}
+          onSubmit={mockOnSubmit}
+          onReset={mockOnReset}
+          onDirtyChange={mockOnDirtyChange}
+          isSubmitting={false}
+          readOnly
+        />
+      );
+
+      await user.click(screen.getByLabelText(/会社名/));
+      await user.keyboard('{Enter}');
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement company-info/REQ-6.12
+     */
+    it('読み取り専用でないときは保存とリセットのボタンを表示し、権限が無い旨を表示しない', () => {
+      render(
+        <CompanyInfoForm
+          initialData={registered}
+          onSubmit={mockOnSubmit}
+          onReset={mockOnReset}
+          onDirtyChange={mockOnDirtyChange}
+          isSubmitting={false}
+        />
+      );
+
+      expect(screen.queryByText('自社情報を変更する権限がありません')).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/会社名/)).not.toHaveAttribute('readonly');
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'リセット' })).toBeInTheDocument();
+    });
+  });
 });

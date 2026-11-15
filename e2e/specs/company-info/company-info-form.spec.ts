@@ -9,6 +9,10 @@
  * - Requirement 3: フォーム操作 (3.1-3.3)
  * - Requirement 4: データバリデーション (4.1-4.10)
  * - Requirement 8: パフォーマンス (8.1-8.2)
+ *
+ * 保存・リセット・入力の編集を伴うテストは、保存の権限（company_info:update）を持つ
+ * システム管理者（ADMIN_USER）で操作する。一般ユーザーは既定で保存の権限を持たず、
+ * 画面は読み取り専用になる（company-info/REQ-6.11, REQ-6.12。tasks.md 10.3）。
  */
 
 import { test, expect, Page } from '@playwright/test';
@@ -164,7 +168,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-2.1, REQ-2.2: 有効なデータを入力して保存ボタンをクリックしたとき、自社情報をデータベースに保存する（新規作成）', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -188,7 +192,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-1.3, REQ-2.3: 自社情報が登録されている場合、登録済み情報をプリセット表示し、更新できる', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -223,7 +227,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-2.4: 保存に成功したとき、「自社情報を保存しました」という成功メッセージをToastNotificationで表示する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -246,7 +250,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-2.5: 必須項目（会社名、住所、代表者）が未入力の場合、バリデーションエラーメッセージを各項目に表示する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -274,7 +278,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-2.6: 保存処理中はローディングインジケーターを表示し、保存ボタンを無効化する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -307,7 +311,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
      * @requirement company-info/REQ-3.1
      */
     test('REQ-3.1: 「リセット」ボタンを保存ボタンの横に表示する', async ({ page }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -325,7 +329,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-3.2: リセットボタンをクリックしたとき、フォームの内容を最後に保存された状態に戻す', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -351,7 +355,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
    */
   test.describe('Requirement 4: データバリデーション', () => {
     test.beforeEach(async ({ page }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
     });
@@ -544,7 +548,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
      * @requirement company-info/REQ-8.2
      */
     test('REQ-8.2: 自社情報の保存操作のAPI応答を500ミリ秒以内に完了する', async ({ page }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 

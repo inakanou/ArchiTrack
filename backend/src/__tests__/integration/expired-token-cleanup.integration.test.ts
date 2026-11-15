@@ -289,7 +289,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(6);
+      expect(repeatables).toHaveLength(7);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -326,6 +326,13 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             name: 'soft-deleted-project-purge',
             id: 'soft-deleted-project-purge',
             cron: '30 3 * * *',
+            tz: 'Asia/Tokyo',
+          }),
+          // 論理削除した取引先の個人情報の消去（trading-partner-management のタスク34.2）
+          expect.objectContaining({
+            name: 'soft-deleted-trading-partner-erase',
+            id: 'soft-deleted-trading-partner-erase',
+            cron: '45 3 * * *',
             tz: 'Asia/Tokyo',
           }),
         ])
@@ -369,7 +376,14 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
       expect(nextPurge.getUTCHours()).toBe(18);
       expect(nextPurge.getUTCMinutes()).toBe(30);
       expect(nextPurge.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
-      expect(await inspector.getDelayedCount()).toBe(6);
+      // 論理削除した取引先の個人情報の消去（タスク34.2）の次の実行は毎日 03:45 Asia/Tokyo（UTC の 18:45）
+      const nextErase = new Date(
+        repeatables.find((job) => job.name === 'soft-deleted-trading-partner-erase')?.next ?? 0
+      );
+      expect(nextErase.getUTCHours()).toBe(18);
+      expect(nextErase.getUTCMinutes()).toBe(45);
+      expect(nextErase.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
+      expect(await inspector.getDelayedCount()).toBe(7);
     } finally {
       await inspector.close();
     }

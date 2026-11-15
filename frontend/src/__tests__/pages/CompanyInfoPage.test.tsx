@@ -32,10 +32,27 @@ import * as companyInfoApi from '../../api/company-info';
 import { ApiError } from '../../api/client';
 import type { CompanyInfo } from '../../types/company-info.types';
 import { useToast } from '../../hooks/useToast';
+import { usePermission } from '../../hooks/usePermission';
+import type { UsePermissionReturn } from '../../hooks/usePermission';
 
 // モック設定
 vi.mock('../../api/company-info');
 vi.mock('../../hooks/useToast');
+
+/** 与えた権限だけを持つ usePermission の戻り値 */
+function permissionOf(permissions: string[]): UsePermissionReturn {
+  const has = (p: string): boolean => permissions.includes(p);
+  return {
+    hasPermission: has,
+    hasAllPermissions: (ps) => ps.every(has),
+    hasAnyPermission: (ps) => ps.some(has),
+    isLoading: false,
+  };
+}
+
+vi.mock('../../hooks/usePermission', () => ({
+  usePermission: vi.fn(),
+}));
 
 // useBlockerをモック（データルーターなしでテストするため）
 vi.mock('react-router-dom', async () => {
@@ -56,14 +73,17 @@ vi.mock('../../components/company-info/CompanyInfoForm', () => ({
     onReset,
     onDirtyChange,
     isSubmitting,
+    readOnly,
   }: {
     initialData?: { companyName: string; address: string; representative: string; version: number };
     onSubmit: (data: unknown) => Promise<void>;
     onReset: () => void;
     onDirtyChange: (isDirty: boolean) => void;
     isSubmitting: boolean;
+    readOnly?: boolean;
   }) => (
     <div data-testid="company-info-form">
+      <span data-testid="read-only">{readOnly ? 'true' : 'false'}</span>
       <span data-testid="initial-company-name">{initialData?.companyName ?? ''}</span>
       <span data-testid="initial-address">{initialData?.address ?? ''}</span>
       <span data-testid="initial-representative">{initialData?.representative ?? ''}</span>
@@ -194,6 +214,51 @@ describe('CompanyInfoPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useToast).mockReturnValue(mockToast);
+    vi.mocked(usePermission).mockReturnValue(
+      permissionOf(['company_info:read', 'company_info:update'])
+    );
+  });
+
+  // ============================================================================
+  // 保存の権限（company-info の要件6.12）
+  // ============================================================================
+  describe('保存の権限', () => {
+    /**
+     * @requirement company-info/REQ-6.12
+     */
+    it('company_info:update を持たない利用者にはフォームを読み取り専用で渡す', async () => {
+      vi.mocked(usePermission).mockReturnValue(permissionOf(['company_info:read']));
+      vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue({} as Record<string, never>);
+
+      render(
+        <MemoryRouter>
+          <CompanyInfoPage />
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('company-info-form')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('read-only')).toHaveTextContent('true');
+    });
+
+    /**
+     * @requirement company-info/REQ-6.12
+     */
+    it('company_info:update を持つ利用者にはフォームを編集できる形で渡す', async () => {
+      vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue({} as Record<string, never>);
+
+      render(
+        <MemoryRouter>
+          <CompanyInfoPage />
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('company-info-form')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('read-only')).toHaveTextContent('false');
+    });
   });
 
   // ============================================================================

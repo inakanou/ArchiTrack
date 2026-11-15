@@ -93,7 +93,7 @@
 ## Existing Spec Updates
 
 - [x] estimate-request -- 受領見積の見積依頼を任意にし（14.1 の改訂）、明細行に区分（諸経費・交通費・産廃・値引き・法定福利費・別途）・条件・換算・分類キー・数量表の行のキー、受領見積に案件の条件・参考の印・読取の確認・採否・業者名（文字）・原本の指紋（sha256）・見積の区別を持たせ、指紋と区別で二重登録を検出する。同じ回に IPA の是正項目（5.5）も行う。Dependencies: IPA の user-authentication の完了
-- [ ] project-management -- 案件の詳細画面に「受領見積書」の欄を置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（同 spec の Requirement 27・38・40 の先例）。同じ回に IPA の是正項目（5.3）も行う。Dependencies: estimate-request の拡張
+- [x] project-management -- 案件の詳細画面に「受領見積書」の欄を置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（同 spec の Requirement 27・38・40 の先例）。同じ回に IPA の是正項目（5.3）も行う。Dependencies: estimate-request の拡張（完了。2026-11-12 に develop へ統合〔#893〕。完全削除の詰まりの是正は #894）
 - [ ] estimate-creation -- 明細行ごとに似た過去単価を表示し（単価＋諸経費按分−値引き按分、業者名つき）、実行金額の行へ反映して出典を記録する（4.5 の改訂、実行金額行の出典欄）。同じ回に IPA の是正項目（5.8）も行う。Dependencies: unit-price-ledger
 - [ ] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）
 - [ ] quantity-table-generation -- 数量項目に行のキー（分類キー＋区別）・分類キー・追跡用の GlobalId の組を持たせ、行のキーで差分を当てる処理を加える（31.9 の「末尾への追加のみ」との整理）。同じ回に IPA の是正項目（5.6）も行う。Dependencies: claude-connector（第 1 段）
@@ -117,7 +117,7 @@
 
 1. IPA の是正：user-authentication（完了。2026-10-30・10-31 に機能ごとの実装の総合検証が GO）
 2. estimate-request の拡張と IPA の是正（5.5）。#869 の受領見積の欄（分類キー・数量表の行のキー・原本の指紋・見積の区別）を含む（完了。2026-11-08 に機能ごとの実装の総合検証が GO、2026-11-09 に develop へ統合）
-3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）
+3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）（完了。2026-11-12 に develop へ統合〔#893・#894〕）
 4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）
 5. estimate-creation の拡張と IPA の是正（5.8）
 6. user-authentication の拡張（外部アプリの認可）
@@ -126,7 +126,7 @@
 9. estimate-creation の 2 回目の拡張、construction-schedule の拡張と IPA の是正（5.10）
 10. submission-intake（新規）
 11. claude-connector 第 2 段（数量表・見積の下書き・工程表の下書きの取り込み、実行金額への反映）
-12. 残りの IPA の是正（site-survey・construction-photo ほか、是正計画 §3 の順。project-management は 3、construction-schedule は 9 で済ませる）
+12. 残りの IPA の是正（site-survey・construction-photo ほか、是正計画 §3 の順。project-management は 3、construction-schedule は 9 で済ませる。trading-partner-management の 5.12 と company-info の 5.13 は、2026-11-15 に利用者の判断で 4 の前に行った）
 
 ## Specs (dependency order)
 

@@ -807,3 +807,110 @@ e2e/specs/
     ├── company-info-navigation.spec.ts  # ナビゲーションテスト
     └── company-info-validation.spec.ts  # バリデーションテスト
 ```
+
+## Requirement 6.11・6.12: 自社情報の保存の権限を一般ユーザーの既定から外すこと（2026-11-15 の改訂）
+
+### Overview
+
+**Purpose**: IPA の注意喚起（2026-10-09）の是正計画 5.13 に沿い、一般ユーザーのロールの既定の権限から「company_info:update」を外す（6.11）。保存の権限を持たない利用者には、自社情報ページを読み取り専用で表示する（6.12）。
+
+**Users**: 自社情報を閲覧する全ての利用者と、保存の権限を付け外しするシステム管理者。
+
+**Impact（既存前提の確認。2026-11-15 の調べもの〔読むだけ。HEAD `61ff2600`〕）**:
+
+1. 種データの部品 `seedRolePermissions`（`backend/src/utils/seed-helpers.ts`）は、一般ユーザーのロール（`user`）の基本の権限に「company_info:read」と「company_info:update」を含め、`createMany` の `skipDuplicates` で足す。足すだけで外さないため、種データから外しても既に稼働している環境の割り当ては残る
+2. 既定の権限を改めた前例は、user-authentication のタスク44.4 の migration（`20261017020000_security_remediation_ipa_20261009_default_permissions`）である。組み込みの一般ユーザーのロールの割り当てを、ロールの名前と権限の資源・操作で特定して `DELETE` した
+3. 保存の経路は既に `requirePermission('company_info:update')` を通り、権限が無ければ 403 を返す（6.8・6.9）
+4. 自社情報ページ（`frontend/src/pages/CompanyInfoPage.tsx`）とフォーム（`frontend/src/components/company-info/CompanyInfoForm.tsx`）は権限を見ず、全ての利用者に入力欄と保存・リセットのボタンを表示する
+5. E2E の自社情報の試験の多くは一般ユーザー（`REGULAR_USER`）で保存する
+
+### Goals
+- 一般ユーザーのロールが、新しく作る環境でも既に稼働している環境でも「company_info:update」を持たない
+- 保存の権限を持たない利用者が、保存できない入力をしなくて済む
+
+### Non-Goals
+- 閲覧の権限（「company_info:read」）の変更
+- 保存の経路の権限の検査の変更（6.8・6.9 のまま）
+- 管理者が独自のロールに付けた「company_info:update」の変更
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 一般ユーザーのロールの既定の権限のうち、自社情報の分
+- 自社情報ページの、保存の権限を持たない利用者への表示
+
+#### Out of Boundary
+- ロールと権限の管理の画面・経路（user-authentication が所管）
+- 権限の判定の部品（`usePermission`・`requirePermission`。user-authentication が所管）
+
+#### Allowed Dependencies
+- 既存の `usePermission`（`frontend/src/hooks/usePermission.ts`）の `hasPermission`
+- 既存の RBAC の表（`roles`・`permissions`・`role_permissions`）
+
+#### Revalidation Triggers
+- 一般ユーザーのロールの名前（`user`）や、権限の資源・操作の名前を変えた（migration は名前で特定する）
+- 自社情報ページに保存以外の書き込みの操作を足した
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 6.11 | 一般ユーザーのロールに保存の権限を既定で割り当てず、稼働中の環境からも外す | SeedHelpers, CompanyInfoUpdateNotDefaultMigration | `role_permissions` | - |
+| 6.12 | 保存の権限を持たない利用者に読み取り専用で表示する | CompanyInfoPage, CompanyInfoForm | `usePermission` | - |
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req Coverage |
+|-----------|-------|--------|--------------|
+| SeedHelpers（変更） | Backend/Seed | 一般ユーザーの基本の権限から「company_info:update」を外す | 6.11 |
+| CompanyInfoUpdateNotDefaultMigration（新規） | Backend/Migration | 稼働中の環境の一般ユーザーのロールから「company_info:update」の割り当てを外す | 6.11 |
+| CompanyInfoPage（変更） | Frontend/Page | 保存の権限の有無をフォームへ渡す | 6.12 |
+| CompanyInfoForm（変更） | Frontend/Component | 読み取り専用の表示 | 6.12 |
+
+#### CompanyInfoUpdateNotDefaultMigration（新規）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 稼働中の環境の一般ユーザーのロールから「company_info:update」の割り当てを外す |
+| Requirements | 6.11 |
+
+- 所在は次の行の migration のファイルである
+  - `backend/prisma/migrations/20261115000000_company_info_update_not_default/migration.sql`
+- ロールの名前 `user` と、権限の資源 `company_info`・操作 `update` で割り当てを特定し、`role_permissions` から `DELETE` する（前例のタスク44.4 と同じ形）。権限そのもの（`permissions` の行）は残す。システム管理者は `*:*` で保存できる
+- 管理者が独自に作ったロールに付けた割り当ては変えない
+
+#### CompanyInfoForm（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 保存の権限を持たない利用者に読み取り専用で表示する |
+| Requirements | 6.12 |
+
+- 任意の属性 `readOnly`（既定は `false`）を足す。`true` のとき、入力欄を `readOnly` にし（値の選択と読み上げはできる）、保存ボタンとリセットボタンを描かず、フォームの上に「自社情報を変更する権限がありません」と表示する。送信は行わない
+- `CompanyInfoPage` は `usePermission` の `hasPermission('company_info:update')` が偽のとき `readOnly` を渡す。未保存の変更の確認（3.4）は、入力が変わらないため起きない
+
+### 決定
+
+**D1 稼働中の環境の割り当てを外す手段**: migration で外す。起動の時の種データで外す案は、種データの部品が足すだけの作りで、外す処理を足すと管理者が意図して付けた割り当てとの区別が付かないため採らない。migration は 1 回だけ流れ、その後に管理者が付け直した割り当てを外さない
+**D2 読み取り専用の表し方**: 入力欄は `disabled` でなく `readOnly` にする。`disabled` はフォーカスを受けず、支援技術で値を読み上げにくいため。ボタンは無効にして残すのでなく描かない（押せない操作を見せない）
+
+### Error Handling
+- 画面の表示と権限の状態が食い違った場合（表示の後に権限が付け外しされた場合）も、保存の経路の検査（6.8・6.9）が 403 を返す。画面の読み取り専用は利用の便のためで、守りは経路の検査が担う
+
+### Testing Strategy
+- **単体（frontend）**: フォームの単体の試験で、`readOnly` のとき入力欄が読み取り専用で、保存・リセットのボタンが無く、「自社情報を変更する権限がありません」が表示されることを主張する。ページの単体の試験で、保存の権限の有無で表示が分かれることを主張する
+- **単体の所在**: 次の 2 つのファイル
+  - `frontend/src/__tests__/components/company-info/CompanyInfoForm.test.tsx`
+  - `frontend/src/__tests__/pages/CompanyInfoPage.test.tsx`
+- **結合（backend）**: 実際の DB で、種データの後の一般ユーザーのロールが「company_info:update」を持たず、一般ユーザーの保存が 403、システム管理者の保存が 200 になることを主張する。migration の SQL を、一般ユーザーのロールに割り当てを足した状態で流し、割り当てが外れ、他のロールの割り当てが残ることを主張する
+- **結合の所在**: `backend/src/__tests__/integration/company-info-default-permission.integration.test.ts`
+- **E2E**: 一般ユーザーで自社情報ページを開くと読み取り専用で表示され、保存・リセットのボタンが無いことを主張する。保存を伴う既存の E2E は、保存の権限を持つシステム管理者で操作する形に改める（主張は変えない）
+- **E2E の所在**: `e2e/specs/company-info/company-info-access-control.spec.ts`
+- 挙動の変更は RED → GREEN で進める
+
+### Security Considerations
+- 自社情報の書き換えを管理者と、管理者が権限を付けた利用者に絞る（最小権限）
+
+### Migration Strategy
+- migration `20261115000000_company_info_update_not_default` を当てる。表の構造は変えず、割り当ての行だけを消す。デプロイの起動時（`MIGRATE_ON_DEPLOY=true`）に当たる
+- 当てた後、一般ユーザーは自社情報を保存できなくなる。保存が要る利用者には、管理者が「company_info:update」を持つロールを付ける

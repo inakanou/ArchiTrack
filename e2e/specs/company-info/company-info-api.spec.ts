@@ -14,6 +14,10 @@
  *
  * Note: REQ-6.9, REQ-9.5〜9.10はAPI直接呼び出しテストのため統合テストで検証
  * @see e2e/requirement-exclusions.json
+ *
+ * 保存・リセット・入力の編集を伴うテストは、保存の権限（company_info:update）を持つ
+ * システム管理者（ADMIN_USER）で操作する。一般ユーザーは既定で保存の権限を持たず、
+ * 画面は読み取り専用になる（company-info/REQ-6.11, REQ-6.12。tasks.md 10.3）。
  */
 
 import { test, expect } from '@playwright/test';
@@ -78,10 +82,10 @@ test.describe('自社情報API・権限・監査ログ', () => {
     /**
      * @requirement company-info/REQ-6.8
      */
-    test('REQ-6.8: 自社情報の保存にcompany_info:update権限を要求する（認証済みユーザーは保存可能）', async ({
+    test('REQ-6.8: 自社情報の保存にcompany_info:update権限を要求する（権限を持つシステム管理者は保存可能）', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -109,7 +113,8 @@ test.describe('自社情報API・権限・監査ログ', () => {
 
       const response = await responsePromise;
 
-      // 権限があるユーザーは200を受け取る
+      // 権限（company_info:update）を持つシステム管理者は200を受け取る
+      // （権限を持たない一般ユーザーの 403 は company-info-access-control.spec.ts の REQ-6.11 で主張する）
       expect(response.ok()).toBe(true);
     });
 
@@ -119,7 +124,7 @@ test.describe('自社情報API・権限・監査ログ', () => {
     test('REQ-6.10: 自社情報の保存操作を監査ログに記録する', async ({ page }) => {
       const prisma = getPrismaClient();
 
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -194,7 +199,7 @@ test.describe('自社情報API・権限・監査ログ', () => {
     test('REQ-9.2: 自社情報が登録されている場合、自社情報オブジェクトを返却する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
 
       // まず自社情報を登録
       await page.goto('/company-info');
@@ -269,7 +274,7 @@ test.describe('自社情報API・権限・監査ログ', () => {
     test('REQ-9.4: PUT /api/company-info エンドポイントで自社情報の作成・更新機能を提供する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 

@@ -7,6 +7,10 @@
  * - Requirement 2.7: 楽観的排他制御（versionフィールド）を実装し、同時更新による競合を検出する
  * - Requirement 2.8: 楽観的排他制御で競合が検出された場合、エラーを表示する
  * - Requirement 3.4: フォームに未保存の変更がある状態でページを離れようとしたとき、確認ダイアログを表示する
+ *
+ * 保存・リセット・入力の編集を伴うテストは、保存の権限（company_info:update）を持つ
+ * システム管理者（ADMIN_USER）で操作する。一般ユーザーは既定で保存の権限を持たず、
+ * 画面は読み取り専用になる（company-info/REQ-6.11, REQ-6.12。tasks.md 10.3）。
  */
 
 import { test, expect } from '@playwright/test';
@@ -46,7 +50,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     }) => {
       // 同じ役割で二つ目のコンテキストを開くため、共有の役割の利用者ではなく
       // テストの中で作る利用者のセッションで行う（要件33.6）
-      const sessionUser = await createSessionUser('REGULAR_USER');
+      const sessionUser = await createSessionUser('ADMIN_USER');
 
       // 2つのコンテキストを作成して同時更新をシミュレート
       const context1 = await browser.newContext();
@@ -131,7 +135,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     test('REQ-3.4: フォームに未保存の変更がある状態でページを離れようとしたとき、確認ダイアログを表示する', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -162,7 +166,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     test('REQ-3.4: 確認ダイアログで「このページにとどまる」を選択するとページに留まる', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -195,7 +199,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     test('REQ-3.4: 確認ダイアログで「ページを離れる」を選択するとページを離れる', async ({
       page,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
@@ -223,7 +227,7 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
      * @requirement company-info/REQ-3.4
      */
     test('REQ-3.4: 保存後は未保存確認ダイアログが表示されない', async ({ page }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
       await page.goto('/company-info');
       await page.waitForLoadState('networkidle');
 
