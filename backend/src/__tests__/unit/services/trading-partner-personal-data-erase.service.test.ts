@@ -171,4 +171,65 @@ describe('TradingPartnerPersonalDataEraseService', () => {
       'Failed to erase personal data of soft-deleted trading partner'
     );
   });
+
+  /**
+   * @requirement trading-partner-management/REQ-5.7
+   */
+  it('監査ログの部品を渡さないときは本番の部品を作り、実際の DB の取引先のメソッドだけを使う', async () => {
+    const prisma = {
+      tradingPartner: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      $transaction: vi.fn(),
+    };
+    const service = new TradingPartnerPersonalDataEraseService({
+      prisma: prisma as unknown as PrismaClient,
+    });
+
+    await expect(service.eraseExpired(NOW)).resolves.toEqual({
+      erasedCount: 0,
+      failedCount: 0,
+      remainingCount: 0,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @requirement trading-partner-management/REQ-5.7
+   */
+  it('論理削除の日時が読めないときは記録の論理削除の日時を空にする', async () => {
+    const { auditLogService, service } = createMocks([
+      { id: 'tp-1', deletedAt: null as unknown as Date },
+    ]);
+
+    await service.eraseExpired(NOW);
+
+    expect(auditLogService.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { deletedAt: null, erasedAt: NOW.toISOString() },
+      }),
+      expect.anything()
+    );
+  });
+
+  /**
+   * @requirement trading-partner-management/REQ-5.6
+   */
+  it('Error でない値が投げられたときも、取引先の ID と値の種類だけをログに残す', async () => {
+    const { prisma, service } = createMocks([
+      { id: 'tp-1', deletedAt: new Date('2026-07-01T00:00:00.000Z') },
+    ]);
+    prisma.$transaction.mockImplementationOnce(async () => {
+      throw 'connection reset by peer';
+    });
+
+    const result = await service.eraseExpired(NOW);
+
+    expect(result).toEqual({ erasedCount: 0, failedCount: 1, remainingCount: 0 });
+    expect(logger.error).toHaveBeenCalledWith(
+      { tradingPartnerId: 'tp-1', errorName: 'string' },
+      'Failed to erase personal data of soft-deleted trading partner'
+    );
+  });
 });

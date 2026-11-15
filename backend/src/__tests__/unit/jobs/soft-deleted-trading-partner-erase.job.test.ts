@@ -50,4 +50,24 @@ describe('soft-deleted-trading-partner-erase', () => {
     expect(eraseExpired).toHaveBeenNthCalledWith(1, new Date('2026-11-15T18:45:00.000Z'));
     expect(eraseExpired).toHaveBeenNthCalledWith(2, new Date('2026-11-16T18:45:00.000Z'));
   });
+
+  /**
+   * @requirement trading-partner-management/REQ-5.6
+   */
+  it('既定の組み立てでは本番の部品を作り、現在の時刻の 90 日前を境に対象を選ぶ', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const count = vi.fn().mockResolvedValue(0);
+    const prisma = { tradingPartner: { findMany, count } } as unknown as PrismaClient;
+    const before = Date.now();
+
+    const run = createSoftDeletedTradingPartnerEraseRun(prisma);
+    await expect(run()).resolves.toEqual({ erasedCount: 0, failedCount: 0, remainingCount: 0 });
+
+    const after = Date.now();
+    const where = findMany.mock.calls[0]?.[0]?.where as { deletedAt: { lte: Date } };
+    const retentionMs = 90 * 24 * 60 * 60 * 1000;
+    expect(where.deletedAt.lte.getTime()).toBeGreaterThanOrEqual(before - retentionMs);
+    expect(where.deletedAt.lte.getTime()).toBeLessThanOrEqual(after - retentionMs);
+    expect(count).toHaveBeenCalledTimes(1);
+  });
 });
