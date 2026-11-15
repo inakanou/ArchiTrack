@@ -88,6 +88,16 @@ const mockTradingPartner = {
   types: [{ id: 'type-1', tradingPartnerId: 'partner-123', type: 'CUSTOMER' as const }],
 };
 
+/** 監査ログに値を記録しない取引先の個人情報の欄（trading-partner-management の要件7.7） */
+const PERSONAL_FIELDS = [
+  'representativeName',
+  'address',
+  'phoneNumber',
+  'faxNumber',
+  'email',
+  'notes',
+] as const;
+
 describe('TradingPartnerService', () => {
   let service: TradingPartnerService;
   let mockPrisma: ReturnType<typeof createMockPrisma>;
@@ -305,7 +315,10 @@ describe('TradingPartnerService', () => {
       expect(result.billingClosingDay).toBe(99);
     });
 
-    it('監査ログにbefore=null、after=作成データが記録される', async () => {
+    /**
+     * @requirement trading-partner-management/REQ-7.7
+     */
+    it('監査ログにbefore=null、after=作成データ（個人情報の欄の値を除く）が記録される', async () => {
       // Arrange
       const actorId = 'actor-123';
       const createdPartner = {
@@ -331,18 +344,24 @@ describe('TradingPartnerService', () => {
       // Act
       await service.createPartner(validInput, actorId);
 
-      // Assert
+      // Assert（個人情報の欄〔代表者名・住所・電話番号・FAX番号・メールアドレス・備考〕の値は記録しない。要件7.7）
       expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
         expect.objectContaining({
+          action: 'TRADING_PARTNER_CREATED',
           before: null,
-          after: expect.objectContaining({
-            name: 'テスト取引先株式会社',
-            nameKana: 'テストトリヒキサキカブシキガイシャ',
-            address: '東京都渋谷区1-1-1',
-            types: ['CUSTOMER'],
-          }),
         })
       );
+      const created = vi.mocked(mockAuditLogService.createLog).mock.calls[0]![0];
+      expect(created.after).toEqual({
+        name: createdPartner.name,
+        nameKana: createdPartner.nameKana,
+        branchName: createdPartner.branchName,
+        billingClosingDay: createdPartner.billingClosingDay,
+        paymentMonthOffset: createdPartner.paymentMonthOffset,
+        paymentDay: createdPartner.paymentDay,
+        types: ['CUSTOMER'],
+      });
+      expect(JSON.stringify(created)).not.toContain(createdPartner.address);
     });
 
     it('トランザクション内で種別マッピングが作成される', async () => {
@@ -1761,17 +1780,24 @@ describe('TradingPartnerService', () => {
       expect(result.address).toBe(existingPartner.address);
     });
 
-    it('監査ログにbefore（更新前）とafter（更新後）のデータが記録される', async () => {
+    /**
+     * @requirement trading-partner-management/REQ-7.7
+     */
+    it('監査ログにbefore（更新前）とafter（更新後）のデータ（個人情報の欄の値を除く）と、変わった個人情報の欄の名前が記録される', async () => {
       // Arrange
       const actorId = 'actor-123';
       const updateInput = {
         expectedUpdatedAt: existingPartner.updatedAt.toISOString(),
         name: '更新後取引先株式会社',
+        address: '大阪府大阪市北区9-9-9',
+        email: 'changed-contact@example.com',
       };
 
       const updatedPartner = {
         ...existingPartner,
         name: '更新後取引先株式会社',
+        address: '大阪府大阪市北区9-9-9',
+        email: 'changed-contact@example.com',
         updatedAt: new Date('2024-01-16T10:00:00.000Z'),
       };
 
@@ -1804,14 +1830,25 @@ describe('TradingPartnerService', () => {
       // Assert
       expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
         expect.objectContaining({
+          action: 'TRADING_PARTNER_UPDATED',
           before: expect.objectContaining({
             name: '既存取引先株式会社',
           }),
           after: expect.objectContaining({
             name: '更新後取引先株式会社',
           }),
+          metadata: { changedPersonalFields: ['address', 'email'] },
         })
       );
+      const updated = vi.mocked(mockAuditLogService.createLog).mock.calls[0]![0];
+      for (const field of PERSONAL_FIELDS) {
+        expect(updated.before).not.toHaveProperty(field);
+        expect(updated.after).not.toHaveProperty(field);
+      }
+      const serialized = JSON.stringify(updated);
+      expect(serialized).not.toContain(existingPartner.address);
+      expect(serialized).not.toContain('大阪府大阪市北区9-9-9');
+      expect(serialized).not.toContain('changed-contact@example.com');
     });
 
     it('請求締日と支払日を末日（99）に更新できる', async () => {
@@ -2158,7 +2195,10 @@ describe('TradingPartnerService', () => {
       );
     });
 
-    it('監査ログにbefore（削除前データ）とafter=nullが記録される', async () => {
+    /**
+     * @requirement trading-partner-management/REQ-7.7
+     */
+    it('監査ログにbefore（削除前データ。個人情報の欄の値を除く）とafter=nullが記録される', async () => {
       // Arrange
       const actorId = 'actor-123';
 
@@ -2191,6 +2231,11 @@ describe('TradingPartnerService', () => {
           after: null,
         })
       );
+      const deleted = vi.mocked(mockAuditLogService.createLog).mock.calls[0]![0];
+      for (const field of PERSONAL_FIELDS) {
+        expect(deleted.before).not.toHaveProperty(field);
+      }
+      expect(JSON.stringify(deleted)).not.toContain(existingPartner.address);
     });
 
     it('プロジェクトに紐付いている場合はPartnerInUseErrorをスローする（Requirement 5.5）', async () => {

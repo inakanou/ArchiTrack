@@ -165,6 +165,69 @@ export interface TradingPartnerSearchResult {
 }
 
 /**
+ * 取引先の個人情報の欄（trading-partner-management の要件5.6・7.7）
+ *
+ * 監査ログに値を記録せず、論理削除から 90 日を過ぎたら空にする。備考は人の名前や連絡先を
+ * 書かれうるため含める
+ */
+export const TRADING_PARTNER_PERSONAL_FIELDS = [
+  'representativeName',
+  'address',
+  'phoneNumber',
+  'faxNumber',
+  'email',
+  'notes',
+] as const;
+
+export type TradingPartnerPersonalField = (typeof TRADING_PARTNER_PERSONAL_FIELDS)[number];
+
+/** 監査ログの形を作るのに要る取引先の欄 */
+type TradingPartnerAuditSource = Pick<
+  TradingPartnerInfo,
+  | 'name'
+  | 'nameKana'
+  | 'branchName'
+  | 'billingClosingDay'
+  | 'paymentMonthOffset'
+  | 'paymentDay'
+  | TradingPartnerPersonalField
+>;
+
+/**
+ * 監査ログに記録する取引先の形（個人情報の欄の値を含めない。要件7.7）
+ *
+ * @param partner - 取引先
+ * @param types - 取引先種別
+ */
+function toAuditSnapshot(
+  partner: TradingPartnerAuditSource,
+  types: readonly TradingPartnerType[]
+): Prisma.InputJsonObject {
+  return {
+    name: partner.name,
+    nameKana: partner.nameKana,
+    branchName: partner.branchName,
+    billingClosingDay: partner.billingClosingDay,
+    paymentMonthOffset: partner.paymentMonthOffset,
+    paymentDay: partner.paymentDay,
+    types: [...types],
+  };
+}
+
+/**
+ * 値の変わった個人情報の欄の名前（値は返さない。要件7.7）
+ *
+ * @param before - 更新前の取引先
+ * @param after - 更新後の取引先
+ */
+function changedPersonalFields(
+  before: TradingPartnerAuditSource,
+  after: TradingPartnerAuditSource
+): TradingPartnerPersonalField[] {
+  return TRADING_PARTNER_PERSONAL_FIELDS.filter((field) => before[field] !== after[field]);
+}
+
+/**
  * 取引先サービス
  *
  * 取引先のCRUD操作とビジネスロジックを担当します。
@@ -265,21 +328,7 @@ export class TradingPartnerService {
         targetType: TRADING_PARTNER_TARGET_TYPE,
         targetId: createdPartner.id,
         before: null,
-        after: {
-          name: createdPartner.name,
-          nameKana: createdPartner.nameKana,
-          branchName: createdPartner.branchName,
-          representativeName: createdPartner.representativeName,
-          address: createdPartner.address,
-          phoneNumber: createdPartner.phoneNumber,
-          faxNumber: createdPartner.faxNumber,
-          email: createdPartner.email,
-          billingClosingDay: createdPartner.billingClosingDay,
-          paymentMonthOffset: createdPartner.paymentMonthOffset,
-          paymentDay: createdPartner.paymentDay,
-          notes: createdPartner.notes,
-          types: typesArray,
-        },
+        after: toAuditSnapshot(createdPartner, typesArray),
       });
 
       return this.toTradingPartnerInfo(createdPartner);
@@ -551,36 +600,10 @@ export class TradingPartnerService {
         actorId,
         targetType: TRADING_PARTNER_TARGET_TYPE,
         targetId: id,
-        before: {
-          name: existingPartner.name,
-          nameKana: existingPartner.nameKana,
-          branchName: existingPartner.branchName,
-          representativeName: existingPartner.representativeName,
-          address: existingPartner.address,
-          phoneNumber: existingPartner.phoneNumber,
-          faxNumber: existingPartner.faxNumber,
-          email: existingPartner.email,
-          billingClosingDay: existingPartner.billingClosingDay,
-          paymentMonthOffset: existingPartner.paymentMonthOffset,
-          paymentDay: existingPartner.paymentDay,
-          notes: existingPartner.notes,
-          types: beforeTypesArray,
-        },
-        after: {
-          name: updatedPartner.name,
-          nameKana: updatedPartner.nameKana,
-          branchName: updatedPartner.branchName,
-          representativeName: updatedPartner.representativeName,
-          address: updatedPartner.address,
-          phoneNumber: updatedPartner.phoneNumber,
-          faxNumber: updatedPartner.faxNumber,
-          email: updatedPartner.email,
-          billingClosingDay: updatedPartner.billingClosingDay,
-          paymentMonthOffset: updatedPartner.paymentMonthOffset,
-          paymentDay: updatedPartner.paymentDay,
-          notes: updatedPartner.notes,
-          types: afterTypesArray,
-        },
+        before: toAuditSnapshot(existingPartner, beforeTypesArray),
+        after: toAuditSnapshot(updatedPartner, afterTypesArray),
+        // 変わった個人情報の欄は名前だけを残す（値は残さない。要件7.7）
+        metadata: { changedPersonalFields: changedPersonalFields(existingPartner, updatedPartner) },
       });
 
       return this.toTradingPartnerInfo(updatedPartner);
@@ -662,21 +685,7 @@ export class TradingPartnerService {
         actorId,
         targetType: TRADING_PARTNER_TARGET_TYPE,
         targetId: id,
-        before: {
-          name: existingPartner.name,
-          nameKana: existingPartner.nameKana,
-          branchName: existingPartner.branchName,
-          representativeName: existingPartner.representativeName,
-          address: existingPartner.address,
-          phoneNumber: existingPartner.phoneNumber,
-          faxNumber: existingPartner.faxNumber,
-          email: existingPartner.email,
-          billingClosingDay: existingPartner.billingClosingDay,
-          paymentMonthOffset: existingPartner.paymentMonthOffset,
-          paymentDay: existingPartner.paymentDay,
-          notes: existingPartner.notes,
-          types: typesArray,
-        },
+        before: toAuditSnapshot(existingPartner, typesArray),
         after: null,
       });
     });

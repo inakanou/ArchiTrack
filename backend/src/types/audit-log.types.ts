@@ -154,6 +154,8 @@ export type AuditLogAction =
   | 'TRADING_PARTNER_CREATED'
   | 'TRADING_PARTNER_UPDATED'
   | 'TRADING_PARTNER_DELETED'
+  // 論理削除から 90 日を過ぎた取引先の個人情報の消去（trading-partner-management 要件5.7。定期処理が実行者なしで記録する）
+  | 'TRADING_PARTNER_PERSONAL_DATA_ERASED'
   // 現場調査管理
   | 'SITE_SURVEY_CREATED'
   | 'SITE_SURVEY_UPDATED'

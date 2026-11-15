@@ -78,6 +78,17 @@ vi.mock('../../../jobs/soft-deleted-project-purge.job.js', () => ({
     createSoftDeletedProjectPurgeRunMock(prisma),
 }));
 
+const softDeletedTradingPartnerEraseRunMock = vi.fn();
+const createSoftDeletedTradingPartnerEraseRunMock = vi.fn(
+  (_prisma: unknown) => softDeletedTradingPartnerEraseRunMock
+);
+vi.mock('../../../jobs/soft-deleted-trading-partner-erase.job.js', () => ({
+  SOFT_DELETED_TRADING_PARTNER_ERASE_JOB_NAME: 'soft-deleted-trading-partner-erase',
+  SOFT_DELETED_TRADING_PARTNER_ERASE_CRON: '45 3 * * *',
+  createSoftDeletedTradingPartnerEraseRun: (prisma: unknown) =>
+    createSoftDeletedTradingPartnerEraseRunMock(prisma),
+}));
+
 import {
   ScheduledJobRunner,
   createScheduledJobDefinitions,
@@ -386,6 +397,7 @@ describe('createScheduledJobDefinitions', () => {
       { name: 'audit-log-archive', cron: '0 4 1 * *' },
       { name: 'security-anomaly-overflow-summary', cron: '*/10 * * * *' },
       { name: 'soft-deleted-project-purge', cron: '30 3 * * *' },
+      { name: 'soft-deleted-trading-partner-erase', cron: '45 3 * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -460,6 +472,22 @@ describe('createScheduledJobDefinitions', () => {
 
     expect(job?.cron).toBe('30 3 * * *');
     expect(createSoftDeletedProjectPurgeRunMock).toHaveBeenCalledWith(prisma);
+    await expect(job?.run()).resolves.toEqual(runResult);
+  });
+
+  /**
+   * @requirement trading-partner-management/REQ-5.6
+   */
+  it('soft-deleted-trading-partner-erase を毎日 03:45 に登録し、処理は論理削除した取引先の個人情報の消去を呼ぶ', async () => {
+    const prisma = {} as PrismaClient;
+    const runResult = { erasedCount: 2, failedCount: 0, remainingCount: 0 };
+    softDeletedTradingPartnerEraseRunMock.mockResolvedValue(runResult);
+
+    const jobs = createScheduledJobDefinitions(prisma);
+    const job = jobs.find(({ name }) => name === 'soft-deleted-trading-partner-erase');
+
+    expect(job?.cron).toBe('45 3 * * *');
+    expect(createSoftDeletedTradingPartnerEraseRunMock).toHaveBeenCalledWith(prisma);
     await expect(job?.run()).resolves.toEqual(runResult);
   });
 });
