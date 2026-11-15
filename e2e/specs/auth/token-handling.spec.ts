@@ -46,6 +46,8 @@ import {
 const REFRESH_COOKIE_NAME = 'refreshToken';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
 const REFRESH_PATH = '/api/v1/auth/refresh';
+/** 置き換えの直後の猶予（要件33.13。backend の session.service.ts の REFRESH_REUSE_GRACE_MS と同じ値） */
+const REFRESH_REUSE_GRACE_MS = 10_000;
 
 /** JWT の形（header.payload.signature）の文字列 */
 const JWT_PATTERN = /eyJ[\w-]+\.[\w-]+\.[\w-]+/;
@@ -352,6 +354,9 @@ test.describe('トークンの取り扱い（要件33）', () => {
     const released = new Promise<void>((resolve) => {
       release = resolve;
     });
+    // サーバーが置き換えた時刻は、別の入れ物からの要求の送信と応答の受信の間にある
+    let rotationStartedAt = 0;
+    let rotationEndedAt = 0;
     let reportForwarded: (status: number) => void = () => {};
     const forwarded = new Promise<number>((resolve) => {
       reportForwarded = resolve;
@@ -359,7 +364,9 @@ test.describe('トークンの取り扱い（要件33）', () => {
     await page.route(
       `**${REFRESH_PATH}`,
       async (route) => {
+        rotationStartedAt = Date.now();
         const response = await refreshWithCookie(forwarder);
+        rotationEndedAt = Date.now();
         reportForwarded(response.status());
         await released;
         await route.abort('aborted').catch(() => undefined);
@@ -378,7 +385,14 @@ test.describe('トークンの取り扱い（要件33）', () => {
     const regrant = waitForRefreshPresenting(page, first);
     await page.goto('/dashboard');
     release();
-    expect((await regrant).status()).toBe(200);
+    const regranted = await regrant;
+    // 落ちたときに、猶予を過ぎたのか（実行環境の遅さ）、猶予の内なのに拒まれたのかを見分けられるよう、
+    // 置き換えから再提示までの経過を添える（主張は 200 のまま変えない）
+    const presentedAt = Math.round(regranted.request().timing().startTime);
+    expect(
+      regranted.status(),
+      `置き換えから再提示までの経過は ${presentedAt - rotationEndedAt}〜${presentedAt - rotationStartedAt} ms（猶予は ${REFRESH_REUSE_GRACE_MS} ms）`
+    ).toBe(200);
 
     // 要件33.13: 系列は失効せず、ログイン画面へ戻らずに認証済みのまま続く
     await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
