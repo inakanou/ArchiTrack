@@ -1,5 +1,6 @@
 /**
- * @fileoverview 見積カードの読み取りと受領見積書への対応づけ（unit-price-ledger タスク2.2、design.md の LedgerCardParser）
+ * @fileoverview 見積カードの読み取りと受領見積書への対応づけ・取り込み時の参考の理由
+ * （unit-price-ledger タスク2.2・2.3、design.md の LedgerCardParser）
  *
  * アップロードされた zip と JSON から見積カード（共通スクリプト daicho の見積カードの形）を読み、
  * 必須の項目を検査し、案件の無い受領見積書と明細行の欄へ対応づける。DB に依らない純粋な処理。
@@ -10,15 +11,19 @@
  * - `.json` でない項目・ディレクトリ・不正な名前（`..`・絶対パス・ドライブ名・`\`・制御文字・`__MACOSX/`）の項目は読まない
  * - 検査は JSON として読めることと必須の項目（id・業者・見積日・行と、各行の名称・数量・単位・金額）に限る（2.2）。
  *   失敗はそのカードだけの理由として返す（2.3）
- * - 任意の項目の不正な値は空にし、読めなかった欄を `unreadableFields` に返す（参考の理由はタスク2.3 が付ける）
+ * - 任意の項目の不正な値は空にし、読めなかった欄を `unreadableFields` に返す
  * - 上限を超える文字は上限までで切り詰め、切り詰めた欄を `truncatedFields` に返す（2.9）
+ * - 参考の理由（3.1〜3.5）：カードの参考.理由の後に、数量×単価と金額の 1 円を超える違い・合計の不一致・
+ *   切り詰め・読めない値の理由をこの順に加える。理由が 1 つ以上あれば、すべての行に参考の印と、「、」で
+ *   つないだ理由を付ける。つないだ理由が 200 文字を超えたら切り詰め、全文を見積全体の条件の末尾に足す
  * - カードの内容はログに出さない
  *
- * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.1, 3.2, 3.3, 3.4, 3.5
  *
  * @module services/unit-price-ledger/ledger-card-parser
  */
 
+import Decimal from 'decimal.js';
 import { unzipSync, type UnzipFileInfo } from 'fflate';
 import { LedgerImportTooLargeError } from '../../errors/unitPriceLedgerError.js';
 import {
@@ -80,7 +85,7 @@ export interface LedgerQuotationFields {
 
 /**
  * 取り込む明細行（受領見積書の明細行の欄。estimate-request Requirement 11・45）。
- * 参考の印と理由は、タスク2.3 の参考の理由が付ける（ここでは印を付けない）
+ * 参考の印と理由は、カードの参考の理由が 1 つ以上あるとき、すべての行に同じものを付ける（3.1）
  */
 export interface LedgerLineItemInput {
   sortOrder: number;
@@ -117,7 +122,7 @@ export interface LedgerQuotationInput {
 }
 
 /**
- * カードの合計（参考の理由の合計の不一致をタスク2.3 が比べる）。カードに無い・読めない合計は null
+ * カードの合計（参考の理由の合計の不一致に使う）。カードに無い・読めない合計は null
  */
 export interface LedgerDeclaredTotals {
   taxExcluded: number | null;
@@ -132,7 +137,7 @@ export interface LedgerDeclaredTotals {
  *
  * - `truncatedFields`：上限で切り詰めた欄（2.9。取り込みの結果と参考の理由に使う）
  * - `unreadableFields`：不正な値のため空にした任意の欄（参考の理由に使う）
- * - `referenceReasons`：カードの参考.理由（タスク2.3 が自動の理由を加える）
+ * - `referenceReasons`：参考の理由の一覧（カードの参考.理由と、取り込みで加えた理由。つなぐ前の全文）
  */
 export type LedgerCardParseOutcome =
   | {
@@ -189,8 +194,24 @@ const CARD_ADOPTIONS: Readonly<Record<string, 'ADOPTED' | 'REJECTED' | 'UNKNOWN'
   不明: 'UNKNOWN',
 };
 
-/** 一覧の値をつなぐ文字（作業条件・工種） */
+/** 一覧の値をつなぐ文字（作業条件・工種・参考の理由） */
 const LIST_SEPARATOR = '、';
+
+/** 取り込みで加える参考の理由（3.2〜3.4 と、読めない値を空にしたとき） */
+export const LEDGER_REFERENCE_REASONS = {
+  AMOUNT_MISMATCH: '金額が数量×単価と合わない',
+  TOTAL_MISMATCH: '合計が明細行と合わない',
+  TRUNCATED: '文字数の上限で切り詰めた',
+  UNREADABLE: '読めない値を空にした',
+} as const;
+
+/** 数量×単価と金額の違いの許し（1 円まで。3.2） */
+const AMOUNT_TOLERANCE = new Decimal(1);
+
+/** 見積全体の条件に理由の全文を足すときの見出し（3.5） */
+const REFERENCE_REASON_HEADING = '参考の理由';
+
+const OVERALL_CONDITIONS_LABEL = '見積全体の条件';
 
 type JsonObject = Record<string, unknown>;
 
@@ -201,6 +222,17 @@ const isObject = (value: unknown): value is JsonObject =>
 const INVALID = Symbol('invalid');
 type Read<T> = T | null | typeof INVALID;
 
+/** 文字を上限（UTF-16 の長さ）までで切り詰める。サロゲートペアは割らない */
+const cutToLength = (value: string, max: number): string => {
+  if (value.length <= max) return value;
+  let out = '';
+  for (const char of value) {
+    if (out.length + char.length > max) break;
+    out += char;
+  }
+  return out;
+};
+
 /**
  * 1 枚のカードの読み取りの記録（切り詰めた欄と読めなかった欄を順に集める）
  */
@@ -208,16 +240,11 @@ class CardReadLog {
   readonly truncated: string[] = [];
   readonly unreadable: string[] = [];
 
-  /** 文字を上限（UTF-16 の長さ）までで切り詰める。サロゲートペアは割らない */
+  /** 文字を上限までで切り詰め、切り詰めた欄を記録する（同じ欄は 1 度だけ記録する） */
   truncate(value: string, max: number, label: string): string {
     if (value.length <= max) return value;
-    let out = '';
-    for (const char of value) {
-      if (out.length + char.length > max) break;
-      out += char;
-    }
-    this.truncated.push(label);
-    return out;
+    if (!this.truncated.includes(label)) this.truncated.push(label);
+    return cutToLength(value, max);
   }
 
   /** 読めない値は空にして記録する */
@@ -449,7 +476,7 @@ const composeOverallConditions = (
   return parts.length > 0 ? parts.join('\n') : null;
 };
 
-/** カードの参考.理由（文字の一覧）。読めない理由は無視する（参考の理由の扱いはタスク2.3） */
+/** カードの参考.理由（文字の一覧）。読めない理由は無視する */
 const readCardReferenceReasons = (value: unknown): string[] => {
   if (!isObject(value) || !Array.isArray(value['理由'])) return [];
   return value['理由'].flatMap((reason: unknown) => {
@@ -474,7 +501,111 @@ const readDeclaredTotals = (value: unknown, log: CardReadLog): LedgerDeclaredTot
   };
 };
 
-/** 必須の項目のそろったカードを受領見積書の形へ対応づける（2.4〜2.9） */
+/** 単価のある行の数量×単価が、金額と 1 円を超えて違うか（3.2）。小数は decimal.js で誤差なく比べる */
+const hasAmountMismatch = (lines: ReadonlyArray<LedgerLineItemInput>): boolean =>
+  lines.some(
+    (line) =>
+      line.unitPrice !== null &&
+      new Decimal(line.quantity)
+        .mul(line.unitPrice)
+        .minus(line.amount)
+        .abs()
+        .greaterThan(AMOUNT_TOLERANCE)
+  );
+
+/** 円の単位にそろえる（四捨五入して整数。システムの金額の丸めに合わせる） */
+const toYen = (value: Decimal.Value): Decimal =>
+  new Decimal(value).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+
+const sumAmounts = (lines: ReadonlyArray<LedgerLineItemInput>): Decimal =>
+  lines.reduce((sum, line) => sum.plus(line.amount), new Decimal(0));
+
+/** 区分ごとに比べるカードの合計（3.3） */
+const DECLARED_CATEGORY_TOTALS = ['DISCOUNT', 'OVERHEAD', 'TRAVEL', 'WASTE'] as const;
+
+/**
+ * 別途を除く行の金額の合計と合計.税抜、区分ごとの行の合計と合計.値引き・諸経費・交通費・産廃が違うか（3.3）。
+ * カードに無い合計は比べない。どちらも円の単位に四捨五入してから比べる
+ */
+const hasTotalMismatch = (
+  lines: ReadonlyArray<LedgerLineItemInput>,
+  totals: LedgerDeclaredTotals
+): boolean => {
+  const differs = (sum: Decimal, declared: number | null): boolean =>
+    declared !== null && !toYen(sum).equals(toYen(declared));
+  if (
+    differs(sumAmounts(lines.filter((line) => line.category !== 'EXCLUDED')), totals.taxExcluded)
+  ) {
+    return true;
+  }
+  return DECLARED_CATEGORY_TOTALS.some((category) =>
+    differs(sumAmounts(lines.filter((line) => line.category === category)), totals[category])
+  );
+};
+
+/** 理由の一覧（同じ理由は重ねない。初めに出た順を保つ） */
+const uniqueReasons = (reasons: ReadonlyArray<string | null>): string[] => [
+  ...new Set(reasons.filter((reason): reason is string => reason !== null)),
+];
+
+/**
+ * 参考の理由を決め、明細行の印と理由、見積全体の条件を返す（3.1〜3.5）
+ *
+ * つないだ理由が上限（200 文字）を超えたら、理由を上限までで切り詰め、つなぐ前のすべての理由を
+ * 見積全体の条件（上限で切り詰める前の全文）の末尾に「参考の理由：」の行で足す。足した結果が
+ * 見積全体の条件の上限を超えたら上限で切り詰め、切り詰めた欄と「文字数の上限で切り詰めた」の理由を加える
+ * （理由を加えると全文はさらに長くなるだけなので、1 度の加え直しで決まる）。
+ * 理由の全文は見積全体の条件に残るので、参考の理由の切り詰めは切り詰めた欄に数えない
+ */
+const applyReferenceReasons = (params: {
+  cardReasons: ReadonlyArray<string>;
+  lineItems: ReadonlyArray<LedgerLineItemInput>;
+  declaredTotals: LedgerDeclaredTotals;
+  overallConditionsFull: string | null;
+  overallConditions: string | null;
+  log: CardReadLog;
+}): { reasons: string[]; lineItems: LedgerLineItemInput[]; overallConditions: string | null } => {
+  const { cardReasons, lineItems, declaredTotals, overallConditionsFull, log } = params;
+  const computed = [
+    hasAmountMismatch(lineItems) ? LEDGER_REFERENCE_REASONS.AMOUNT_MISMATCH : null,
+    hasTotalMismatch(lineItems, declaredTotals) ? LEDGER_REFERENCE_REASONS.TOTAL_MISMATCH : null,
+  ];
+  const buildReasons = (truncated: boolean): string[] =>
+    uniqueReasons([
+      ...cardReasons,
+      ...computed,
+      truncated ? LEDGER_REFERENCE_REASONS.TRUNCATED : null,
+      log.unreadable.length > 0 ? LEDGER_REFERENCE_REASONS.UNREADABLE : null,
+    ]);
+
+  let reasons = buildReasons(log.truncated.length > 0);
+  let overallConditions = params.overallConditions;
+  const reasonMax = LINE_ITEM_FIELD_LIMITS.referenceReason;
+  const overallMax = RECEIVED_QUOTATION_FIELD_LIMITS.overallConditions;
+  if (reasons.join(LIST_SEPARATOR).length > reasonMax) {
+    const withReasons = (list: ReadonlyArray<string>): string =>
+      composeOverallConditions(overallConditionsFull, [
+        [REFERENCE_REASON_HEADING, list.join(LIST_SEPARATOR)],
+      ]) as string;
+    if (withReasons(reasons).length > overallMax) {
+      reasons = buildReasons(true);
+    }
+    overallConditions = log.truncate(withReasons(reasons), overallMax, OVERALL_CONDITIONS_LABEL);
+  }
+
+  const joined = reasons.length > 0 ? cutToLength(reasons.join(LIST_SEPARATOR), reasonMax) : null;
+  return {
+    reasons,
+    lineItems: lineItems.map((line) => ({
+      ...line,
+      isReference: joined !== null,
+      referenceReason: joined,
+    })),
+    overallConditions,
+  };
+};
+
+/** 必須の項目のそろったカードを受領見積書の形へ対応づける（2.4〜2.9・3.1〜3.5） */
 const mapCard = (
   card: JsonObject,
   fileName: string
@@ -591,14 +722,23 @@ const mapCard = (
   ledgerFields.overallConditions = truncateNullable(
     overallConditions,
     RECEIVED_QUOTATION_FIELD_LIMITS.overallConditions,
-    '見積全体の条件',
+    OVERALL_CONDITIONS_LABEL,
     log
   );
 
-  const lineItems = (card['行'] as JsonObject[]).map((line, index) =>
+  const readLines = (card['行'] as JsonObject[]).map((line, index) =>
     readLineItem(line, index, log)
   );
   const declaredTotals = readDeclaredTotals(card['合計'], log);
+  const reference = applyReferenceReasons({
+    cardReasons: readCardReferenceReasons(card['参考']),
+    lineItems: readLines,
+    declaredTotals,
+    overallConditionsFull: overallConditions,
+    overallConditions: ledgerFields.overallConditions,
+    log,
+  });
+  ledgerFields.overallConditions = reference.overallConditions;
 
   return {
     kind: 'parsed',
@@ -613,11 +753,11 @@ const mapCard = (
       submittedAt: parseCardDate(submittedDate) as Date,
       ledgerFields,
       readingConfirmed: { confirmed: readText(reading['確認']) === '済', readAt },
-      lineItems,
+      lineItems: reference.lineItems,
     },
     truncatedFields: log.truncated,
     unreadableFields: log.unreadable,
-    referenceReasons: readCardReferenceReasons(card['参考']),
+    referenceReasons: reference.reasons,
     declaredTotals,
   };
 };

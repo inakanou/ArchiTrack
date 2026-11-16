@@ -1,10 +1,11 @@
 /**
  * @fileoverview 見積カードの読み取りと受領見積書への対応づけ（LedgerCardParser）の単体試験
- * （unit-price-ledger タスク2.2）
+ * （unit-price-ledger タスク2.2・2.3）
  *
  * zip と JSON の読み取り、上限（大きさ・項目の数）の超過、`.json` でない項目と不正な名前の項目の読み飛ばし、
  * 必須の項目の検査、受領見積書と明細行の欄への対応づけ（細目・6 つの項目・切り詰め・受領見積書の名前）を確かめる。
- * 参考の理由（数量×単価・合計・切り詰め・読めない値を理由にすること、すべての行の印）はタスク2.3 で確かめる。
+ * 参考の理由（数量×単価・合計・切り詰め・読めない値を理由にすること、すべての行の印、200 文字の切り詰めと
+ * 全文の残し方）を確かめる（タスク2.3）。
  */
 import { describe, it, expect } from 'vitest';
 import { strToU8, zipSync } from 'fflate';
@@ -242,8 +243,9 @@ describe('parseUpload', () => {
         category: 'DIRECT',
         condition: '1階',
         conversion: null,
-        isReference: false,
-        referenceReason: null,
+        // カードの参考.理由（概算のみ）があるため、すべての行に参考の印と理由が付く（3.1）
+        isReference: true,
+        referenceReason: '概算のみ',
       });
       expect(overhead).toMatchObject({
         sortOrder: 1,
@@ -746,6 +748,371 @@ describe('parseUpload', () => {
         '明細行 1 行目の区分',
         '明細行 1 行目の換算',
       ]);
+    });
+  });
+
+  describe('参考の理由', () => {
+    const REASON = {
+      AMOUNT: '金額が数量×単価と合わない',
+      TOTAL: '合計が明細行と合わない',
+      TRUNCATED: '文字数の上限で切り詰めた',
+      UNREADABLE: '読めない値を空にした',
+    } as const;
+
+    /** 参考の理由の無い最小のカード */
+    const plainCard = (overrides: Card = {}): Card => ({
+      id: 'plain-card',
+      業者: '最小業者',
+      見積日: '2026-01-31',
+      行: [
+        { 名称: '工事', 数量: 2, 単位: '㎡', 単価: 250, 金額: 500 },
+        { 名称: '諸経費', 数量: 1, 単位: '式', 金額: 50, 区分: '諸経費' },
+      ],
+      ...overrides,
+    });
+
+    const lineMarks = (parsed: ParsedOutcome): Array<[boolean, string | null]> =>
+      parsed.input.lineItems.map((line) => [line.isReference, line.referenceReason]);
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.1
+     */
+    it('理由の無いカードは、どの行にも参考の印と理由を付けない', () => {
+      const parsed = expectParsed(
+        parseOne(plainCard({ 合計: { 税抜: 550, 諸経費: 50 }, 参考: { 理由: [] } }))
+      );
+
+      expect(parsed.referenceReasons).toEqual([]);
+      expect(lineMarks(parsed)).toEqual([
+        [false, null],
+        [false, null],
+      ]);
+      expect(parsed.input.ledgerFields.overallConditions).toBeNull();
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.1
+     */
+    it('カードの参考.理由があれば、すべての行に参考の印を付け、理由を「、」でつなぐ', () => {
+      const parsed = expectParsed(
+        parseOne(plainCard({ 参考: { 指定: ['概算のみ'], 理由: ['概算のみ', '手書きの追記'] } }))
+      );
+
+      expect(parsed.referenceReasons).toEqual(['概算のみ', '手書きの追記']);
+      expect(lineMarks(parsed)).toEqual([
+        [true, '概算のみ、手書きの追記'],
+        [true, '概算のみ、手書きの追記'],
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.2
+     */
+    it('数量×単価が金額と 1 円を超えて違う行があれば「金額が数量×単価と合わない」を加える', () => {
+      const parsed = expectParsed(
+        parseOne(
+          plainCard({
+            行: [
+              { 名称: '工事', 数量: 3, 単位: '㎡', 単価: 100, 金額: 301.5 },
+              { 名称: '雑工事', 数量: 1, 単位: '式', 金額: 999 },
+            ],
+          })
+        )
+      );
+
+      expect(parsed.referenceReasons).toEqual([REASON.AMOUNT]);
+      expect(lineMarks(parsed)).toEqual([
+        [true, REASON.AMOUNT],
+        [true, REASON.AMOUNT],
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.2
+     */
+    it('違いが 1 円以内の行・単価の無い行は理由にせず、小数の積は誤差なく比べる', () => {
+      const parsed = expectParsed(
+        parseOne(
+          plainCard({
+            行: [
+              { 名称: '工事', 数量: 3, 単位: '㎡', 単価: 100, 金額: 301 },
+              { 名称: '工事2', 数量: 3, 単位: '㎡', 単価: 100, 金額: 299 },
+              // 0.1 × 3 は浮動小数では 0.30000000000000004 になる。金額 1.3 との違いはちょうど 1 円
+              { 名称: '工事3', 数量: 0.1, 単位: 'm', 単価: 3, 金額: 1.3 },
+              { 名称: '単価の無い行', 数量: 10, 単位: '式', 金額: 5 },
+            ],
+          })
+        )
+      );
+
+      expect(parsed.referenceReasons).toEqual([]);
+      expect(lineMarks(parsed).every(([mark]) => !mark)).toBe(true);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.3
+     */
+    it('別途を除く行の金額の合計がカードの税抜の合計と違えば「合計が明細行と合わない」を加える', () => {
+      const matched = expectParsed(
+        parseOne(
+          plainCard({
+            行: [
+              { 名称: '工事', 数量: 2, 単位: '㎡', 単価: 250, 金額: 500 },
+              { 名称: '別途工事', 数量: 1, 単位: '式', 金額: 9999, 区分: '別途' },
+            ],
+            合計: { 税抜: 500 },
+          })
+        )
+      );
+      const mismatched = expectParsed(parseOne(plainCard({ 合計: { 税抜: 549 } })));
+      // 合計はどちらも円の単位に四捨五入してから比べる（550.4 と 550 は同じ、550.5 と 550 は違う）
+      const roundedSame = expectParsed(
+        parseOne(
+          plainCard({
+            行: [{ 名称: '工事', 数量: 1, 単位: '式', 単価: 550.4, 金額: 550.4 }],
+            合計: { 税抜: 550 },
+          })
+        )
+      );
+      const roundedDiff = expectParsed(
+        parseOne(
+          plainCard({
+            行: [{ 名称: '工事', 数量: 1, 単位: '式', 単価: 550.5, 金額: 550.5 }],
+            合計: { 税抜: 550 },
+          })
+        )
+      );
+
+      expect(matched.referenceReasons).toEqual([]);
+      expect(roundedSame.referenceReasons).toEqual([]);
+      expect(roundedDiff.referenceReasons).toEqual([REASON.TOTAL]);
+      expect(mismatched.referenceReasons).toEqual([REASON.TOTAL]);
+      expect(lineMarks(mismatched)).toEqual([
+        [true, REASON.TOTAL],
+        [true, REASON.TOTAL],
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.3
+     */
+    it('区分ごとの行の合計がカードの値引き・諸経費・交通費・産廃の合計と違えば理由を加え、カードに無い合計は比べない', () => {
+      const lines = [
+        { 名称: '工事', 数量: 1, 単位: '式', 金額: 1000 },
+        { 名称: '値引', 数量: 1, 単位: '式', 金額: -100, 区分: '値引き' },
+        { 名称: '諸経費', 数量: 1, 単位: '式', 金額: 80, 区分: '諸経費' },
+        { 名称: '交通費', 数量: 1, 単位: '式', 金額: 30, 区分: '交通費' },
+        { 名称: '産廃', 数量: 1, 単位: '式', 金額: 20, 区分: '産廃' },
+      ];
+      const allMatched = expectParsed(
+        parseOne(
+          plainCard({
+            行: lines,
+            合計: { 税抜: 1030, 値引き: -100, 諸経費: 80, 交通費: 30, 産廃: 20 },
+          })
+        )
+      );
+      const noTotals = expectParsed(parseOne(plainCard({ 行: lines })));
+
+      expect(allMatched.referenceReasons).toEqual([]);
+      expect(noTotals.referenceReasons).toEqual([]);
+      for (const totals of [
+        { 値引き: -90 },
+        { 諸経費: 81 },
+        { 交通費: 0 },
+        { 産廃: 21 },
+        // 区分の行が無い合計は、行の合計 0 と比べる
+      ]) {
+        const parsed = expectParsed(parseOne(plainCard({ 行: lines, 合計: totals })));
+        expect(parsed.referenceReasons).toEqual([REASON.TOTAL]);
+      }
+      const missingCategory = expectParsed(
+        parseOne(plainCard({ 行: [lines[0]], 合計: { 産廃: 20 } }))
+      );
+      expect(missingCategory.referenceReasons).toEqual([REASON.TOTAL]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.3
+     */
+    it('合計が複数で合わなくても「合計が明細行と合わない」は 1 つだけ加える', () => {
+      const parsed = expectParsed(parseOne(plainCard({ 合計: { 税抜: 1, 諸経費: 2 } })));
+
+      expect(parsed.referenceReasons).toEqual([REASON.TOTAL]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.4
+     */
+    it('値を文字数の上限で切り詰めたら「文字数の上限で切り詰めた」を加える', () => {
+      const parsed = expectParsed(
+        parseOne(
+          plainCard({ 見積番号: 'N'.repeat(RECEIVED_QUOTATION_FIELD_LIMITS.quoteNumber + 1) })
+        )
+      );
+
+      expect(parsed.truncatedFields).toEqual(['見積番号']);
+      expect(parsed.referenceReasons).toEqual([REASON.TRUNCATED]);
+      expect(lineMarks(parsed)).toEqual([
+        [true, REASON.TRUNCATED],
+        [true, REASON.TRUNCATED],
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.4
+     */
+    it('任意の欄の読めない値を空にしたら「読めない値を空にした」を加える', () => {
+      const parsed = expectParsed(parseOne(plainCard({ 採否: 'たぶん', 見積番号: { x: 1 } })));
+
+      expect(parsed.unreadableFields).toEqual(['見積番号', '採否']);
+      expect(parsed.referenceReasons).toEqual([REASON.UNREADABLE]);
+      expect(lineMarks(parsed)).toEqual([
+        [true, REASON.UNREADABLE],
+        [true, REASON.UNREADABLE],
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.1
+     * @requirement unit-price-ledger/REQ-3.2
+     * @requirement unit-price-ledger/REQ-3.3
+     * @requirement unit-price-ledger/REQ-3.4
+     */
+    it('カードの理由の後に、金額・合計・切り詰め・読めない値の理由をこの順に加え、同じ理由は重ねない', () => {
+      const parsed = expectParsed(
+        parseOne(
+          plainCard({
+            見積番号: 'N'.repeat(RECEIVED_QUOTATION_FIELD_LIMITS.quoteNumber + 1),
+            採否: 'たぶん',
+            合計: { 税抜: 1 },
+            行: [{ 名称: '工事', 数量: 2, 単位: '㎡', 単価: 250, 金額: 400 }],
+            参考: { 理由: ['概算のみ', REASON.TOTAL] },
+          })
+        )
+      );
+
+      const expected = [
+        '概算のみ',
+        REASON.TOTAL,
+        REASON.AMOUNT,
+        REASON.TRUNCATED,
+        REASON.UNREADABLE,
+      ];
+      expect(parsed.referenceReasons).toEqual(expected);
+      expect(lineMarks(parsed)).toEqual([[true, expected.join('、')]]);
+      // 200 文字以内なので、見積全体の条件には足さない
+      expect(parsed.input.ledgerFields.overallConditions).toBeNull();
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('つないだ理由がちょうど 200 文字なら切り詰めず、見積全体の条件にも足さない', () => {
+      const max = LINE_ITEM_FIELD_LIMITS.referenceReason;
+      expect(max).toBe(200);
+      const reasons = ['あ'.repeat(99), 'い'.repeat(max - 100)];
+      const parsed = expectParsed(
+        parseOne(plainCard({ 条件: '足場は別途', 参考: { 理由: reasons } }))
+      );
+
+      expect(parsed.input.lineItems[0]?.referenceReason).toBe(reasons.join('、'));
+      expect(parsed.input.lineItems[0]?.referenceReason).toHaveLength(max);
+      expect(parsed.input.ledgerFields.overallConditions).toBe('足場は別途');
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('つないだ理由が 200 文字を超えたら 200 文字までで切り詰め、全文を見積全体の条件の末尾に「参考の理由：」で足す', () => {
+      const max = LINE_ITEM_FIELD_LIMITS.referenceReason;
+      const reasons = ['あ'.repeat(150), 'い'.repeat(60)];
+      const parsed = expectParsed(
+        parseOne(
+          plainCard({
+            条件: '足場は別途',
+            案件: { 発注者: 'A市' },
+            合計: { 税抜: 1 },
+            参考: { 理由: reasons },
+          })
+        )
+      );
+      const full = [...reasons, REASON.TOTAL].join('、');
+
+      expect(full.length).toBeGreaterThan(max);
+      for (const line of parsed.input.lineItems) {
+        expect(line.isReference).toBe(true);
+        expect(line.referenceReason).toBe(full.slice(0, max));
+      }
+      expect(parsed.input.ledgerFields.overallConditions).toBe(
+        `足場は別途\n発注者：A市\n参考の理由：${full}`
+      );
+      // 理由の全文は見積全体の条件に残るため、参考の理由の切り詰めは切り詰めた欄に数えない
+      expect(parsed.truncatedFields).toEqual([]);
+      expect(parsed.referenceReasons).toEqual([...reasons, REASON.TOTAL]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('見積全体の条件が無いカードでも、理由の全文を「参考の理由：」だけで見積全体の条件に入れる', () => {
+      const reasons = ['あ'.repeat(201)];
+      const parsed = expectParsed(parseOne(plainCard({ 参考: { 理由: reasons } })));
+
+      expect(parsed.input.ledgerFields.overallConditions).toBe(`参考の理由：${reasons[0]}`);
+      expect(parsed.input.lineItems[0]?.referenceReason).toHaveLength(
+        LINE_ITEM_FIELD_LIMITS.referenceReason
+      );
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('サロゲートペアの文字を途中で割らずに理由を切り詰める', () => {
+      const reasons = ['a' + '𠮷'.repeat(150)];
+      const parsed = expectParsed(parseOne(plainCard({ 参考: { 理由: reasons } })));
+
+      expect(parsed.input.lineItems[0]?.referenceReason).toBe(
+        'a' + '𠮷'.repeat((LINE_ITEM_FIELD_LIMITS.referenceReason - 2) / 2)
+      );
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.4
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('理由の全文を足して見積全体の条件が上限を超えたら、上限で切り詰め、切り詰めの理由も加える', () => {
+      const overallMax = RECEIVED_QUOTATION_FIELD_LIMITS.overallConditions;
+      const reasonMax = LINE_ITEM_FIELD_LIMITS.referenceReason;
+      const reasons = ['あ'.repeat(reasonMax + 1)];
+      const conditions = '条'.repeat(overallMax - 100);
+      const parsed = expectParsed(
+        parseOne(plainCard({ 条件: conditions, 参考: { 理由: reasons } }))
+      );
+      const full = [...reasons, REASON.TRUNCATED].join('、');
+
+      expect(parsed.referenceReasons).toEqual([...reasons, REASON.TRUNCATED]);
+      expect(parsed.truncatedFields).toEqual(['見積全体の条件']);
+      expect(parsed.input.ledgerFields.overallConditions).toBe(
+        `${conditions}\n参考の理由：${full}`.slice(0, overallMax)
+      );
+      expect(parsed.input.lineItems[0]?.referenceReason).toBe(full.slice(0, reasonMax));
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-3.4
+     * @requirement unit-price-ledger/REQ-3.5
+     */
+    it('見積全体の条件がもとから上限を超えるときも、切り詰めた欄は 1 度だけ数える', () => {
+      const overallMax = RECEIVED_QUOTATION_FIELD_LIMITS.overallConditions;
+      const reasons = ['あ'.repeat(LINE_ITEM_FIELD_LIMITS.referenceReason + 1)];
+      const parsed = expectParsed(
+        parseOne(plainCard({ 条件: '条'.repeat(overallMax + 1), 参考: { 理由: reasons } }))
+      );
+
+      expect(parsed.truncatedFields).toEqual(['見積全体の条件']);
+      expect(parsed.referenceReasons).toEqual([...reasons, REASON.TRUNCATED]);
+      expect(parsed.input.ledgerFields.overallConditions).toBe('条'.repeat(overallMax));
     });
   });
 
