@@ -3,6 +3,7 @@
  *
  * 一覧（業者名・見積日・案件名・合計・採否・読取の確認・参考の行の有無）・絞り込み・ページと総件数・
  * 0 件の表示・書き出し（0 件のときは無効、記録の失敗の表示）・権限の無い利用者への非表示を確かめる。
+ * タスク4.6: 取り込みの画面を開き、取り込みが終わったら、その時点の絞り込みとページで一覧を読み直す。
  * API は `unitPriceLedgerApi` を差し替える。
  *
  * @requirement unit-price-ledger/REQ-4.1 一覧の 7 つの欄
@@ -15,6 +16,8 @@
  * @requirement unit-price-ledger/REQ-6.4 出力の記録の失敗の表示
  * @requirement unit-price-ledger/REQ-6.5 0 件のとき書き出しを無効にする
  * @requirement unit-price-ledger/REQ-10.1 台帳の管理の権限を持つ利用者だけに許す
+ * @requirement unit-price-ledger/REQ-2.1 一覧の画面から見積カードの取り込みの画面を開く（タスク4.6）
+ * @requirement unit-price-ledger/REQ-2.15 取り込みの結果を出し、取り込みが終わったら一覧を読み直す（タスク4.6）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,6 +27,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
 import { ApiError } from '../../api/client';
 import type {
+  LedgerImportResult,
   LedgerQuotationList,
   LedgerQuotationSummary,
   LedgerListQuery,
@@ -33,6 +37,7 @@ import UnitPriceLedgerPage from '../../pages/UnitPriceLedgerPage';
 const mocks = vi.hoisted(() => ({
   listQuotations: vi.fn(),
   exportLedger: vi.fn(),
+  importCards: vi.fn(),
 }));
 
 vi.mock('../../api/unit-price-ledger', async (importOriginal) => {
@@ -43,6 +48,7 @@ vi.mock('../../api/unit-price-ledger', async (importOriginal) => {
       ...actual.unitPriceLedgerApi,
       listQuotations: mocks.listQuotations,
       exportLedger: mocks.exportLedger,
+      importCards: mocks.importCards,
     },
   };
 });
@@ -164,6 +170,7 @@ describe('UnitPriceLedgerPage（unit-price-ledger タスク4.2）', () => {
   beforeEach(() => {
     mocks.listQuotations.mockReset();
     mocks.exportLedger.mockReset();
+    mocks.importCards.mockReset();
     createObjectURL.mockClear();
     revokeObjectURL.mockClear();
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
@@ -546,6 +553,105 @@ describe('UnitPriceLedgerPage（unit-price-ledger タスク4.2）', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('書き出しに失敗しました');
       expect(screen.queryByText(RECORD_FAILED_MESSAGE)).not.toBeInTheDocument();
       expect(createObjectURL).not.toHaveBeenCalled();
+    });
+  });
+  describe('取り込み（2.1・2.15、タスク4.6）', () => {
+    const IMPORT_RESULT: LedgerImportResult = {
+      importedCount: 2,
+      skipped: [{ cardId: 'card-001' }],
+      failed: [],
+      truncated: [],
+      referenceMarkedCount: 0,
+    };
+    const IMPORT_DIALOG_NAME = '見積カードの取り込み';
+    const jsonFile = (name: string): File => new File(['{}'], name, { type: 'application/json' });
+
+    it('見出しの取り込みの操作から、取り込みの画面を開く', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitForTable();
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: '取り込み' }));
+
+      const dialog = screen.getByRole('dialog', { name: IMPORT_DIALOG_NAME });
+      expect(within(dialog).getByLabelText('取り込むファイル')).toBeInTheDocument();
+    });
+
+    it('取り込みが終わったら結果を出し、その時点の絞り込みとページで一覧を読み直す', async () => {
+      const user = userEvent.setup();
+      mocks.importCards.mockResolvedValue(IMPORT_RESULT);
+      renderPage([MANAGE], '/unit-price-ledger?keyword=%E5%B1%B1%E7%94%B0&page=2');
+      await waitForTable();
+      expect(mocks.listQuotations).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByRole('button', { name: '取り込み' }));
+      const dialog = screen.getByRole('dialog', { name: IMPORT_DIALOG_NAME });
+      await user.upload(within(dialog).getByLabelText('取り込むファイル'), [jsonFile('a.json')]);
+      await user.click(within(dialog).getByRole('button', { name: '取り込む' }));
+
+      expect(
+        await within(dialog).findByRole('heading', { name: '取り込みの結果' })
+      ).toBeInTheDocument();
+      await waitFor(() => expect(mocks.listQuotations).toHaveBeenCalledTimes(2));
+      expect(lastListQuery()).toEqual({ keyword: '山田', page: 2 });
+      expect(mocks.importCards).toHaveBeenCalledTimes(1);
+      // 読み直した一覧を出し、結果の画面はそのまま開いている
+      expect(await waitForTable()).toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: IMPORT_DIALOG_NAME })).toBeInTheDocument();
+      expect(screen.getByLabelText('キーワード')).toHaveValue('山田');
+    });
+
+    it('結果の画面を閉じると取り込みの操作へフォーカスを戻し、一覧はそれ以上問い合わせない', async () => {
+      const user = userEvent.setup();
+      mocks.importCards.mockResolvedValue(IMPORT_RESULT);
+      renderPage();
+      await waitForTable();
+
+      const openButton = screen.getByRole('button', { name: '取り込み' });
+      await user.click(openButton);
+      const dialog = screen.getByRole('dialog', { name: IMPORT_DIALOG_NAME });
+      await user.upload(within(dialog).getByLabelText('取り込むファイル'), [jsonFile('a.json')]);
+      await user.click(within(dialog).getByRole('button', { name: '取り込む' }));
+      await within(dialog).findByRole('heading', { name: '取り込みの結果' });
+      await waitFor(() => expect(mocks.listQuotations).toHaveBeenCalledTimes(2));
+      await waitForTable();
+
+      await user.click(within(dialog).getByRole('button', { name: '閉じる' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(openButton).toHaveFocus());
+      expect(mocks.listQuotations).toHaveBeenCalledTimes(2);
+    });
+
+    it('取り込まずに閉じたときは、一覧を読み直さない', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitForTable();
+
+      const openButton = screen.getByRole('button', { name: '取り込み' });
+      await user.click(openButton);
+      await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await waitFor(() => expect(openButton).toHaveFocus());
+      expect(mocks.importCards).not.toHaveBeenCalled();
+      expect(mocks.listQuotations).toHaveBeenCalledTimes(1);
+    });
+
+    it('取り込みに失敗したときは、一覧を読み直さない', async () => {
+      const user = userEvent.setup();
+      mocks.importCards.mockRejectedValue(new ApiError(500, 'サーバーの誤り'));
+      renderPage();
+      await waitForTable();
+
+      await user.click(screen.getByRole('button', { name: '取り込み' }));
+      const dialog = screen.getByRole('dialog', { name: IMPORT_DIALOG_NAME });
+      await user.upload(within(dialog).getByLabelText('取り込むファイル'), [jsonFile('a.json')]);
+      await user.click(within(dialog).getByRole('button', { name: '取り込む' }));
+
+      expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+      expect(mocks.listQuotations).toHaveBeenCalledTimes(1);
     });
   });
 });

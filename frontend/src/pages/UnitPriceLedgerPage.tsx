@@ -2,13 +2,16 @@
  * @fileoverview 単価台帳の一覧の画面（/unit-price-ledger）
  *
  * unit-price-ledger タスク4.1: 経路と枠。タスク4.2: 一覧・絞り込み・ページと総件数・0 件の表示・書き出し。
- * 取り込みの入口（LedgerImportDialog）は 4.6 が見出しの操作の並びに置く。
+ * タスク4.6: 見出しの操作の並びに取り込みの入口（LedgerImportDialog）を置き、取り込みが終わったら、
+ * その時点の絞り込みとページ（URL の検索の値）のまま一覧を読み直す。
  *
  * 経路は認証済みの経路で、ProtectedRoute はロールしか確かめない。画面の中で台帳の管理の権限
  * （`unit_price_ledger:manage`）を確かめ、無ければ内容を出さず、一覧も問い合わせない（design.md の UnitPriceLedgerPage）。
  * 絞り込みとページは URL の検索の値に持つ（取引先の一覧の作りと同じ）。
  *
  * Requirements (unit-price-ledger):
+ * - 2.1: 一覧の画面から見積カードの取り込みの画面を開く
+ * - 2.15: 取り込みの結果は取り込みの画面が出し、取り込みが終わったら一覧を読み直して登録した見積を出す
  * - 4.1: 台帳の見積を、業者名・見積日・案件名・合計・採否・読取の確認・参考の行の有無とともに一覧に出す
  * - 4.2・4.3・4.4: 絞り込み（LedgerSearchFilter）
  * - 4.5: 一覧をページに分け、絞り込みの結果の総件数を出す
@@ -38,6 +41,7 @@ import type {
 } from '../api/received-quotations';
 import LedgerSearchFilter from '../components/unit-price-ledger/LedgerSearchFilter';
 import LedgerQuotationTable from '../components/unit-price-ledger/LedgerQuotationTable';
+import LedgerImportDialog from '../components/unit-price-ledger/LedgerImportDialog';
 import {
   ADOPTION_LABELS,
   CONSTRUCTION_KIND_LABELS,
@@ -169,6 +173,9 @@ function LedgerListContent(): ReactElement {
   const [listState, setListState] = useState<ListState>({ status: 'loading' });
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  /** 取り込みが終わるたびに増やし、同じ絞り込みとページで一覧を読み直す */
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,7 +192,12 @@ function LedgerListContent(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [filter, page]);
+  }, [filter, page, reloadCount]);
+
+  const handleOpenImport = useCallback(() => setImportOpen(true), []);
+  const handleCloseImport = useCallback(() => setImportOpen(false), []);
+  // 取り込みの画面は、送信中に閉じられても、終われば呼ぶ（LedgerImportDialog）
+  const handleImported = useCallback(() => setReloadCount((count) => count + 1), []);
 
   const handleSearch = useCallback(
     (next: LedgerFilter) => {
@@ -231,7 +243,14 @@ function LedgerListContent(): ReactElement {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">単価台帳</h1>
         <div className="flex items-center gap-3">
-          {/* 取り込みの入口（LedgerImportDialog）はタスク4.6 がここに置く */}
+          <button
+            type="button"
+            onClick={handleOpenImport}
+            aria-haspopup="dialog"
+            className={`${BUTTON_CLASS} border-blue-600 bg-blue-600 text-white hover:bg-blue-700`}
+          >
+            取り込み
+          </button>
           <button
             type="button"
             onClick={handleExport}
@@ -243,6 +262,12 @@ function LedgerListContent(): ReactElement {
           </button>
         </div>
       </div>
+
+      <LedgerImportDialog
+        open={importOpen}
+        onClose={handleCloseImport}
+        onImported={handleImported}
+      />
 
       {exportError !== null && (
         <p
