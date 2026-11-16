@@ -37,12 +37,13 @@ export type ExportKind =
   | 'construction_photo_ledger_pdf'
   | 'construction_photos_zip'
   | 'annotated_image'
-  | 'audit_log_json';
+  | 'audit_log_json'
+  | 'unit_price_ledger_xlsx';
 
 /** 出力の記録の入力 */
 export interface ExportRecordInput {
   kind: ExportKind;
-  /** 案件に属する出力は必須（`audit_log_json` だけ null） */
+  /** 案件に属する出力は必須（`audit_log_json`・`unit_price_ledger_xlsx` は null） */
   projectId: string | null;
   /** 出力の対象のデータの ID */
   targetIds: string[];

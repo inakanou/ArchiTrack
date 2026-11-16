@@ -336,6 +336,56 @@ describe('データ出力の記録（統合・実 DB）', () => {
   );
 
   /**
+   * @requirement unit-price-ledger/REQ-6.3
+   */
+  it('単価台帳の Excel の書き出しは案件の無い出力として記録され、案件を付けた要求は 400 で記録が増えない', async () => {
+    const exportsBefore = await auditIds(owner.id, 'DATA_EXPORTED');
+
+    const rejected = await request(app)
+      .post('/api/v1/audit-logs/exports')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        kind: 'unit_price_ledger_xlsx',
+        projectId,
+        targetIds: ['quotation-a'],
+        itemCount: 1,
+      })
+      .expect(400);
+    expect(rejected.body.recordId).toBeUndefined();
+    expect(JSON.stringify(rejected.body)).toContain('この出力の種別は案件を指定できません');
+    expect(await auditIds(owner.id, 'DATA_EXPORTED')).toEqual(exportsBefore);
+
+    const response = await request(app)
+      .post('/api/v1/audit-logs/exports')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        kind: 'unit_price_ledger_xlsx',
+        projectId: null,
+        targetIds: ['quotation-a', 'quotation-b'],
+        itemCount: 2,
+      })
+      .expect(201);
+
+    const row = await prisma.auditLog.findUnique({ where: { id: response.body.recordId } });
+    expect(row).toMatchObject({
+      action: 'DATA_EXPORTED',
+      actorId: owner.id,
+      targetType: 'DataExport',
+      targetId: 'unit_price_ledger_xlsx',
+    });
+    expect(row!.metadata).toMatchObject({
+      kind: 'unit_price_ledger_xlsx',
+      projectId: null,
+      targetIds: ['quotation-a', 'quotation-b'],
+      itemCount: 2,
+    });
+    const added = [...(await auditIds(owner.id, 'DATA_EXPORTED'))].filter(
+      (id) => !exportsBefore.has(id)
+    );
+    expect(added).toEqual([response.body.recordId]);
+  });
+
+  /**
    * @requirement user-authentication/REQ-40.9
    */
   it('監査ログの JSON 出力が、出力した行の ID と件数とともに記録される', async () => {

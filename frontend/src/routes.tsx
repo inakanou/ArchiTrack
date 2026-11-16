@@ -62,6 +62,8 @@ import ExecutionBudgetPage from './pages/ExecutionBudgetPage';
 import ExecutionBudgetAmendmentPage from './pages/ExecutionBudgetAmendmentPage';
 import OrderDetailPage from './pages/OrderDetailPage';
 import ProgressInputPage from './pages/ProgressInputPage';
+import UnitPriceLedgerPage from './pages/UnitPriceLedgerPage';
+import LedgerQuotationDetailPage from './pages/LedgerQuotationDetailPage';
 
 /**
  * アプリケーションのルート設定
@@ -540,6 +542,17 @@ export const routes: RouteObject[] = [
       {
         path: '/company-info',
         element: <CompanyInfoPage />,
+      },
+
+      // 単価台帳（unit-price-ledger タスク4.1。Requirement 10.1）
+      // ProtectedRoute はロールしか確かめないため、台帳の管理の権限（unit_price_ledger:manage）は画面の中で確かめる
+      {
+        path: '/unit-price-ledger',
+        element: <UnitPriceLedgerPage />,
+      },
+      {
+        path: '/unit-price-ledger/quotations/:id',
+        element: <LedgerQuotationDetailPage />,
       },
     ],
   },

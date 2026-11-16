@@ -2568,7 +2568,7 @@ function checkRealRepositoryIsScanned(): string[] {
   // その形は宣言が実測を下回った幅ぶんの無言の目減りを吸収する。spec が増えたときは
   // 本定数を同じ差分で上げること（同じ値を `scripts/design-measurements.json` の
   // `design-documents-scanned` も宣言しており、そちらも同時に赤くなる）。
-  const MINIMUM_DESIGN_DOCUMENTS = 13;
+  const MINIMUM_DESIGN_DOCUMENTS = 14;
   if (documents.length < MINIMUM_DESIGN_DOCUMENTS) {
     failures.push(
       `走査対象が ${MINIMUM_DESIGN_DOCUMENTS} 件を下回っている（${documents.length} 件）。` +

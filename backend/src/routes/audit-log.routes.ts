@@ -374,12 +374,13 @@ router.get(
  *                   - construction_photos_zip
  *                   - annotated_image
  *                   - audit_log_json
+ *                   - unit_price_ledger_xlsx
  *                 description: 出力の種別
  *               projectId:
  *                 type: string
  *                 format: uuid
  *                 nullable: true
- *                 description: 対象の案件（案件に属する出力は必須、audit_log_json は null）
+ *                 description: 対象の案件（案件に属する出力は必須、audit_log_json・unit_price_ledger_xlsx は null）
  *               targetIds:
  *                 type: array
  *                 maxItems: 10000

@@ -101,6 +101,7 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
  * - 一般ユーザー用: adr:read, adr:create, adr:update, settings:read ほか業務の権限
  *   （user:read は含めない。user-authentication 要件38.4）
  * - 全案件閲覧 project:read_all・運用設定の管理 ops:manage（要件39.5。システム管理者が *:* で持つ）
+ * - 単価台帳の管理 unit_price_ledger:manage（unit-price-ledger の 10.3。システム管理者が *:* で持つ）
  */
 export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding permissions...');
@@ -393,6 +394,12 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'use',
       description: '外部のAIでの読み取りの利用',
     },
+    // 単価台帳の管理の権限（unit-price-ledger の 10.3。システム管理者が *:* で持ち、一般ユーザーへは割り当てない）
+    {
+      resource: 'unit_price_ledger',
+      action: 'manage',
+      description: '単価台帳の管理',
+    },
 
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     {
@@ -586,6 +593,8 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
  * - 一般ユーザーロール: adr:read, adr:create, adr:update, settings:read ほか業務の権限
  *   （ユーザー一覧の閲覧 user:read・全案件閲覧 project:read_all・運用設定の管理 ops:manage は
  *   割り当てない。user-authentication 要件38.4・39.5）
+ * - 単価台帳の管理 unit_price_ledger:manage も一般ユーザーロールへ割り当てない
+ *   （既定のロールではシステム管理者だけが持つ。unit-price-ledger の 10.3）
  */
 export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding role-permission assignments...');

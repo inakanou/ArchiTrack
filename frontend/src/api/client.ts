@@ -68,7 +68,7 @@ interface InternalRequestControl {
   /** メモリの CSRF トークンを `X-CSRF-Token` ヘッダーで送る（送信の都度、最新の値を使う） */
   readonly withCsrfToken?: boolean;
   /**
-   * 成功の応答の本文を Blob で受け取る（`getBlob` だけが立てる）
+   * 成功の応答の本文を Blob で受け取る（`getBlob`・`postBlob` だけが立てる）
    *
    * 失敗の応答の本文は従来どおり JSON（またはテキスト）として解析し、`ApiError` に載せる。
    * トークン更新後の再送にも引き継がれる（control ごと渡すため）。
@@ -657,6 +657,20 @@ class ApiClient {
    */
   async getBlob(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<Blob> {
     return this.request<Blob>(path, { ...options, method: 'GET' }, { responseAsBlob: true });
+  }
+
+  /**
+   * ファイルを返す POST リクエスト（本文を JSON で送り、成功の本文を Blob で返す）
+   *
+   * 条件を本文で送ってサーバーで生成するファイル（単価台帳の書き出し。unit-price-ledger の
+   * Requirement 6.1）を受け取るための口。認証・401 の更新と再送・エラー応答の解析は `getBlob` と同じ。
+   */
+  async postBlob(
+    path: string,
+    body?: unknown,
+    options?: Omit<RequestOptions, 'method' | 'body'>
+  ): Promise<Blob> {
+    return this.request<Blob>(path, { ...options, method: 'POST', body }, { responseAsBlob: true });
   }
 
   /**

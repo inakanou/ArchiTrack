@@ -91,7 +91,13 @@
   font-weight: 500;
   font-size: 0.9375rem;
   border-radius: 8px;
-  transition: all 0.2s ease;
+  /*
+   * ホバーで変わる背景と文字の色だけを動かす。all にすると、画面幅で余白が変わったとき
+   * （下の 1200px〜1279px の詰め）に余白も 0.2 秒かけて動き、その間はリンクの文言が折り返す
+   */
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -381,6 +387,35 @@
     clip-path: inset(50%);
     white-space: nowrap;
     border: 0;
+  }
+}
+
+/*
+ * 文言を出す幅の下端（1200px〜1279px）の詰め
+ *
+ * 単価台帳のリンク（unit-price-ledger 要件10.5）が増え、管理者の項目が一つ多くなったため、
+ * 文言を出したままの既定の余白と間隔では 1200px（中身の幅 1152px）に収まらず、
+ * リンクの文言が二行に折り返していた（test 環境の実測で、リンクの高さ 65px、
+ * ナビゲーションの既定の幅 1082px に対して残りの幅 1008px。管理者の長い表示名が最悪）。
+ * リンクの左右の余白・ナビゲーションの項目の間隔・区切りの線の左右の余白を詰め、
+ * 約 108px を空けて一行に収める。
+ *
+ * 下端の 1200px は上のアイコンのみの表示の上限（1199px）の直上。上端の 1279px は、
+ * .app-header-container の max-width（1280px）以上では中身の幅が 1232px で一定になり、
+ * 既定の余白で収まる（同じ実測で 1226px）ため、その手前までとする。
+ */
+@media (min-width: 1200px) and (max-width: 1279px) {
+  .app-header-nav {
+    gap: 0.25rem;
+  }
+
+  .app-header-nav-link {
+    padding-left: 0.625rem;
+    padding-right: 0.625rem;
+  }
+
+  .app-header-separator {
+    margin: 0 0.25rem;
   }
 }
 

@@ -47,12 +47,16 @@ export const EXPORT_KINDS = [
   'construction_photos_zip',
   'annotated_image',
   'audit_log_json',
+  'unit_price_ledger_xlsx',
 ] as const;
 
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 /** 案件に属さない出力の種別。これ以外の種別は案件の指定を必須とする */
-export const PROJECTLESS_EXPORT_KINDS: readonly ExportKind[] = ['audit_log_json'];
+export const PROJECTLESS_EXPORT_KINDS: readonly ExportKind[] = [
+  'audit_log_json',
+  'unit_price_ledger_xlsx',
+];
 
 /** 監査に書く対象のデータの ID の数の上限（元の数は targetIdCount に残す） */
 export const EXPORT_AUDIT_MAX_TARGET_IDS = 1000;

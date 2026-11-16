@@ -93,6 +93,19 @@ export const RECEIVED_QUOTATION_ADOPTIONS = ['ADOPTED', 'REJECTED', 'UNKNOWN'] a
 /** 読取の確認の状態（46.6） */
 export const RECEIVED_QUOTATION_READING_STATUSES = ['UNCONFIRMED', 'CONFIRMED'] as const;
 
+/**
+ * 受領見積書の台帳の項目の文字の上限（検証と、単価台帳の取り込みの切り詰め・要求の検証で共用する）
+ */
+export const RECEIVED_QUOTATION_FIELD_LIMITS = {
+  vendorName: 200,
+  quoteNumber: 100,
+  overallConditions: 2000,
+  siteLocation: 100,
+  useType: 100,
+  workConditions: 200,
+  quoteDiscriminator: 100,
+} as const;
+
 /** 整数円の上限（`Decimal(15,0)` の 15 桁） */
 const MAX_YEN_AMOUNT = 999_999_999_999_999;
 /** 距離の上限（`Decimal(6,1)`） */
@@ -136,7 +149,10 @@ export const receivedQuotationLedgerFieldsShape = {
     .string()
     .trim()
     .min(1, RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED)
-    .max(200, RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_TOO_LONG)
+    .max(
+      RECEIVED_QUOTATION_FIELD_LIMITS.vendorName,
+      RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_TOO_LONG
+    )
     .optional(),
   tradingPartnerId: z.preprocess(
     emptyStringToNull,
@@ -145,12 +161,18 @@ export const receivedQuotationLedgerFieldsShape = {
       .regex(UUID_REGEX, RECEIVED_QUOTATION_VALIDATION_MESSAGES.TRADING_PARTNER_ID_INVALID)
       .nullish()
   ),
-  quoteNumber: optionalText(100, RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_NUMBER_TOO_LONG),
+  quoteNumber: optionalText(
+    RECEIVED_QUOTATION_FIELD_LIMITS.quoteNumber,
+    RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_NUMBER_TOO_LONG
+  ),
   overallConditions: optionalText(
-    2000,
+    RECEIVED_QUOTATION_FIELD_LIMITS.overallConditions,
     RECEIVED_QUOTATION_VALIDATION_MESSAGES.OVERALL_CONDITIONS_TOO_LONG
   ),
-  siteLocation: optionalText(100, RECEIVED_QUOTATION_VALIDATION_MESSAGES.SITE_LOCATION_TOO_LONG),
+  siteLocation: optionalText(
+    RECEIVED_QUOTATION_FIELD_LIMITS.siteLocation,
+    RECEIVED_QUOTATION_VALIDATION_MESSAGES.SITE_LOCATION_TOO_LONG
+  ),
   constructionKind: z.preprocess(
     emptyStringToNull,
     z
@@ -160,12 +182,15 @@ export const receivedQuotationLedgerFieldsShape = {
       )
       .nullish()
   ),
-  useType: optionalText(100, RECEIVED_QUOTATION_VALIDATION_MESSAGES.USE_TYPE_TOO_LONG),
+  useType: optionalText(
+    RECEIVED_QUOTATION_FIELD_LIMITS.useType,
+    RECEIVED_QUOTATION_VALIDATION_MESSAGES.USE_TYPE_TOO_LONG
+  ),
   constructionPrice: optionalYenAmount(
     RECEIVED_QUOTATION_VALIDATION_MESSAGES.CONSTRUCTION_PRICE_INVALID
   ),
   workConditions: optionalText(
-    200,
+    RECEIVED_QUOTATION_FIELD_LIMITS.workConditions,
     RECEIVED_QUOTATION_VALIDATION_MESSAGES.WORK_CONDITIONS_TOO_LONG
   ),
   distanceKm: z.preprocess(
@@ -193,7 +218,10 @@ export const receivedQuotationLedgerFieldsShape = {
     .optional(),
   quoteDiscriminator: z
     .string()
-    .max(100, RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_TOO_LONG)
+    .max(
+      RECEIVED_QUOTATION_FIELD_LIMITS.quoteDiscriminator,
+      RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_TOO_LONG
+    )
     .refine((val) => val === val.trim(), {
       message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_WHITESPACE,
     })
@@ -425,6 +453,18 @@ export interface LineItemConversion {
   basis: string;
 }
 
+/**
+ * 明細行の文字の欄の上限（検証と、単価台帳の取り込みの切り詰め・要求の検証で共用する）
+ */
+export const LINE_ITEM_FIELD_LIMITS = {
+  condition: 500,
+  conversionUnit: 50,
+  conversionBasis: 500,
+  classificationKey: 50,
+  quantityRowKey: 1000,
+  referenceReason: 200,
+} as const;
+
 /** 換算の数量の上限（`Decimal(15,4)` の整数部 11 桁） */
 const MAX_CONVERSION_QUANTITY = 99_999_999_999.9999;
 /** 換算の単価の絶対値の上限（`Decimal(15,2)` の整数部 13 桁） */
@@ -439,7 +479,13 @@ const lineItemConversionInputSchema = z.object({
     .number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_INVALID)
     .max(MAX_CONVERSION_QUANTITY, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_OUT_OF_RANGE)
     .nullish(),
-  unit: z.string().max(50, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_TOO_LONG).nullish(),
+  unit: z
+    .string()
+    .max(
+      LINE_ITEM_FIELD_LIMITS.conversionUnit,
+      LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_TOO_LONG
+    )
+    .nullish(),
   unitPrice: z
     .number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_INVALID)
     .min(
@@ -451,7 +497,13 @@ const lineItemConversionInputSchema = z.object({
       LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_OUT_OF_RANGE
     )
     .nullish(),
-  basis: z.string().max(500, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_BASIS_TOO_LONG).nullish(),
+  basis: z
+    .string()
+    .max(
+      LINE_ITEM_FIELD_LIMITS.conversionBasis,
+      LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_BASIS_TOO_LONG
+    )
+    .nullish(),
 });
 type LineItemConversionRaw = z.infer<typeof lineItemConversionInputSchema>;
 
@@ -491,20 +543,32 @@ export const lineItemSchema = z
     category: z
       .enum(LINE_ITEM_CATEGORIES, LINE_ITEM_VALIDATION_MESSAGES.CATEGORY_INVALID)
       .default('DIRECT'),
-    condition: z.string().max(500, LINE_ITEM_VALIDATION_MESSAGES.CONDITION_TOO_LONG).nullish(),
+    condition: z
+      .string()
+      .max(LINE_ITEM_FIELD_LIMITS.condition, LINE_ITEM_VALIDATION_MESSAGES.CONDITION_TOO_LONG)
+      .nullish(),
     conversion: lineItemConversionInputSchema.nullish(),
     classificationKey: z
       .string()
-      .max(50, LINE_ITEM_VALIDATION_MESSAGES.CLASSIFICATION_KEY_TOO_LONG)
+      .max(
+        LINE_ITEM_FIELD_LIMITS.classificationKey,
+        LINE_ITEM_VALIDATION_MESSAGES.CLASSIFICATION_KEY_TOO_LONG
+      )
       .nullish(),
     quantityRowKey: z
       .string()
-      .max(1000, LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_ROW_KEY_TOO_LONG)
+      .max(
+        LINE_ITEM_FIELD_LIMITS.quantityRowKey,
+        LINE_ITEM_VALIDATION_MESSAGES.QUANTITY_ROW_KEY_TOO_LONG
+      )
       .nullish(),
     isReference: z.boolean(LINE_ITEM_VALIDATION_MESSAGES.IS_REFERENCE_INVALID).default(false),
     referenceReason: z
       .string()
-      .max(200, LINE_ITEM_VALIDATION_MESSAGES.REFERENCE_REASON_TOO_LONG)
+      .max(
+        LINE_ITEM_FIELD_LIMITS.referenceReason,
+        LINE_ITEM_VALIDATION_MESSAGES.REFERENCE_REASON_TOO_LONG
+      )
       .nullish(),
   })
   .superRefine((item, ctx) => {
