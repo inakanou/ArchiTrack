@@ -40,6 +40,7 @@ import {
 import { ReceivedQuotationNotFoundError } from '../../errors/receivedQuotationError.js';
 import { ValidationError } from '../../errors/apiError.js';
 import { createTestUser } from './test-user-factory.js';
+import { expectNoAmountsInAuditValues } from './ledger-audit-amount-assertions.js';
 
 const MARK = 'test-upl26-edit';
 /** 見積に無い明細行を指定したときの文言（印の更新。タスク2.7） */
@@ -681,10 +682,11 @@ describe('案件の無い受領見積書の修正と削除（統合・実 DB）'
         constructionPriceChanged: true,
         confirmedAmountChanged: false,
       });
+      expectNoAmountsInAuditValues(
+        { before: log.before, after: log.after, metadata: log.metadata },
+        [12000000, 13000000, 98765]
+      );
       const serialized = JSON.stringify([log.before, log.after]);
-      expect(serialized).not.toContain('12000000');
-      expect(serialized).not.toContain('13000000');
-      expect(serialized).not.toContain('98765');
       expect(serialized).not.toContain('原本.pdf');
       expect(serialized).not.toContain('見積書.pdf');
       expect(serialized).not.toMatch(/"constructionPrice"|"confirmedAmount"|ledgerSourcePath/);
@@ -731,9 +733,11 @@ describe('案件の無い受領見積書の修正と削除（統合・実 DB）'
         ledgerCardId: seeded.ledgerCardId,
         ledgerProjectName: seeded.ledgerProjectName,
       });
+      expectNoAmountsInAuditValues(
+        { before: log.before, metadata: log.metadata },
+        [12000000, 98765]
+      );
       const serialized = JSON.stringify(log.before);
-      expect(serialized).not.toContain('12000000');
-      expect(serialized).not.toContain('98765');
       expect(serialized).not.toContain('見積書.pdf');
     });
   });
@@ -1235,10 +1239,11 @@ describe('案件の無い受領見積書の修正と削除（統合・実 DB）'
       expect(changes[1]).not.toHaveProperty('isReference');
       expect(changes[1]).not.toHaveProperty('referenceReasonChanged');
 
+      expectNoAmountsInAuditValues(
+        { before: log.before, after: log.after, metadata: log.metadata },
+        [7654321, 4321000, 414720, 3456, 55555, 77777]
+      );
       const serialized = JSON.stringify([log.before, log.after]);
-      for (const money of ['7654321', '4321000', '414720', '3456', '55555', '77777']) {
-        expect(serialized).not.toContain(money);
-      }
       expect(serialized).not.toMatch(/"constructionPrice"|"confirmedAmount"|"amount"|"unitPrice"/);
     });
   });

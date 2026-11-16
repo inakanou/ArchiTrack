@@ -34,6 +34,7 @@ import {
 } from '../../services/unit-price-ledger/ledger-import.service.js';
 import type { LedgerUploadFile } from '../../services/unit-price-ledger/ledger-card-parser.js';
 import { createTestUser } from './test-user-factory.js';
+import { expectNoAmountsInAuditValues } from './ledger-audit-amount-assertions.js';
 
 const MARK = 'test-upl24-import';
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -596,11 +597,12 @@ describe('見積カードの取り込み（統合・実 DB）', () => {
         lineItemCount: 2,
         readingStatus: 'CONFIRMED',
       });
+      expectNoAmountsInAuditValues(
+        { after: log.after, metadata: log.metadata },
+        [98765, 12000000, 100000]
+      );
       const serialized = JSON.stringify(log.after);
       expect(serialized).not.toContain('見積書.pdf');
-      expect(serialized).not.toContain('98765');
-      expect(serialized).not.toContain('12000000');
-      expect(serialized).not.toContain('100000');
       expect(serialized).not.toMatch(/confirmedAmount|constructionPrice|ledgerSourcePath/);
     });
   });
