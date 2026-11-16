@@ -117,7 +117,7 @@
   - _Boundary: LedgerImportDialog_
   - _Depends: 4.1_
   - _Requirements: 2.1, 2.15_
-- [ ] 4.4 (P) 見積の詳細と、案件の無い受領見積書の修正の画面を作る
+- [x] 4.4 (P) 見積の詳細と、案件の無い受領見積書の修正の画面を作る
   - 詳細（見積の情報・カードの ID・原本のパス・明細行）を出し、案件の無い受領見積書は明細行と台帳の情報の部品で全体を修正・削除できるようにし、排他の不一致の文言を出す
   - 完了の状態：単体試験で、詳細の表示・修正の保存・削除の確認・「ほかの利用者が更新しました。最新の内容を読み込み直してください」の表示が期待どおりになる
   - _Boundary: LedgerQuotationDetailPage_
@@ -257,3 +257,4 @@
 - 4.1：画面の API は `frontend/src/api/unit-price-ledger.ts` の `unitPriceLedgerApi`。書き出しは `postBlob`（`disableRetry: true`）で受け、ファイル名は `buildLedgerExportFileName(now)` で画面が作る。導線は上部の並びに権限で出す。権限の無い利用者への文言は「単価台帳を表示する権限がありません」
 - 4.2：取り込みの操作は、一覧の画面の見出しの操作の並びに 4.6 で置く（コメントで場所を残した）。採否・読取の確認・改修／新営の文字は `components/unit-price-ledger/ledger-labels.ts`。4.1 の経路の試験は本物の `listQuotations` を呼ぶので、4.6 で差し替える
 - 4.3：`LedgerImportDialog` は `{ open, onClose, onImported?(result) }` を受ける。送信中に親が閉じても、終われば `onImported` を呼ぶ（4.6 で一覧の読み直しに使う。試験は 4.6 で足す）。送信の時間切れは 120 秒で、時間切れでもサーバーは取り込みを続けうる（取り込み直しても飛ばしで安全）
+- 4.4：明細行の変換と検証は、`ReceivedQuotationForm.tsx` の外へ出されていない関数を `components/unit-price-ledger/ledger-quotation-form.ts` に書き写した（2.6 と同じく、共通にするかは利用者の判断待ち）。4.5 の印の編集は、詳細の画面の案件の受領見積書の側に足す（場所をコメントで残した）
