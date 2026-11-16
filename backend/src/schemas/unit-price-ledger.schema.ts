@@ -40,6 +40,7 @@ export const UNIT_PRICE_LEDGER_VALIDATION_MESSAGES = {
   QUOTATION_ID_INVALID: '見積のIDの形式が不正です',
   LINE_ITEM_ID_INVALID: '明細行のIDの形式が不正です',
   LINE_ITEM_DUPLICATED: '同じ明細行が重ねて指定されています',
+  LINE_ITEM_NOT_IN_QUOTATION: '指定された明細行はこの見積にありません',
 
   // 案件の無い受領見積書の修正
   LEDGER_PROJECT_NAME_TOO_LONG: '案件名は255文字以内で入力してください',

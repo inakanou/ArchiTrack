@@ -1,12 +1,17 @@
 /**
  * @fileoverview 台帳の画面からの修正と削除（unit-price-ledger タスク2.6、design.md の LedgerEditService）
  *
- * 案件の無い受領見積書（取り込んだ見積カードなど）の全体の修正と論理削除を、受領見積書の監査ログの決まりで
- * 記録する。案件の受領見積書の印の更新（5.2）は、このサービスに別の操作として足す（タスク2.7）。
+ * 案件の無い受領見積書（取り込んだ見積カードなど）の全体の修正と論理削除と、台帳の見積の印の更新（5.2。
+ * タスク2.7）を、受領見積書の監査ログの決まりで記録する。
  *
  * - 見積の有無は台帳の対象（`LEDGER_BASE_WHERE`：論理削除されていない受領見積書で、見積依頼があれば
  *   生きているもの）で決め、無ければ `ReceivedQuotationNotFoundError`（404）とする
  * - 案件の受領見積書の全体の修正と削除は `LedgerProjectQuotationReadOnlyError`（409）で拒む（5.2・5.5）
+ * - 印の更新（5.2・5.3）：読取の確認・明細行の参考の印と理由・分類キーだけを変える。案件の受領見積書と
+ *   案件の無い受領見積書のどちらも受ける（API の契約に案件の有無の制限が無い）。印の更新は 46.8 の
+ *   「明細行の変更」に当たらず、読取の確認を戻さない。印を送らずに理由だけが来たときは保存済みの印と照合し、
+ *   印が無なら `ValidationError`（46.5）。見積に無い明細行の指定も `ValidationError`。明細行だけを変えても
+ *   受領見積書の更新の日時を進める（排他の判定を受領見積書の更新の日時で行うため）
  * - 修正（5.1）：業者名・見積日・見積の情報・案件名・原本のパスと明細行の全体。送らない見積の情報・案件名・
  *   原本のパスは変えず、null は消す。業者名・取引先は受領見積書の案件の文脈と同じ規則で決め直す（44.5〜44.8）。
  *   明細行は全量を置き換え、金額が無く数量と単価がある行だけ数量×単価を求める（45.12）
@@ -19,7 +24,7 @@
  *   トランザクションで書き、metadata の source は `unit_price_ledger`。協力業者の金額（工事価格・確定金額・
  *   明細行の中身）と原本のパスは入れず、工事価格・確定金額は変わったかどうかだけを入れる
  *
- * Requirements: 5.1, 5.3, 5.4, 5.5, 5.6, 5.7
+ * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
  *
  * @module services/unit-price-ledger/ledger-edit.service
  */
@@ -35,12 +40,18 @@ import { ValidationError } from '../../errors/apiError.js';
 import {
   LedgerConflictError,
   LedgerProjectQuotationReadOnlyError,
+  type LedgerReadOnlyOperation,
 } from '../../errors/unitPriceLedgerError.js';
 import {
+  LINE_ITEM_VALIDATION_MESSAGES,
   RECEIVED_QUOTATION_VALIDATION_MESSAGES,
   type LineItemInput,
 } from '../../schemas/received-quotation.schema.js';
-import type { LedgerQuotationUpdateInput } from '../../schemas/unit-price-ledger.schema.js';
+import {
+  UNIT_PRICE_LEDGER_VALIDATION_MESSAGES,
+  type LedgerMarksUpdateInput,
+  type LedgerQuotationUpdateInput,
+} from '../../schemas/unit-price-ledger.schema.js';
 import type { ReadingStatus } from '../received-quotation.service.js';
 import {
   LEDGER_BASE_WHERE,
@@ -226,6 +237,74 @@ const auditFields = (
   ledgerProjectName: quotation.ledgerProjectName,
 });
 
+/** 明細行の印（参考の印と理由・分類キー） */
+interface LineItemMarks {
+  isReference: boolean;
+  referenceReason: string | null;
+  classificationKey: string | null;
+}
+
+/**
+ * 監査ログに入れる、1 行の印の変更。変わった印だけを入れる。参考の理由は金額を含みうる自由な文のため、
+ * 値を入れず変わったかどうかだけを入れる（14.7・46.11 の金額を記録しない方針）
+ */
+interface LineItemMarkChange {
+  lineItemId: string;
+  sortOrder: number;
+  isReference?: { before: boolean; after: boolean };
+  referenceReasonChanged?: true;
+  classificationKey?: { before: string | null; after: string | null };
+}
+
+/**
+ * 1 行の印の入力を保存済みの印に重ね、保存後の印を決める（送らない欄は変えない）
+ *
+ * - 参考の印を外し、理由を送らないときは、保存済みの理由を消す（46.5 の決まりを保つ）
+ * - 理由を送り、保存後の印が無のときは拒む（46.5。印を送らない要求は保存済みの印と照合する）
+ *
+ * @throws ValidationError 参考の印が無の行に参考の理由を入れようとしたとき
+ */
+const mergeLineItemMarks = (
+  stored: LineItemMarks,
+  mark: LedgerMarksUpdateInput['lineItems'][number]
+): LineItemMarks => {
+  const isReference = mark.isReference ?? stored.isReference;
+  const sentReason = mark.referenceReason;
+  if (!isReference && typeof sentReason === 'string' && sentReason.trim() !== '') {
+    throw new ValidationError(LINE_ITEM_VALIDATION_MESSAGES.REFERENCE_REASON_WITHOUT_REFERENCE, {
+      lineItemId: mark.id,
+    });
+  }
+  const referenceReason = !isReference
+    ? null
+    : sentReason !== undefined
+      ? sentReason
+      : stored.referenceReason;
+  const classificationKey =
+    mark.classificationKey !== undefined ? mark.classificationKey : stored.classificationKey;
+  return { isReference, referenceReason, classificationKey };
+};
+
+/** 保存前後の印を比べ、変わった印だけを監査の形にする。変わらなければ null */
+const diffLineItemMarks = (
+  lineItemId: string,
+  sortOrder: number,
+  before: LineItemMarks,
+  after: LineItemMarks
+): LineItemMarkChange | null => {
+  const change: LineItemMarkChange = { lineItemId, sortOrder };
+  if (before.isReference !== after.isReference) {
+    change.isReference = { before: before.isReference, after: after.isReference };
+  }
+  if (before.referenceReason !== after.referenceReason) {
+    change.referenceReasonChanged = true;
+  }
+  if (before.classificationKey !== after.classificationKey) {
+    change.classificationKey = { before: before.classificationKey, after: after.classificationKey };
+  }
+  return Object.keys(change).length > 2 ? change : null;
+};
+
 /**
  * 読取の確認の遷移を決める（受領見積書の保存と同じ規則。46.6〜46.8）
  *
@@ -327,7 +406,7 @@ export class LedgerEditService {
       };
 
       // 読んだ版と同じ版の行だけを書き換える。同時の保存で先に確定した版があれば 0 件になる（5.6）
-      await this.claimVersion(tx, id, expectedUpdatedAt, data);
+      await this.claimVersion(tx, id, current.projectId, expectedUpdatedAt, data);
 
       await tx.receivedQuotationLineItem.deleteMany({ where: { receivedQuotationId: id } });
       await tx.receivedQuotationLineItem.createMany({
@@ -380,7 +459,9 @@ export class LedgerEditService {
         where: { receivedQuotationId: id },
       });
 
-      await this.claimVersion(tx, id, expectedUpdatedAt, { deletedAt: new Date() });
+      await this.claimVersion(tx, id, current.projectId, expectedUpdatedAt, {
+        deletedAt: new Date(),
+      });
 
       await this.auditLogService.createLog(
         {
@@ -398,12 +479,109 @@ export class LedgerEditService {
   }
 
   /**
-   * 台帳の見積を読み、案件の無い受領見積書で、開いた時の版と同じであることを確かめる
+   * 台帳の見積の印（読取の確認・明細行の参考の印と理由・分類キー）だけを更新する（5.2・5.3・5.4・5.6・5.7）
+   *
+   * 案件の受領見積書と案件の無い受領見積書のどちらも受ける。ほかの欄は変えず、読取の確認を未確認に戻さない。
+   * 送らない明細行と、行の送らない欄は変えない。
+   *
+   * @param id - 受領見積書の ID
+   * @param input - 印の更新の本文（`ledgerMarksUpdateSchema` の出力。expectedUpdatedAt を含む）
+   * @param actorId - 操作した利用者（監査ログの実行者・読取の確認者）
+   * @returns 保存後の台帳の詳細
+   * @throws ReceivedQuotationNotFoundError 台帳の見積として無いとき
+   * @throws LedgerConflictError 開いた後にほかの利用者が更新していたとき
+   * @throws ValidationError 見積に無い明細行を指定したとき、参考の印が無の行に参考の理由を入れたとき
+   */
+  async updateMarks(
+    id: string,
+    input: LedgerMarksUpdateInput,
+    actorId: string
+  ): Promise<LedgerQuotationDetail> {
+    const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+
+    return await this.prisma.$transaction(async (tx) => {
+      const current = await this.findEditable(tx, id, 'marks', expectedUpdatedAt);
+
+      const storedLines = await tx.receivedQuotationLineItem.findMany({
+        where: { receivedQuotationId: id },
+        select: {
+          id: true,
+          sortOrder: true,
+          isReference: true,
+          referenceReason: true,
+          classificationKey: true,
+        },
+        orderBy: { sortOrder: 'asc' },
+      });
+      const storedById = new Map(storedLines.map((line) => [line.id, line]));
+
+      // 書き込みの前に、すべての行を検証する
+      const lineUpdates = input.lineItems.map((mark) => {
+        const stored = storedById.get(mark.id);
+        if (!stored) {
+          throw new ValidationError(
+            UNIT_PRICE_LEDGER_VALIDATION_MESSAGES.LINE_ITEM_NOT_IN_QUOTATION,
+            { lineItemId: mark.id }
+          );
+        }
+        const after = mergeLineItemMarks(stored, mark);
+        return { after, change: diffLineItemMarks(stored.id, stored.sortOrder, stored, after) };
+      });
+
+      // 明細行だけを変えるときも、受領見積書の更新の日時を進めて版を取る（5.6）
+      await this.claimVersion(tx, id, current.projectId, expectedUpdatedAt, {
+        ...decideReadingConfirmation(current.readingStatus, input.readingStatus, false, actorId),
+        updatedAt: new Date(),
+      });
+
+      const changes: LineItemMarkChange[] = [];
+      for (const { after, change } of lineUpdates) {
+        if (change === null) {
+          continue;
+        }
+        changes.push(change);
+        await tx.receivedQuotationLineItem.update({
+          where: { id: change.lineItemId },
+          data: after,
+        });
+      }
+
+      const updated = await tx.receivedQuotation.findUniqueOrThrow({ where: { id } });
+      await this.auditLogService.createLog(
+        {
+          action: 'RECEIVED_QUOTATION_UPDATED',
+          actorId,
+          targetType: RECEIVED_QUOTATION_TARGET_TYPE,
+          targetId: id,
+          before: auditFields(current, storedLines.length),
+          after: {
+            ...auditFields(updated, storedLines.length),
+            // 印の更新は工事価格・確定金額を変えない。修正の記録と同じ形にそろえる（46.11）
+            constructionPriceChanged: false,
+            confirmedAmountChanged: false,
+            lineItemMarkChanges: changes.map((change) => ({ ...change })),
+          },
+          metadata: EDIT_AUDIT_METADATA,
+        },
+        tx
+      );
+
+      const detail = await this.queryService.findById(id, tx);
+      if (!detail) {
+        throw new ReceivedQuotationNotFoundError(id);
+      }
+      return detail;
+    });
+  }
+
+  /**
+   * 台帳の見積を読み、開いた時の版と同じであることを確かめる。修正と削除は案件の無い受領見積書だけを受け、
+   * 印の更新は案件の受領見積書も受ける
    */
   private async findEditable(
     tx: Prisma.TransactionClient,
     id: string,
-    operation: 'update' | 'delete',
+    operation: LedgerReadOnlyOperation | 'marks',
     expectedUpdatedAt: Date
   ) {
     const quotation = await tx.receivedQuotation.findFirst({
@@ -412,7 +590,7 @@ export class LedgerEditService {
     if (!quotation) {
       throw new ReceivedQuotationNotFoundError(id);
     }
-    if (quotation.projectId !== null) {
+    if (operation !== 'marks' && quotation.projectId !== null) {
       throw new LedgerProjectQuotationReadOnlyError(id, operation);
     }
     if (quotation.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
@@ -425,17 +603,19 @@ export class LedgerEditService {
   }
 
   /**
-   * ID と更新の日時が一致する、論理削除されていない案件の無い行だけを書き換える。0 件なら排他の不一致（5.6）。
-   * 条件付きの更新は行の鍵を取るため、同時の保存の後の方は先の確定を待ってから条件を見直し、0 件になる
+   * ID と更新の日時が一致し、読んだ時と同じ案件の、論理削除されていない行だけを書き換える。0 件なら排他の
+   * 不一致（5.6）。条件付きの更新は行の鍵を取るため、同時の保存の後の方は先の確定を待ってから条件を見直し、
+   * 0 件になる
    */
   private async claimVersion(
     tx: Prisma.TransactionClient,
     id: string,
+    projectId: string | null,
     expectedUpdatedAt: Date,
     data: Prisma.ReceivedQuotationUncheckedUpdateManyInput
   ): Promise<void> {
     const { count } = await tx.receivedQuotation.updateMany({
-      where: { id, updatedAt: expectedUpdatedAt, deletedAt: null, projectId: null },
+      where: { id, updatedAt: expectedUpdatedAt, deletedAt: null, projectId },
       data,
     });
     if (count !== 1) {
