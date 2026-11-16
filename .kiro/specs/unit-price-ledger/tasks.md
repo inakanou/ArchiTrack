@@ -104,7 +104,7 @@
   - 台帳の API の呼び出しを作り、台帳の画面の経路を足し（一覧と詳細の画面は空の枠だけを置き、中身は 4.2 と 4.4 が作る）、台帳の管理の権限を持つ利用者だけにメニューの導線を出す
   - 完了の状態：単体試験で、権限を持つ利用者に導線が出て、持たない利用者に出ない
   - _Requirements: 10.1, 10.5_
-- [ ] 4.2 (P) 台帳の一覧の画面を作る
+- [x] 4.2 (P) 台帳の一覧の画面を作る
   - 一覧（業者名・見積日・案件名・合計・採否・読取の確認・参考の行の有無）、絞り込みの欄、ページと総件数、0 件の表示、書き出しの操作（0 件のときは無効）を作る。権限の無い利用者には内容を出さない
   - 完了の状態：単体試験で、一覧・絞り込み・「条件に合う見積はありません」・書き出しの無効と記録の失敗の表示が期待どおりになる
   - _Boundary: UnitPriceLedgerPage, LedgerSearchFilter, LedgerQuotationTable_
@@ -255,3 +255,4 @@
 - 2.10：`LedgerExportService.export(filter, actorId, ctx)` は Buffer・ファイル名（`単価台帳_YYYYMMDD.xlsx`、日本時間）・見積の数を返す。0 件は 400 `LEDGER_EXPORT_EMPTY`、記録の失敗は 500 `EXPORT_RECORD_FAILED`。書き出す行の数に上限は無い（全件をメモリに読む。上限を置くかは利用者の判断待ち）
 - 3.1：経路は `/api/unit-price-ledger` の下（GET・PUT・DELETE `/quotations[/:id]`、PATCH `/quotations/:id/marks`、POST `/imports`・`/exports`・`/similar-prices`）。書き出しは本文が必須で、絞り込まないときも画面は `{}` を送る。取り込みのファイルの欄は `files`。似た単価は `{ candidates }` を返す
 - 4.1：画面の API は `frontend/src/api/unit-price-ledger.ts` の `unitPriceLedgerApi`。書き出しは `postBlob`（`disableRetry: true`）で受け、ファイル名は `buildLedgerExportFileName(now)` で画面が作る。導線は上部の並びに権限で出す。権限の無い利用者への文言は「単価台帳を表示する権限がありません」
+- 4.2：取り込みの操作は、一覧の画面の見出しの操作の並びに 4.6 で置く（コメントで場所を残した）。採否・読取の確認・改修／新営の文字は `components/unit-price-ledger/ledger-labels.ts`。4.1 の経路の試験は本物の `listQuotations` を呼ぶので、4.6 で差し替える
