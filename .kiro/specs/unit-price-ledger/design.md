@@ -167,6 +167,10 @@ e2e/specs/unit-price-ledger/         # 取り込み・一覧・修正・書き�
 - `frontend/src/routes.tsx` — 台帳の画面の経路を足す
 - `frontend/src/components/Navigation/AppHeader.tsx` — 権限を持つ利用者だけに台帳への導線を出す
 - `frontend/src/api/export-audit.ts` — `ExportKind` に `unit_price_ledger_xlsx` を足す
+- `backend/src/schemas/received-quotation.schema.ts` — 受領見積書と明細行の文字数の上限を定数（`RECEIVED_QUOTATION_FIELD_LIMITS`・`LINE_ITEM_FIELD_LIMITS`）へ出し、台帳の検証と共有する（値は変えない）
+- `backend/src/schemas/export-audit.schema.ts` — 案件の無い種類の注記に台帳の Excel を足す（検証の仕組みは変えない）
+- `backend/src/routes/audit-log.routes.ts` — 出力の記録の種類の OpenAPI の列挙に `unit_price_ledger_xlsx` を足す
+- `frontend/src/api/client.ts` — ファイルを返す POST の口 `postBlob` を足す（台帳の書き出しが使う。`getBlob` と同じ流れ）
 
 ## System Flows
 
@@ -457,8 +461,8 @@ interface SimilarPriceCandidate {
   ledgerSourcePath: string | null;  // 案件の無い受領見積書だけ
   name: string;
   specification: string | null;
-  unit: string;
-  quantity: string;
+  unit: string | null; // DB の欄が空を許すため（換算の行は換算の単位）
+  quantity: string | null; // 同上（換算の行は換算の数量）
   category: 'DIRECT' | 'WASTE';
   classificationKeyMatched: boolean;
   adoption: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
