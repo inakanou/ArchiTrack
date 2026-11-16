@@ -141,8 +141,11 @@ export interface LedgerQueryServiceDependencies {
 /** 分類キーの無い行を数える区分（4.4） */
 const CLASSIFIED_CATEGORIES: LineItemCategory[] = ['DIRECT', 'WASTE'];
 
-/** 台帳の見積の対象（1.1・1.3）：論理削除されていない受領見積書で、見積依頼があれば生きているもの */
-const LEDGER_BASE_WHERE: Prisma.ReceivedQuotationWhereInput = {
+/**
+ * 台帳の見積の対象（1.1・1.3）：論理削除されていない受領見積書で、見積依頼があれば生きているもの。
+ * 修正・削除（LedgerEditService）も、この条件に無い見積を不在として扱う
+ */
+export const LEDGER_BASE_WHERE: Prisma.ReceivedQuotationWhereInput = {
   deletedAt: null,
   OR: [{ estimateRequestId: null }, { estimateRequest: { is: { deletedAt: null } } }],
 };
@@ -402,9 +405,13 @@ export class LedgerQueryService {
    * 台帳の見積の詳細を返す（4.6）。論理削除された見積・論理削除された見積依頼の見積・存在しない ID は null
    *
    * @param id - 受領見積書の ID
+   * @param client - 読むクライアント（修正の後に同じトランザクションで詳細を返すとき。既定は Prisma の接続）
    */
-  async findById(id: string): Promise<LedgerQuotationDetail | null> {
-    const quotation = await this.prisma.receivedQuotation.findFirst({
+  async findById(
+    id: string,
+    client: Pick<Prisma.TransactionClient, 'receivedQuotation'> = this.prisma
+  ): Promise<LedgerQuotationDetail | null> {
+    const quotation = await client.receivedQuotation.findFirst({
       where: { AND: [{ id }, LEDGER_BASE_WHERE] },
       include: {
         lineItems: { orderBy: { sortOrder: 'asc' } },
