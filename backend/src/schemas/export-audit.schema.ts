@@ -4,7 +4,7 @@
  * `POST /api/v1/audit-logs/exports` の本文（design.md の ExportRecordInput）を検証する
  * （user-authentication タスク53.3、要件40.9）。
  * - 種別は ExportKind の一覧に限る
- * - 案件に属する種別は案件の ID（UUID）を必須とし、案件に属さない種別（監査ログの JSON 出力）は null に限る
+ * - 案件に属する種別は案件の ID（UUID）を必須とし、案件に属さない種別（監査ログの JSON 出力・単価台帳の Excel の書き出し）は null に限る
  * - 件数は 0 以上の整数。対象のデータの ID は文字列の配列（監査に書く数と長さはサービスが切り詰める）
  */
 
