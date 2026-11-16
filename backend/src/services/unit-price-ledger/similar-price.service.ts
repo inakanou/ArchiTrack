@@ -15,10 +15,18 @@
  * - 按分の内訳（8.x）は候補の見積の区分ごとの金額の合計から求める。合計は候補の見積をまとめて 1 回で集計する
  * - 検索は `$queryRaw` に値を結び付けて行う（文字を組み立てない）
  *
- * 閲覧範囲による表示制御（9.1〜9.4）はタスク2.9 が担う。本サービスの `findMatches` は、表示制御の前の
- * 候補（案件の識別の元を `source` にまとめたもの）を返す
+ * 閲覧範囲による表示制御（9.1〜9.4。タスク2.9）は `search` が担う。`findMatches` は表示制御の前の
+ * 候補（案件の識別の元を `source` にまとめたもの）を返し、`search` が問い合わせた利用者の閲覧範囲で
+ * API の候補へ写す
+ * - 範囲内の案件の候補：案件名・案件の ID・受領見積書の ID を返す（9.1）
+ * - 範囲外の案件の候補：案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパスを null にする。
+ *   見積依頼は候補に含めない（9.2）。業者名・見積日・明細行の内容・按分の内訳は返す（9.4）
+ * - 案件の無い受領見積書の候補：台帳の案件名・受領見積書の ID・原本のパスを返す（9.3）
+ * - 閲覧範囲は `ProjectScopeService.buildProjectScopeWhere` の条件で、候補の案件の ID をまとめて 1 回で引く。
+ *   論理削除された案件は、全案件閲覧の権限があっても範囲外とする（`evaluateProjectAccess` と同じ）
  *
- * Requirements: 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11,
+ *   9.1, 9.2, 9.3, 9.4
  *
  * @module services/unit-price-ledger/similar-price.service
  */
@@ -31,6 +39,10 @@ import type {
 } from '../../generated/prisma/enums.js';
 import type { SimilarPriceQuery } from '../../schemas/unit-price-ledger.schema.js';
 import {
+  getSharedProjectScopeService,
+  type ProjectScopeService,
+} from '../project-scope.service.js';
+import {
   computeAllocation,
   type AllocationBreakdown,
   type CategoryTotals,
@@ -42,6 +54,9 @@ export const SIMILAR_PRICE_THRESHOLD = 0.3;
 
 /** 返す候補の最大の件数（7.6） */
 export const SIMILAR_PRICE_LIMIT = 20;
+
+/** 閲覧範囲の外の案件の候補の案件名（9.2） */
+export const OTHER_PROJECT_NAME = '他案件';
 
 /** 候補の明細行の区分（7.1） */
 export type SimilarPriceCategory = Extract<ReceivedQuotationLineCategory, 'DIRECT' | 'WASTE'>;
@@ -86,11 +101,32 @@ export interface SimilarPriceMatch {
   source: SimilarPriceSource;
 }
 
+/** 候補の、案件を特定できる情報の欄（閲覧範囲で出し分ける。9.1〜9.3） */
+export interface SimilarPriceProjectFields {
+  /** 案件名（範囲外は「他案件」、案件の無い受領見積書は台帳の案件名） */
+  projectName: string | null;
+  /** 案件の ID（範囲外と案件の無い受領見積書は null） */
+  projectId: string | null;
+  /** 受領見積書の ID（範囲外は null） */
+  receivedQuotationId: string | null;
+  /** 原本のパス（案件の無い受領見積書だけ） */
+  ledgerSourcePath: string | null;
+}
+
+/**
+ * 似た単価の候補（design.md の SimilarPriceCandidate。表示制御の後）
+ *
+ * 単位と数量は DB で空を許すため `string | null`
+ */
+export type SimilarPriceCandidate = Omit<SimilarPriceMatch, 'source'> & SimilarPriceProjectFields;
+
 /**
  * 似た単価のサービスの依存
  */
 export interface SimilarPriceServiceDependencies {
   prisma: PrismaClient;
+  /** 閲覧範囲（省略時は共有のインスタンス） */
+  projectScopeService?: Pick<ProjectScopeService, 'buildProjectScopeWhere'>;
 }
 
 /** 検索の SQL の 1 行 */
@@ -132,13 +168,72 @@ const matchTerm = (condition: Prisma.Sql | null): Prisma.Sql =>
 const toDateString = (value: Date): string => value.toISOString().slice(0, 10);
 
 /**
+ * 表示制御の前の候補の案件の情報を、閲覧範囲に応じて API の欄に写す（9.1〜9.3）
+ *
+ * @param source - 候補の案件の識別の元
+ * @param visibleProjectIds - 問い合わせた利用者が閲覧できる、候補の案件の ID
+ */
+export const toProjectFields = (
+  source: SimilarPriceSource,
+  visibleProjectIds: ReadonlySet<string>
+): SimilarPriceProjectFields => {
+  if (source.projectId === null) {
+    return {
+      projectName: source.ledgerProjectName,
+      projectId: null,
+      receivedQuotationId: source.receivedQuotationId,
+      ledgerSourcePath: source.ledgerSourcePath,
+    };
+  }
+  if (visibleProjectIds.has(source.projectId)) {
+    return {
+      projectName: source.projectName,
+      projectId: source.projectId,
+      receivedQuotationId: source.receivedQuotationId,
+      ledgerSourcePath: null,
+    };
+  }
+  return {
+    projectName: OTHER_PROJECT_NAME,
+    projectId: null,
+    receivedQuotationId: null,
+    ledgerSourcePath: null,
+  };
+};
+
+/**
  * 似た単価の検索のサービス
  */
 export class SimilarPriceService {
   private readonly prisma: PrismaClient;
+  private readonly projectScopeService:
+    Pick<ProjectScopeService, 'buildProjectScopeWhere'> | undefined;
 
   constructor(deps: SimilarPriceServiceDependencies) {
     this.prisma = deps.prisma;
+    this.projectScopeService = deps.projectScopeService;
+  }
+
+  /**
+   * 似た単価の候補を、問い合わせた利用者の閲覧範囲で表示制御して返す（7.1〜7.11、9.1〜9.4）
+   *
+   * @param query - 似た単価の問い合わせ（`similarPriceQuerySchema` の出力）
+   * @param userId - 問い合わせた利用者
+   * @returns API の候補。無ければ空の一覧（7.11）
+   */
+  async search(query: SimilarPriceQuery, userId: string): Promise<SimilarPriceCandidate[]> {
+    const matches = await this.findMatches(query);
+    if (matches.length === 0) return [];
+
+    const visibleProjectIds = await this.loadVisibleProjectIds(
+      matches.flatMap((match) => (match.source.projectId === null ? [] : [match.source.projectId])),
+      userId
+    );
+
+    return matches.map(({ source, ...rest }) => ({
+      ...rest,
+      ...toProjectFields(source, visibleProjectIds),
+    }));
   }
 
   /**
@@ -267,6 +362,23 @@ export class SimilarPriceService {
                c."submittedAt" DESC, c."lineItemId" ASC
       LIMIT ${SIMILAR_PRICE_LIMIT}
     `;
+  }
+
+  /**
+   * 候補の案件のうち、利用者が閲覧できる（論理削除されていない）案件の ID をまとめて 1 回で引く
+   */
+  private async loadVisibleProjectIds(projectIds: string[], userId: string): Promise<Set<string>> {
+    const ids = Array.from(new Set(projectIds));
+    if (ids.length === 0) return new Set();
+
+    const scopeWhere = await (
+      this.projectScopeService ?? getSharedProjectScopeService()
+    ).buildProjectScopeWhere(userId);
+    const visible = await this.prisma.project.findMany({
+      where: { id: { in: ids }, deletedAt: null, ...(scopeWhere ?? {}) },
+      select: { id: true },
+    });
+    return new Set(visible.map((project) => project.id));
   }
 
   /**
