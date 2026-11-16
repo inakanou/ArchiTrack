@@ -85,7 +85,7 @@
   - 閲覧範囲の内の案件の候補には案件名を、範囲外の候補には「他案件」を返して案件を特定できる情報を返さず、案件の無い候補には案件名と原本のパスを返す
   - 完了の状態：統合試験で、担当者・範囲外の利用者・全案件閲覧の利用者それぞれの応答が期待どおりになる
   - _Requirements: 9.1, 9.2, 9.3, 9.4_
-- [ ] 2.10 台帳の Excel の書き出しを作る
+- [x] 2.10 台帳の Excel の書き出しを作る
   - 絞り込みの結果から 3 つのシートの Excel を作り、作る前に出力を記録し、記録に失敗したら作らず、0 件の要求を拒む
   - 完了の状態：統合試験で、シートと列・記録が先であること・記録の失敗で作らないこと・0 件の拒否が通る
   - _Depends: 1.3, 2.5_
@@ -252,3 +252,4 @@
 - 2.8：EXPLAIN（enable_seqscan=off）で、似た単価の検索は名称の 3 文字組の索引を使わないことを確かめた（名称と規格の式と OR のため）。正しさには響かない。式の索引か群ごとの UNION にするかは利用者の判断待ち
 - 2.8：`findMatches` は案件を特定できる情報を `source` に隠さずに返す。2.9 は `source` を API の projectName・projectId・receivedQuotationId・ledgerSourcePath へ写す段を足す。単位と数量は DB で空を許すため `string | null` で、API の表し方は 2.9・3.1 で決める
 - 2.9：API の候補は `SimilarPriceService.search(query, userId)` が返す。論理削除された案件の候補は、全案件閲覧の利用者にも「他案件」と出す（`evaluateProjectAccess` と同じ扱い）
+- 2.10：`LedgerExportService.export(filter, actorId, ctx)` は Buffer・ファイル名（`単価台帳_YYYYMMDD.xlsx`、日本時間）・見積の数を返す。0 件は 400 `LEDGER_EXPORT_EMPTY`、記録の失敗は 500 `EXPORT_RECORD_FAILED`。書き出す行の数に上限は無い（全件をメモリに読む。上限を置くかは利用者の判断待ち）
