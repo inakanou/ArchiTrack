@@ -421,6 +421,27 @@ export type ReceivedQuotationAuditAction = (typeof RECEIVED_QUOTATION_AUDIT_ACTI
 export const RECEIVED_QUOTATION_TARGET_TYPE = 'ReceivedQuotation' as const;
 
 /**
+ * 受領見積書の監査ログの metadata の出所（unit-price-ledger）
+ * - ledger_import：単価台帳の取り込み（RECEIVED_QUOTATION_CREATED）
+ * - unit_price_ledger：単価台帳の画面での修正・印の更新・削除（RECEIVED_QUOTATION_UPDATED / DELETED）
+ *
+ * 受領見積書の画面からの操作は出所を持たない
+ */
+export const RECEIVED_QUOTATION_AUDIT_SOURCES = ['ledger_import', 'unit_price_ledger'] as const;
+
+/**
+ * 受領見積書の監査ログの metadata の出所の型
+ */
+export type ReceivedQuotationAuditSource = (typeof RECEIVED_QUOTATION_AUDIT_SOURCES)[number];
+
+/**
+ * 単価台帳から書く受領見積書の監査ログの metadata
+ */
+export type ReceivedQuotationAuditMetadata = {
+  source: ReceivedQuotationAuditSource;
+};
+
+/**
  * 自社情報管理の監査ログアクション一覧
  * CompanyInfoServiceとの連携で使用
  */
