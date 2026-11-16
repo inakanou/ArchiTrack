@@ -14,7 +14,7 @@
  * - 総件数は一覧と同じ条件で数える。合計（別途を除く。45.5）と参考の行の有無は、ページの見積の明細行を
  *   まとめて集計して求める（見積ごとに問い合わせない）
  *
- * Requirements: 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
+ * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
  *
  * @module services/unit-price-ledger/ledger-query.service
  */

@@ -24,7 +24,7 @@
  *   トランザクションで書き、metadata の source は `unit_price_ledger`。協力業者の金額（工事価格・確定金額・
  *   明細行の中身）と原本のパスは入れず、工事価格・確定金額は変わったかどうかだけを入れる
  *
- * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
+ * Requirements (unit-price-ledger): 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
  *
  * @module services/unit-price-ledger/ledger-edit.service
  */

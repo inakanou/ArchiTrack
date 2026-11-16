@@ -25,7 +25,7 @@
  * - 閲覧範囲は `ProjectScopeService.buildProjectScopeWhere` の条件で、候補の案件の ID をまとめて 1 回で引く。
  *   論理削除された案件は、全案件閲覧の権限があっても範囲外とする（`evaluateProjectAccess` と同じ）
  *
- * Requirements: 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11,
+ * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11,
  *   9.1, 9.2, 9.3, 9.4
  *
  * @module services/unit-price-ledger/similar-price.service

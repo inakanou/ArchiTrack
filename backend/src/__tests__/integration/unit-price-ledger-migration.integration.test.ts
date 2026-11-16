@@ -137,6 +137,9 @@ describe('単価台帳の migration（統合・実 DB）', () => {
   });
 
   describe('権限（10.3）', () => {
+    /**
+     * @requirement unit-price-ledger/REQ-10.3
+     */
     it('台帳の管理の権限 unit_price_ledger:manage がある', async () => {
       const permission = await prisma.permission.findUnique({
         where: { resource_action: { resource: 'unit_price_ledger', action: 'manage' } },
@@ -144,6 +147,9 @@ describe('単価台帳の migration（統合・実 DB）', () => {
       expect(permission).not.toBeNull();
     });
 
+    /**
+     * @requirement unit-price-ledger/REQ-10.3
+     */
     it('一般ユーザーロールは台帳の管理の権限を持たない', async () => {
       const keys = await rolePermissionKeys('user');
       // 前提: 一般ユーザーロールに既定の権限が割り当てられている（空なら判定が素通りになる）
@@ -151,6 +157,9 @@ describe('単価台帳の migration（統合・実 DB）', () => {
       expect(keys).not.toContain(LEDGER_PERMISSION);
     });
 
+    /**
+     * @requirement unit-price-ledger/REQ-10.3
+     */
     it('システム管理者は *:* で台帳の管理の権限を持ち、一般ユーザーは持たない', async () => {
       const rbac = getSharedRBACService();
       await rbac.invalidateUserPermissionsCache(adminUserId);

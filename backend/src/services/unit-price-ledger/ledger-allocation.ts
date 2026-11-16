@@ -13,7 +13,7 @@
  * - 基準が 0 以下なら按分は 0 で `allocatable: false`（8.6）。丸めた反映する単価が 0 より小さければ
  *   `applicable: false`（8.7）
  *
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7
+ * Requirements (unit-price-ledger): 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7
  *
  * @module services/unit-price-ledger/ledger-allocation
  */

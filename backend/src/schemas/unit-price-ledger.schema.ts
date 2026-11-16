@@ -6,7 +6,7 @@
  * 要求を検証する。欄の上限の値は受領見積書の明細行と台帳の情報の検証の定義
  * （`schemas/received-quotation.schema.ts`）から取り、ここで数を重ねて書かない。
  *
- * Requirements: 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.6, 7.1
+ * Requirements (unit-price-ledger): 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.6, 7.1
  *
  * @module schemas/unit-price-ledger
  */

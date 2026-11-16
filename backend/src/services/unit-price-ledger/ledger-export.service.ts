@@ -13,7 +13,7 @@
  * - 結果が 0 件の要求は、記録もファイルも作らずに 400 で拒む（6.5）
  * - 文字の欄は SheetJS の文字のセルとして書くため、「=」などで始まる値も式にならない
  *
- * Requirements: 1.1, 1.2, 1.3, 1.4, 6.1, 6.2, 6.3, 6.4, 6.5
+ * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 6.1, 6.2, 6.3, 6.4, 6.5
  *
  * @module services/unit-price-ledger/ledger-export.service
  */
