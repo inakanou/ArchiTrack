@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, ReactElement, useCallback, KeyboardEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { usePermission } from '../../hooks/usePermission';
+import { UNIT_PRICE_LEDGER_MANAGE_PERMISSION } from '../../api/unit-price-ledger';
 import './AppHeader.css';
 
 /**
@@ -251,6 +253,16 @@ const Icons = {
       />
     </svg>
   ),
+  UnitPriceLedger: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M4 6h16M4 10h16M4 14h16M4 18h16M9 6v12"
+      />
+    </svg>
+  ),
   AuditLog: () => (
     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path
@@ -363,6 +375,7 @@ const Icons = {
  *
  * ## 機能
  * - ロゴ・ダッシュボードリンク
+ * - 単価台帳リンク（台帳の管理の権限 unit_price_ledger:manage を持つユーザーのみ表示。unit-price-ledger 要件10.5）
  * - 管理者メニュー（admin ロールを持つユーザーのみ表示）
  * - ユーザーメニュー（プロフィール、ログアウト）
  *
@@ -383,6 +396,10 @@ export function AppHeader(): ReactElement {
 
   // ユーザーが管理者かどうかを判定
   const isAdmin = user?.roles?.includes('admin') ?? false;
+
+  // 単価台帳への導線はロールでなく台帳の管理の権限で出し分ける（unit-price-ledger REQ-10.5）
+  const { hasPermission } = usePermission();
+  const canManageUnitPriceLedger = hasPermission(UNIT_PRICE_LEDGER_MANAGE_PERMISSION);
 
   /**
    * ログアウト処理
@@ -525,6 +542,14 @@ export function AppHeader(): ReactElement {
               <Icons.CompanyInfo />
               <span>自社情報</span>
             </Link>
+
+            {/* 単価台帳リンク - unit-price-ledger REQ-10.5: 台帳の管理の権限を持つ利用者だけ */}
+            {canManageUnitPriceLedger && (
+              <Link to="/unit-price-ledger" className="app-header-nav-link">
+                <Icons.UnitPriceLedger />
+                <span>単価台帳</span>
+              </Link>
+            )}
 
             {/* 管理者メニュー（admin ロールを持つユーザーのみ） */}
             {isAdmin && (
