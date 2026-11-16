@@ -58,6 +58,7 @@ import estimateRequestStatusRoutes from './routes/estimate-request-status.routes
 import companyInfoRoutes from './routes/company-info.routes.js';
 import estimatesRoutes from './routes/estimates.routes.js';
 import projectQuotationsRoutes from './routes/project-quotations.routes.js';
+import unitPriceLedgerRoutes from './routes/unit-price-ledger.routes.js';
 import claudeVisionRoutes from './routes/claude-vision.routes.js';
 import contractsRoutes from './routes/contracts.routes.js';
 import schedulesRoutes from './routes/schedules.routes.js';
@@ -413,6 +414,9 @@ app.use('/api/quotations', receivedQuotationRoutes);
 
 // Project-scoped received quotation routes (for estimate transfer feature, REQ-17.1, REQ-17.2)
 app.use('/api/projects/:projectId/quotations', projectQuotationsRoutes);
+
+// 単価台帳（unit-price-ledger。台帳の経路は unit_price_ledger:manage、似た単価は estimate:update で守る）
+app.use('/api/unit-price-ledger', unitPriceLedgerRoutes);
 
 // Estimate request status management routes
 app.use('/api/estimate-requests', estimateRequestStatusRoutes);

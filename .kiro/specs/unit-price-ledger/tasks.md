@@ -92,7 +92,7 @@
   - _Requirements: 1.3, 6.1, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 3. 結線：台帳の経路と権限
-- [ ] 3.1 台帳の経路をつなぎ、権限で守る
+- [x] 3.1 台帳の経路をつなぎ、権限で守る
   - 一覧・詳細・修正・印の更新・削除・取り込み・書き出しを台帳の管理の権限で、似た単価の問い合わせを見積の編集の権限で守り、アプリへつなぐ
   - 取り込みはメモリに受け、1 ファイル 50 MB・2000 ファイルまでとし、上限の超過を 413 で返す。排他の不一致と案件の受領見積書の修正・削除は 409、出力の記録の失敗は 500 で返す
   - 完了の状態：HTTP の統合試験で、一覧・詳細・修正・印の更新・削除・取り込み・書き出し・似た単価の 8 つの経路が働き、413・409（2 種類）・500 が返り、user ロールの利用者と見積の編集の権限の無い利用者の要求が 403 で拒まれ内容を返さないことが通る
@@ -253,3 +253,4 @@
 - 2.8：`findMatches` は案件を特定できる情報を `source` に隠さずに返す。2.9 は `source` を API の projectName・projectId・receivedQuotationId・ledgerSourcePath へ写す段を足す。単位と数量は DB で空を許すため `string | null` で、API の表し方は 2.9・3.1 で決める
 - 2.9：API の候補は `SimilarPriceService.search(query, userId)` が返す。論理削除された案件の候補は、全案件閲覧の利用者にも「他案件」と出す（`evaluateProjectAccess` と同じ扱い）
 - 2.10：`LedgerExportService.export(filter, actorId, ctx)` は Buffer・ファイル名（`単価台帳_YYYYMMDD.xlsx`、日本時間）・見積の数を返す。0 件は 400 `LEDGER_EXPORT_EMPTY`、記録の失敗は 500 `EXPORT_RECORD_FAILED`。書き出す行の数に上限は無い（全件をメモリに読む。上限を置くかは利用者の判断待ち）
+- 3.1：経路は `/api/unit-price-ledger` の下（GET・PUT・DELETE `/quotations[/:id]`、PATCH `/quotations/:id/marks`、POST `/imports`・`/exports`・`/similar-prices`）。書き出しは本文が必須で、絞り込まないときも画面は `{}` を送る。取り込みのファイルの欄は `files`。似た単価は `{ candidates }` を返す

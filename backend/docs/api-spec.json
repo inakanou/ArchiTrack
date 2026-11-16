@@ -1295,6 +1295,761 @@
         }
       }
     },
+    "/api/unit-price-ledger/quotations": {
+      "get": {
+        "summary": "単価台帳の一覧",
+        "description": "論理削除されていない受領見積書を絞り込み、見積日の新しい順に 1 ページ 50 件で返す。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "業者名・案件名・明細行の名称の部分一致"
+          },
+          {
+            "in": "query",
+            "name": "submittedFrom",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "見積日の期間の始め（YYYY-MM-DD、含む）"
+          },
+          {
+            "in": "query",
+            "name": "submittedTo",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "見積日の期間の終わり（YYYY-MM-DD、含む）"
+          },
+          {
+            "in": "query",
+            "name": "hasProject",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "案件の有無"
+          },
+          {
+            "in": "query",
+            "name": "adoption",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ADOPTED",
+                "REJECTED",
+                "UNKNOWN"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "readingStatus",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "UNCONFIRMED",
+                "CONFIRMED"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "constructionKind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RENOVATION",
+                "NEW_CONSTRUCTION"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "needsReview",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "参考の印のある明細行を持つ見積だけ"
+          },
+          {
+            "in": "query",
+            "name": "missingClassificationKey",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "直接工事・産廃で分類キーの無い明細行を持つ見積だけ"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "一覧（data は見積の要約の配列、pagination は page・limit・total・totalPages）"
+          },
+          "400": {
+            "description": "問い合わせの検証の失敗"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          }
+        }
+      }
+    },
+    "/api/unit-price-ledger/quotations/{id}": {
+      "get": {
+        "summary": "単価台帳の見積の詳細",
+        "description": "見積の情報・台帳の情報・すべての明細行を返す。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "受領見積書の ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "詳細（updatedAt を修正・印の更新・削除の排他に使う）"
+          },
+          "400": {
+            "description": "ID の形式の誤り"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          },
+          "404": {
+            "description": "見積が無い、または論理削除済み"
+          }
+        }
+      },
+      "put": {
+        "summary": "案件の無い見積の修正",
+        "description": "業者名・見積日・見積の情報・案件名・原本のパス・明細行の全体を修正する。案件の受領見積書は修正できない。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "vendorName",
+                  "submittedAt",
+                  "lineItems",
+                  "expectedUpdatedAt"
+                ],
+                "properties": {
+                  "vendorName": {
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ledgerProjectName": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 255
+                  },
+                  "ledgerSourcePath": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 1000
+                  },
+                  "lineItems": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "明細行（受領見積書の明細行と同じ形）"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "開いたときの updatedAt（楽観的排他制御）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "保存後の詳細"
+          },
+          "400": {
+            "description": "検証の失敗"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          },
+          "404": {
+            "description": "見積が無い、または論理削除済み"
+          },
+          "409": {
+            "description": "排他の不一致（code は LEDGER_CONFLICT）、または案件の受領見積書（code は LEDGER_PROJECT_QUOTATION_READ_ONLY）"
+          }
+        }
+      },
+      "delete": {
+        "summary": "案件の無い見積の削除",
+        "description": "案件の無い受領見積書を論理削除する。案件の受領見積書は削除できない。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "開いたときの updatedAt（楽観的排他制御）"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "削除した"
+          },
+          "400": {
+            "description": "検証の失敗"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          },
+          "404": {
+            "description": "見積が無い、または論理削除済み"
+          },
+          "409": {
+            "description": "排他の不一致（code は LEDGER_CONFLICT）、または案件の受領見積書（code は LEDGER_PROJECT_QUOTATION_READ_ONLY）"
+          }
+        }
+      }
+    },
+    "/api/unit-price-ledger/quotations/{id}/marks": {
+      "patch": {
+        "summary": "見積の印の更新",
+        "description": "読取の確認と、明細行ごとの参考の印と理由・分類キーだけを更新する（案件の受領見積書にも使える）。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "lineItems",
+                  "expectedUpdatedAt"
+                ],
+                "properties": {
+                  "readingStatus": {
+                    "type": "string",
+                    "enum": [
+                      "UNCONFIRMED",
+                      "CONFIRMED"
+                    ]
+                  },
+                  "lineItems": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "isReference": {
+                          "type": "boolean"
+                        },
+                        "referenceReason": {
+                          "type": "string",
+                          "nullable": true,
+                          "maxLength": 200
+                        },
+                        "classificationKey": {
+                          "type": "string",
+                          "nullable": true,
+                          "maxLength": 50
+                        }
+                      }
+                    }
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "保存後の詳細"
+          },
+          "400": {
+            "description": "検証の失敗"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          },
+          "404": {
+            "description": "見積が無い、または論理削除済み"
+          },
+          "409": {
+            "description": "排他の不一致（code は LEDGER_CONFLICT）"
+          }
+        }
+      }
+    },
+    "/api/unit-price-ledger/imports": {
+      "post": {
+        "summary": "見積カードの取り込み",
+        "description": "見積カードの JSON または zip を受け、1 枚ずつ案件の無い受領見積書として登録する。カードごとの失敗は結果の failed に入れる。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "files"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "maxItems": 2000,
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "description": "見積カードの JSON（1 個 1 MB まで）または zip（50 MB まで）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "取り込みの結果（importedCount・skipped・failed・truncated・referenceMarkedCount）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（ファイルを受け取らず、内容を返さない）"
+          },
+          "413": {
+            "description": "取り込みの上限の超過（code は LEDGER_IMPORT_TOO_LARGE。何も登録しない）"
+          },
+          "500": {
+            "description": "DB へつながらないなど、取り込みを最後まで行えなかった（code は LEDGER_IMPORT_FAILED）"
+          }
+        }
+      }
+    },
+    "/api/unit-price-ledger/exports": {
+      "post": {
+        "summary": "単価台帳の Excel の書き出し",
+        "description": "絞り込みの結果を「見積」「明細行」「要確認」の 3 つのシートの Excel にする。作る前に出力を記録し、記録に失敗したらファイルを作らない。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "一覧の絞り込みと同じ欄（page を除く。絞り込まないときは空のオブジェクト）",
+                "properties": {
+                  "keyword": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "submittedFrom": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "submittedTo": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "hasProject": {
+                    "type": "boolean"
+                  },
+                  "adoption": {
+                    "type": "string",
+                    "enum": [
+                      "ADOPTED",
+                      "REJECTED",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "readingStatus": {
+                    "type": "string",
+                    "enum": [
+                      "UNCONFIRMED",
+                      "CONFIRMED"
+                    ]
+                  },
+                  "constructionKind": {
+                    "type": "string",
+                    "enum": [
+                      "RENOVATION",
+                      "NEW_CONSTRUCTION"
+                    ]
+                  },
+                  "needsReview": {
+                    "type": "boolean"
+                  },
+                  "missingClassificationKey": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Excel のファイル（ファイル名は「単価台帳_YYYYMMDD.xlsx」）",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "検証の失敗、または結果が 0 件（code は LEDGER_EXPORT_EMPTY）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（内容を返さない）"
+          },
+          "500": {
+            "description": "出力の記録の失敗（code は EXPORT_RECORD_FAILED。ファイルを作らない）"
+          }
+        }
+      }
+    },
+    "/api/unit-price-ledger/similar-prices": {
+      "post": {
+        "summary": "似た過去の単価の検索",
+        "description": "分類キーの一致を先に、名称の一致・近さで似た明細行を最大 20 件返す。閲覧範囲の外の案件は案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパスを返さない。見積の編集の権限（estimate:update）が要る",
+        "tags": [
+          "Unit Price Ledger"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "specification": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "unit": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "classificationKey": {
+                    "type": "string",
+                    "maxLength": 50
+                  },
+                  "workType": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "constructionKind": {
+                    "type": "string",
+                    "enum": [
+                      "RENOVATION",
+                      "NEW_CONSTRUCTION"
+                    ]
+                  },
+                  "siteLocation": {
+                    "type": "string",
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "候補",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "lineItemId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "vendorName": {
+                            "type": "string"
+                          },
+                          "submittedAt": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "projectName": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "範囲外は「他案件」"
+                          },
+                          "projectId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "receivedQuotationId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "nullable": true
+                          },
+                          "ledgerSourcePath": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "specification": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "unit": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "換算のある行は換算の単位。DB で空を許す"
+                          },
+                          "quantity": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "換算のある行は換算の数量。DB で空を許す"
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "DIRECT",
+                              "WASTE"
+                            ]
+                          },
+                          "classificationKeyMatched": {
+                            "type": "boolean"
+                          },
+                          "adoption": {
+                            "type": "string",
+                            "enum": [
+                              "ADOPTED",
+                              "REJECTED",
+                              "UNKNOWN"
+                            ]
+                          },
+                          "readingStatus": {
+                            "type": "string",
+                            "enum": [
+                              "UNCONFIRMED",
+                              "CONFIRMED"
+                            ]
+                          },
+                          "isReference": {
+                            "type": "boolean"
+                          },
+                          "referenceReason": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "allocation": {
+                            "type": "object",
+                            "properties": {
+                              "unitPrice": {
+                                "type": "string"
+                              },
+                              "overheadAllocation": {
+                                "type": "string"
+                              },
+                              "discountAllocation": {
+                                "type": "string"
+                              },
+                              "appliedUnitPrice": {
+                                "type": "string"
+                              },
+                              "allocatable": {
+                                "type": "boolean"
+                              },
+                              "applicable": {
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "検証の失敗（名称が空、上限の超過）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足（候補を返さない）"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
