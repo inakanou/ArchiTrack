@@ -9,10 +9,11 @@
 ## Tasks
 
 - [ ] 1. 基盤：DB の前提・スキーマ・権限・共通の定義
-- [ ] 1.1 staging と本番の DB の前提を確かめる
+- [x] 1.1 staging と本番の DB の前提を確かめる
   - staging と本番の DB で、文字の設定（LC_CTYPE）が C でないこと、pg_trgm が使えることを確かめる（設計の Migration Strategy のコマンドを利用者が `railway ssh` で実行し、出力を受け取る）
   - C だった場合、または pg_trgm が無い場合は、ここで止めて利用者に進め方を確かめる
   - 完了の状態：両方の環境の出力が記録され、どちらも条件を満たしている
+  - 記録（2026-11-16）：staging は datctype `en_US.utf8`、pg_trgm 1.6（未導入）で条件を満たした。本番は Postgres が Offline・backend が Failed で確かめられなかった。利用者の決定により staging の結果で 1.2 へ進み、本番は main へ出す前に同じ確認を行う
   - _Requirements: 7.3_
 - [ ] 1.2 台帳の欄・索引・拡張・権限の migration とスキーマを作る
   - pg_trgm を有効にし、受領見積書にカードの ID・原本のパス・案件名の 3 つの欄を足す
@@ -241,3 +242,4 @@
 - 2.2：読み取りは数量・単価・金額・換算の値の DB の桁（Decimal）を確かめない。桁を超えるカードは 2.4 の登録のトランザクションで失敗するので、そのカードだけの失敗として結果に返す
 - 2.2：2.3 の材料として、読み取りの結果に `truncatedFields`・`unreadableFields`・`referenceReasons`（カードの 参考.理由）・`declaredTotals` を返す。明細行の `isReference` と `referenceReason` は 2.3 が付ける
 - 2.3：合計の不一致は、行の合計とカードの合計をどちらも整数の円に丸めて（ROUND_HALF_UP）比べる。見積全体の条件が上限に近いと、足した理由の全文が切れる（切り詰めとして記録し、理由も足す。利用者の判断待ち）
+- 1.1：本番の DB の前提（LC_CTYPE が C でないこと・pg_trgm があること）は未確認。main へ出す前に、本番の Postgres と backend を起こし、`railway ssh --service backend --environment production -- node -e '…'`（1.1 と同じ 1 行）で確かめる。満たさなければ本番へ出さない
