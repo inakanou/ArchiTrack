@@ -3,11 +3,12 @@
  *
  * 詳細（見積の情報・カードの ID・原本のパス・明細行）の表示、案件の無い受領見積書の修正の保存・
  * 削除の確認・排他の不一致の文言、見積が無いときの表示、権限の無い利用者への非表示を確かめる。
- * 案件の受領見積書は、このタスクでは詳細を読むだけにする（印の編集は 4.5）。
- * API は `unitPriceLedgerApi` を差し替える。
+ * 案件の受領見積書は、読取の確認・参考の印と理由・分類キーだけを編集でき、ほかの欄は受領見積書の画面への
+ * 導線を出す（タスク4.5）。API は `unitPriceLedgerApi` を差し替える。
  *
  * @requirement unit-price-ledger/REQ-4.6 見積の情報・カードの ID・原本のパスと、すべての明細行を表示する
  * @requirement unit-price-ledger/REQ-5.1 案件の無い受領見積書の業者名・見積日・見積の情報・案件名・原本のパス・明細行の修正
+ * @requirement unit-price-ledger/REQ-5.2 案件の受領見積書は読取の確認・参考の印と理由・分類キーだけを編集でき、ほかの欄は受領見積書の画面への導線を出す
  * @requirement unit-price-ledger/REQ-5.3 明細行の分類キーを入力して保存する
  * @requirement unit-price-ledger/REQ-5.4 読取の確認を確認済みにして保存すると、確認者と日時を表示する
  * @requirement unit-price-ledger/REQ-5.5 確認の後に削除する
@@ -22,6 +23,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
 import { ApiError } from '../../api/client';
 import type {
+  LedgerMarksUpdateInput,
   LedgerQuotationDetail,
   LedgerQuotationUpdateInput,
 } from '../../api/unit-price-ledger';
@@ -179,7 +181,38 @@ function lastUpdateInput(): LedgerQuotationUpdateInput {
   return calls[calls.length - 1]?.[1] as LedgerQuotationUpdateInput;
 }
 
-describe('LedgerQuotationDetailPage（unit-price-ledger タスク4.4）', () => {
+/** 最後の印の更新の入力 */
+function lastMarksInput(): LedgerMarksUpdateInput {
+  const calls = mocks.updateMarks.mock.calls;
+  return calls[calls.length - 1]?.[1] as LedgerMarksUpdateInput;
+}
+
+/** 案件の受領見積書（2 行。2 行目は参考の印の無い行） */
+function projectDetail(overrides: Partial<LedgerQuotationDetail> = {}): LedgerQuotationDetail {
+  return detail({
+    projectId: 'p-1',
+    estimateRequestId: 'er-1',
+    projectName: '庁舎改修工事',
+    ledgerProjectName: null,
+    ledgerCardId: null,
+    ledgerSourcePath: null,
+    lineItems: [
+      lineItem(),
+      lineItem({
+        id: 'li-2',
+        sortOrder: 1,
+        name: '産廃処分',
+        category: 'WASTE',
+        classificationKey: null,
+        isReference: false,
+        referenceReason: null,
+      }),
+    ],
+    ...overrides,
+  });
+}
+
+describe('LedgerQuotationDetailPage（unit-price-ledger タスク4.4・4.5）', () => {
   beforeEach(() => {
     mocks.getQuotation.mockReset();
     mocks.updateQuotation.mockReset();
@@ -677,6 +710,237 @@ describe('LedgerQuotationDetailPage（unit-price-ledger タスク4.4）', () => 
       await waitFor(() => expect(mocks.deleteQuotation).toHaveBeenCalledTimes(1));
       expect(mocks.deleteQuotation).toHaveBeenCalledWith(QUOTATION_ID, UPDATED_AT);
       expect(await screen.findByText('台帳の一覧の画面')).toBeInTheDocument();
+    });
+  });
+
+  describe('案件の受領見積書の印の編集（5.2・5.3・5.4・5.6）', () => {
+    beforeEach(() => {
+      mocks.getQuotation.mockResolvedValue(projectDetail());
+    });
+
+    it('見積依頼の受領見積書は、ほかの欄を直すための見積依頼の詳細の画面への導線を出す（5.2）', async () => {
+      renderPage();
+      await waitForLineItemTable();
+
+      expect(screen.getByRole('link', { name: '受領見積書の画面で修正する' })).toHaveAttribute(
+        'href',
+        '/estimate-requests/er-1'
+      );
+    });
+
+    it('見積依頼の無い案件の受領見積書は、案件の受領見積書の一覧の画面への導線を出す（5.2）', async () => {
+      mocks.getQuotation.mockResolvedValue(projectDetail({ estimateRequestId: null }));
+      renderPage();
+      await waitForLineItemTable();
+
+      expect(screen.getByRole('link', { name: '受領見積書の画面で修正する' })).toHaveAttribute(
+        'href',
+        '/projects/p-1/quotations'
+      );
+    });
+
+    it('印の編集では、読取の確認・参考の印と理由・分類キーだけを編集でき、ほかの欄は入力にしない（5.2）', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      const form = screen.getByRole('form', { name: '印の編集' });
+
+      expect(within(form).getByLabelText('読取の確認')).toHaveValue('UNCONFIRMED');
+      expect(within(form).getByLabelText('行1 参考')).toBeChecked();
+      expect(within(form).getByLabelText('行1 参考の理由')).toHaveValue('合計が合わない');
+      expect(within(form).getByLabelText('行1 分類キー')).toHaveValue('P-01');
+      expect(within(form).getByLabelText('行2 参考')).not.toBeChecked();
+      expect(within(form).getByLabelText('行2 参考の理由')).toHaveValue('');
+      expect(within(form).getByLabelText('行2 分類キー')).toHaveValue('');
+      // 5.3: 分類キーは 50 文字まで
+      expect(within(form).getByLabelText('行1 分類キー')).toHaveAttribute('maxLength', '50');
+
+      // 入力できるのは、行ごとの参考の理由・分類キーと、読取の確認・参考の印だけ
+      expect(within(form).getAllByRole('textbox')).toHaveLength(4);
+      expect(within(form).getAllByRole('checkbox')).toHaveLength(2);
+      expect(within(form).getAllByRole('combobox')).toHaveLength(1);
+      expect(within(form).queryByLabelText('業者名')).not.toBeInTheDocument();
+      expect(within(form).queryByLabelText('見積日')).not.toBeInTheDocument();
+      expect(within(form).queryByLabelText('行1 名称')).not.toBeInTheDocument();
+      expect(within(form).queryByLabelText('行1 単価')).not.toBeInTheDocument();
+      // 行は名称で見分けられるように出す
+      expect(within(form).getByText('配管工事')).toBeInTheDocument();
+      expect(within(form).getByText('産廃処分')).toBeInTheDocument();
+      // 導線は編集の間も出す
+      expect(screen.getByRole('link', { name: '受領見積書の画面で修正する' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '修正' })).not.toBeInTheDocument();
+    });
+
+    it('読取の確認と分類キーを直して保存すると、変えた欄だけを印の更新で送り、確認者と日時を出す（5.3・5.4）', async () => {
+      const user = userEvent.setup();
+      const confirmedAt = new Date('2026-04-05T01:02:00.000Z');
+      mocks.updateMarks.mockResolvedValue(
+        projectDetail({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedAt: confirmedAt,
+          readingConfirmedBy: { id: 'user-1', displayName: '管理 太郎' },
+          lineItems: [
+            lineItem({ classificationKey: 'P-09' }),
+            lineItem({
+              id: 'li-2',
+              sortOrder: 1,
+              name: '産廃処分',
+              category: 'WASTE',
+              classificationKey: null,
+              isReference: false,
+              referenceReason: null,
+            }),
+          ],
+          updatedAt: new Date('2026-04-05T01:02:00.000Z'),
+        })
+      );
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      const form = screen.getByRole('form', { name: '印の編集' });
+      await user.selectOptions(within(form).getByLabelText('読取の確認'), 'CONFIRMED');
+      const key = within(form).getByLabelText('行1 分類キー');
+      await user.clear(key);
+      await user.type(key, 'P-09');
+      await user.click(within(form).getByRole('button', { name: '保存' }));
+
+      await waitFor(() => expect(mocks.updateMarks).toHaveBeenCalledTimes(1));
+      expect(mocks.updateMarks.mock.calls[0]?.[0]).toBe(QUOTATION_ID);
+      expect(lastMarksInput()).toEqual({
+        readingStatus: 'CONFIRMED',
+        lineItems: [{ id: 'li-1', classificationKey: 'P-09' }],
+        expectedUpdatedAt: UPDATED_AT.toISOString(),
+      });
+      expect(mocks.updateQuotation).not.toHaveBeenCalled();
+
+      expect(await screen.findByRole('status')).toHaveTextContent('保存しました');
+      expect(screen.queryByRole('form', { name: '印の編集' })).not.toBeInTheDocument();
+      expect(infoValue('読取の確認')).toBe('確認済み');
+      expect(infoValue('確認者')).toBe('管理 太郎');
+      const table = await waitForLineItemTable();
+      expect(within(table).getByText('P-09')).toBeInTheDocument();
+    });
+
+    it('参考の印を付けて理由を入れると、その行の印と理由を送る。読取の確認を変えないときは送らない', async () => {
+      const user = userEvent.setup();
+      mocks.updateMarks.mockResolvedValue(projectDetail());
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.click(screen.getByLabelText('行2 参考'));
+      await user.type(screen.getByLabelText('行2 参考の理由'), '数量が多い');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => expect(mocks.updateMarks).toHaveBeenCalledTimes(1));
+      expect(lastMarksInput()).toEqual({
+        lineItems: [{ id: 'li-2', isReference: true, referenceReason: '数量が多い' }],
+        expectedUpdatedAt: UPDATED_AT.toISOString(),
+      });
+    });
+
+    it('参考の印を外して理由を消すと、印を外し理由を空にして送る', async () => {
+      const user = userEvent.setup();
+      mocks.updateMarks.mockResolvedValue(projectDetail());
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.click(screen.getByLabelText('行1 参考'));
+      await user.clear(screen.getByLabelText('行1 参考の理由'));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => expect(mocks.updateMarks).toHaveBeenCalledTimes(1));
+      expect(lastMarksInput()).toEqual({
+        lineItems: [{ id: 'li-1', isReference: false, referenceReason: null }],
+        expectedUpdatedAt: UPDATED_AT.toISOString(),
+      });
+    });
+
+    it('参考の印の無い行に参考の理由があるときは保存せず、行に誤りを出す', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.click(screen.getByLabelText('行1 参考'));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      expect(
+        await screen.findByText('参考の理由は参考の印を付けた行にだけ入力できます')
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText('行1 参考の理由')).toHaveAttribute('aria-invalid', 'true');
+      expect(mocks.updateMarks).not.toHaveBeenCalled();
+    });
+
+    it('何も変えずに保存すると、印の更新を送らずに編集を閉じる（版を進めない）', async () => {
+      const user = userEvent.setup();
+      mocks.updateMarks.mockResolvedValue(projectDetail());
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole('form', { name: '印の編集' })).not.toBeInTheDocument()
+      );
+      expect(mocks.updateMarks).not.toHaveBeenCalled();
+    });
+
+    it('取り消すと印の編集を閉じ、保存しない', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.type(screen.getByLabelText('行2 分類キー'), 'X-1');
+      await user.click(screen.getByRole('button', { name: '取り消す' }));
+
+      expect(screen.queryByRole('form', { name: '印の編集' })).not.toBeInTheDocument();
+      expect(mocks.updateMarks).not.toHaveBeenCalled();
+    });
+
+    it('印の更新が排他の不一致のときは決まった文言を出し、読み込み直すと最新の内容を出す（5.6）', async () => {
+      const user = userEvent.setup();
+      mocks.updateMarks.mockRejectedValue(
+        new ApiError(409, 'Conflict', { code: 'LEDGER_CONFLICT' })
+      );
+      renderPage();
+      await waitForLineItemTable();
+
+      await user.click(screen.getByRole('button', { name: '印の編集' }));
+      await user.type(screen.getByLabelText('行2 分類キー'), 'X-1');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(CONFLICT_MESSAGE);
+      expect(alert).not.toHaveTextContent('Conflict');
+
+      mocks.getQuotation.mockResolvedValue(
+        projectDetail({ readingStatus: 'CONFIRMED', updatedAt: new Date('2026-04-06') })
+      );
+      await user.click(within(alert).getByRole('button', { name: '最新の内容を読み込み直す' }));
+
+      await waitFor(() => expect(mocks.getQuotation).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(infoValue('読取の確認')).toBe('確認済み'));
+      expect(screen.queryByRole('form', { name: '印の編集' })).not.toBeInTheDocument();
+      expect(screen.queryByText(CONFLICT_MESSAGE)).not.toBeInTheDocument();
+    });
+
+    it('案件の無い受領見積書には印の編集と導線を出さず、全体の修正を出す', async () => {
+      mocks.getQuotation.mockResolvedValue(detail());
+      renderPage();
+      await waitForLineItemTable();
+
+      expect(screen.getByRole('button', { name: '修正' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '印の編集' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: '受領見積書の画面で修正する' })
+      ).not.toBeInTheDocument();
     });
   });
 });

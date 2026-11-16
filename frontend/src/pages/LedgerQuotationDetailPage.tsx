@@ -2,8 +2,8 @@
  * @fileoverview 単価台帳の見積の詳細の画面（/unit-price-ledger/quotations/:id）
  *
  * unit-price-ledger タスク4.1: 経路と枠。タスク4.4: 詳細の表示と、案件の無い受領見積書の全体の修正・削除。
- * 案件の受領見積書の印（読取の確認・参考の印と理由・分類キー）の編集は 4.5 が `ProjectQuotationSection` の
- * 場所に足す。4.4 では、案件の受領見積書は詳細を読むだけにする。
+ * タスク4.5: 案件の受領見積書は、印（読取の確認・参考の印と理由・分類キー）だけを編集し（`MarksEditForm`）、
+ * ほかの欄は受領見積書の画面への導線を出す（`ReceivedQuotationLinkNotice`）。
  *
  * 経路は認証済みの経路で、ProtectedRoute はロールしか確かめない。画面の中で台帳の管理の権限
  * （`unit_price_ledger:manage`）を確かめ、無ければ内容を出さず、詳細も問い合わせない（design.md の UnitPriceLedgerPage と同じ）。
@@ -13,6 +13,8 @@
  *   数量表の行のキーを含む）を表示する
  * - 5.1: 案件の無い受領見積書は、業者名・見積日・見積の情報・案件名・原本のパスと、明細行の追加・削除・並べ替え・
  *   各欄を修正できる（LineItemEditor・LedgerInfoSection）
+ * - 5.2: 案件の受領見積書は、読取の確認・参考の印と理由・分類キーだけを編集でき（PATCH /quotations/:id/marks）、
+ *   ほかの欄は受領見積書の画面（見積依頼の詳細、または案件の受領見積書の一覧）への導線を出す
  * - 5.3: 分類キーは 50 文字まで（LineItemEditor の欄の上限）
  * - 5.4: 読取の確認を確認済みにして保存すると、記録された確認者と日時を出す
  * - 5.5: 案件の無い受領見積書は、確認の後に削除する
@@ -29,7 +31,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
 import { ApiError, getApiErrorCode } from '../api/client';
 import {
@@ -37,10 +39,11 @@ import {
   unitPriceLedgerApi,
   type LedgerQuotationDetail,
 } from '../api/unit-price-ledger';
-import type { LineItemConversion, LineItemInfo } from '../api/received-quotations';
+import type { LineItemConversion, LineItemInfo, ReadingStatus } from '../api/received-quotations';
 import { ResourceNotFound } from '../components/common';
 import LineItemEditor, {
   LINE_ITEM_CATEGORY_LABELS,
+  LINE_ITEM_FIELD_MAX_LENGTHS,
 } from '../components/estimate-requests/LineItemEditor';
 import LedgerInfoSection from '../components/estimate-requests/LedgerInfoSection';
 import {
@@ -61,6 +64,14 @@ import {
   type LedgerQuotationFormData,
   type LedgerQuotationValidation,
 } from '../components/unit-price-ledger/ledger-quotation-form';
+import {
+  createLedgerMarksFormData,
+  toLedgerMarksUpdateInput,
+  validateLedgerMarksForm,
+  type LedgerMarkRowFormData,
+  type LedgerMarksFormData,
+  type LedgerMarksRowErrors,
+} from '../components/unit-price-ledger/ledger-marks-form';
 import { formatDate, formatDateTime } from '../utils/formatters';
 
 // ============================================================================
@@ -470,6 +481,195 @@ function QuotationEditForm({
 }
 
 // ============================================================================
+// 案件の受領見積書の印の編集（5.2・5.3・5.4）
+// ============================================================================
+
+/** 案件の受領見積書を直す画面（見積依頼の受領見積書は見積依頼の詳細、ほかは案件の受領見積書の一覧） */
+function receivedQuotationPath(detail: LedgerQuotationDetail): string | null {
+  if (detail.estimateRequestId !== null) return `/estimate-requests/${detail.estimateRequestId}`;
+  if (detail.projectId !== null) return `/projects/${detail.projectId}/quotations`;
+  return null;
+}
+
+/** ほかの欄を受領見積書の画面で直すための導線（5.2） */
+function ReceivedQuotationLinkNotice({ path }: { path: string }): ReactElement {
+  return (
+    <div className="px-4 py-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-900 text-sm flex flex-col sm:flex-row sm:items-center gap-2">
+      <p className="flex-1">
+        案件の受領見積書です。台帳の画面では、読取の確認・明細行の参考の印と理由・分類キーだけを直せます。
+        ほかの欄は受領見積書の画面で直してください。
+      </p>
+      <Link
+        to={path}
+        className="font-medium text-blue-800 underline hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
+      >
+        受領見積書の画面で修正する
+      </Link>
+    </div>
+  );
+}
+
+const READING_STATUS_OPTIONS: readonly ReadingStatus[] = ['UNCONFIRMED', 'CONFIRMED'];
+
+interface MarksEditFormProps {
+  detail: LedgerQuotationDetail;
+  isSaving: boolean;
+  onSubmit: (data: LedgerMarksFormData) => void;
+  onCancel: () => void;
+}
+
+function MarksEditForm({ detail, isSaving, onSubmit, onCancel }: MarksEditFormProps): ReactElement {
+  const headingId = useId();
+  const readingStatusId = useId();
+  const rowIdPrefix = useId();
+  const [form, setForm] = useState<LedgerMarksFormData>(() => createLedgerMarksFormData(detail));
+  const [rowErrors, setRowErrors] = useState<LedgerMarksRowErrors>({});
+
+  const updateRow = <K extends keyof LedgerMarkRowFormData>(
+    id: string,
+    key: K,
+    value: LedgerMarkRowFormData[K]
+  ): void => {
+    setForm((prev) => ({
+      ...prev,
+      rows: prev.rows.map((row) => (row.id === id ? { ...row, [key]: value } : row)),
+    }));
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const errors = validateLedgerMarksForm(form);
+    setRowErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    onSubmit(form);
+  };
+
+  const hasRowErrors = Object.keys(rowErrors).length > 0;
+
+  return (
+    <form
+      aria-labelledby={headingId}
+      onSubmit={handleSubmit}
+      noValidate
+      className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-4"
+    >
+      <h2 id={headingId} className="text-lg font-semibold text-gray-900">
+        印の編集
+      </h2>
+
+      <div className="flex flex-col gap-1 max-w-xs">
+        <label htmlFor={readingStatusId} className="text-sm font-medium text-gray-700">
+          読取の確認
+        </label>
+        <select
+          id={readingStatusId}
+          value={form.readingStatus}
+          disabled={isSaving}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, readingStatus: e.target.value as ReadingStatus }))
+          }
+          className={INPUT_CLASS}
+        >
+          {READING_STATUS_OPTIONS.map((status) => (
+            <option key={status} value={status}>
+              {READING_STATUS_LABELS[status]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <caption className="text-left text-sm font-semibold text-gray-700 pb-2">
+            明細行の印
+          </caption>
+          <thead className="bg-gray-50">
+            <tr>
+              {['行', '名称', '参考の印', '参考の理由', '分類キー'].map((column) => (
+                <th
+                  key={column}
+                  scope="col"
+                  className="px-3 py-2 text-left font-medium text-gray-700 whitespace-nowrap"
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {form.rows.map((row, index) => {
+              const rowNumber = index + 1;
+              const errors = rowErrors[row.id];
+              const errorId = `${rowIdPrefix}-${row.id}-error`;
+              return (
+                <tr key={row.id}>
+                  <td className="px-3 py-2 align-top text-gray-700">{rowNumber}</td>
+                  <td className="px-3 py-2 align-top text-gray-900">{row.name}</td>
+                  <td className="px-3 py-2 align-top">
+                    <input
+                      type="checkbox"
+                      checked={row.isReference}
+                      disabled={isSaving}
+                      aria-label={`行${rowNumber} 参考`}
+                      onChange={(e) => updateRow(row.id, 'isReference', e.target.checked)}
+                      className="h-4 w-4 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </td>
+                  <td className="px-3 py-2 align-top min-w-[12rem]">
+                    <input
+                      type="text"
+                      value={row.referenceReason}
+                      disabled={isSaving}
+                      maxLength={LINE_ITEM_FIELD_MAX_LENGTHS.referenceReason}
+                      aria-label={`行${rowNumber} 参考の理由`}
+                      aria-invalid={errors ? true : false}
+                      aria-describedby={errors ? errorId : undefined}
+                      onChange={(e) => updateRow(row.id, 'referenceReason', e.target.value)}
+                      className={errors ? INPUT_ERROR_CLASS : INPUT_CLASS}
+                    />
+                    {errors && (
+                      <p id={errorId} className="mt-1 text-xs text-red-700">
+                        {errors.join('、')}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 align-top min-w-[8rem]">
+                    <input
+                      type="text"
+                      value={row.classificationKey}
+                      disabled={isSaving}
+                      maxLength={LINE_ITEM_FIELD_MAX_LENGTHS.classificationKey}
+                      aria-label={`行${rowNumber} 分類キー`}
+                      onChange={(e) => updateRow(row.id, 'classificationKey', e.target.value)}
+                      className={INPUT_CLASS}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {hasRowErrors && <p className="mt-2 text-xs text-red-700">{LINE_ITEMS_ERROR_SUMMARY}</p>}
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSaving}
+          className={SECONDARY_BUTTON_CLASS}
+        >
+          取り消す
+        </button>
+        <button type="submit" disabled={isSaving} className={PRIMARY_BUTTON_CLASS}>
+          {isSaving ? '保存中...' : '保存'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ============================================================================
 // 削除の確認（5.5）
 // ============================================================================
 
@@ -609,6 +809,33 @@ function LedgerQuotationDetailContent({ id }: { id: string }): ReactElement {
     [id, state]
   );
 
+  const handleSubmitMarks = useCallback(
+    async (data: LedgerMarksFormData): Promise<void> => {
+      if (state.status !== 'loaded') return;
+      const input = toLedgerMarksUpdateInput(data, state.detail);
+      // 何も変えていなければ送らない（送ると版が進み、ほかの利用者の保存を排他の不一致にしうる）
+      if (input.readingStatus === undefined && input.lineItems.length === 0) {
+        setActionError(null);
+        setIsEditing(false);
+        return;
+      }
+      setIsSaving(true);
+      setActionError(null);
+      setSavedNotice(false);
+      try {
+        const updated = await unitPriceLedgerApi.updateMarks(id, input);
+        setState({ status: 'loaded', detail: updated });
+        setIsEditing(false);
+        setSavedNotice(true);
+      } catch (error) {
+        setActionError(toActionError(error, SAVE_FAILED_MESSAGE));
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [id, state]
+  );
+
   const handleCancelDelete = useCallback((): void => setIsDeleteOpen(false), []);
 
   const handleConfirmDelete = useCallback(async (): Promise<void> => {
@@ -669,6 +896,19 @@ function LedgerQuotationDetailContent({ id }: { id: string }): ReactElement {
           </button>
         </div>
       )}
+      {state.status === 'loaded' && state.detail.projectId !== null && !isEditing && (
+        <button
+          type="button"
+          onClick={() => {
+            setSavedNotice(false);
+            setActionError(null);
+            setIsEditing(true);
+          }}
+          className={SECONDARY_BUTTON_CLASS}
+        >
+          印の編集
+        </button>
+      )}
     </header>
   );
 
@@ -696,6 +936,7 @@ function LedgerQuotationDetailContent({ id }: { id: string }): ReactElement {
 
   const { detail } = state;
   const isProjectQuotation = detail.projectId !== null;
+  const editPath = isProjectQuotation ? receivedQuotationPath(detail) : null;
 
   return (
     <PageContainer>
@@ -730,7 +971,20 @@ function LedgerQuotationDetailContent({ id }: { id: string }): ReactElement {
         </p>
       )}
 
-      {isEditing && !isProjectQuotation ? (
+      {editPath !== null && <ReceivedQuotationLinkNotice path={editPath} />}
+
+      {isEditing && isProjectQuotation ? (
+        <MarksEditForm
+          key={detail.updatedAt.toISOString()}
+          detail={detail}
+          isSaving={isSaving}
+          onSubmit={(data) => void handleSubmitMarks(data)}
+          onCancel={() => {
+            setActionError(null);
+            setIsEditing(false);
+          }}
+        />
+      ) : isEditing ? (
         <QuotationEditForm
           key={detail.updatedAt.toISOString()}
           detail={detail}
@@ -744,7 +998,6 @@ function LedgerQuotationDetailContent({ id }: { id: string }): ReactElement {
       ) : (
         <>
           <QuotationInfoView detail={detail} />
-          {/* 4.5: 案件の受領見積書の印（読取の確認・参考の印と理由・分類キー）の編集と、受領見積書の画面への導線をここに足す */}
           <LineItemTable lineItems={detail.lineItems} />
         </>
       )}
