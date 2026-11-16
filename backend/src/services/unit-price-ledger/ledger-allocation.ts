@@ -12,8 +12,12 @@
  *   反映する単価は丸める前の 3 つの値の和を丸める
  * - 基準が 0 以下なら按分は 0 で `allocatable: false`（8.6）。丸めた反映する単価が 0 より小さければ
  *   `applicable: false`（8.7）
+ * - 単価を決められない行は、4 つの金額を null、按分の状態を `UNIT_PRICE_UNDETERMINED`、`allocatable` と
+ *   `applicable` を false で返す（8.8。タスク6.1）
+ * - 按分の状態（`allocationStatus`）は、単価を決められない → `UNIT_PRICE_UNDETERMINED`、基準が 0 以下 →
+ *   `BASE_NOT_POSITIVE`、それ以外 → `ALLOCATED` の順に決める
  *
- * Requirements (unit-price-ledger): 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7
+ * Requirements (unit-price-ledger): 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8
  *
  * @module services/unit-price-ledger/ledger-allocation
  */
@@ -49,9 +53,16 @@ export interface AllocationLine {
 export type CategoryTotals = Partial<Record<ReceivedQuotationLineCategory, AllocationValue>>;
 
 /**
- * 按分の内訳（design.md の AllocationBreakdown）。金額は整数の文字
+ * 按分の状態（design.md の AllocationStatus）
+ * - `ALLOCATED`：単価が決まり、按分の基準が 0 より大きい
+ * - `BASE_NOT_POSITIVE`：単価は決まり、按分の基準が 0 以下（8.6）
+ * - `UNIT_PRICE_UNDETERMINED`：単価を決められない（8.8）
  */
-export interface AllocationBreakdown {
+export type AllocationStatus = 'ALLOCATED' | 'BASE_NOT_POSITIVE' | 'UNIT_PRICE_UNDETERMINED';
+
+/** 単価が決まった行の按分の内訳。金額は整数の文字 */
+export interface DeterminedAllocationBreakdown {
+  allocationStatus: Exclude<AllocationStatus, 'UNIT_PRICE_UNDETERMINED'>;
   unitPrice: string;
   overheadAllocation: string;
   discountAllocation: string;
@@ -61,6 +72,33 @@ export interface AllocationBreakdown {
   /** 反映する単価が 0 以上で、実行金額に反映できるか（8.7） */
   applicable: boolean;
 }
+
+/** 単価を決められない行の按分の内訳（8.8）。4 つの金額は値なし */
+export interface UndeterminedAllocationBreakdown {
+  allocationStatus: 'UNIT_PRICE_UNDETERMINED';
+  unitPrice: null;
+  overheadAllocation: null;
+  discountAllocation: null;
+  appliedUnitPrice: null;
+  allocatable: false;
+  applicable: false;
+}
+
+/**
+ * 按分の内訳（design.md の AllocationBreakdown）
+ */
+export type AllocationBreakdown = DeterminedAllocationBreakdown | UndeterminedAllocationBreakdown;
+
+/** 単価を決められない行の按分の内訳（8.8） */
+const UNDETERMINED_ALLOCATION: UndeterminedAllocationBreakdown = {
+  allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+  unitPrice: null,
+  overheadAllocation: null,
+  discountAllocation: null,
+  appliedUnitPrice: null,
+  allocatable: false,
+  applicable: false,
+};
 
 /** 諸経費の率の分子に入れる区分（8.3） */
 const OVERHEAD_CATEGORIES = ['OVERHEAD', 'TRAVEL', 'LEGAL_WELFARE'] as const;
@@ -117,15 +155,8 @@ export function computeAllocation(
 ): AllocationBreakdown {
   const unitPrice = resolveUnitPrice(line);
   if (!unitPrice) {
-    // 単価を決められない行は、按分も反映もできない
-    return {
-      unitPrice: '0',
-      overheadAllocation: '0',
-      discountAllocation: '0',
-      appliedUnitPrice: '0',
-      allocatable: false,
-      applicable: false,
-    };
+    // 単価を決められない行は、金額を値なしで返し、按分も反映もできない（8.8）
+    return { ...UNDETERMINED_ALLOCATION };
   }
 
   const base = sumCategories(totals, BASE_CATEGORIES);
@@ -144,6 +175,7 @@ export function computeAllocation(
   );
 
   return {
+    allocationStatus: allocatable ? 'ALLOCATED' : 'BASE_NOT_POSITIVE',
     unitPrice: roundToIntegerString(unitPrice),
     overheadAllocation: roundToIntegerString(overheadAllocation),
     discountAllocation: roundToIntegerString(discountAllocation),

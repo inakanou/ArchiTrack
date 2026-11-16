@@ -233,7 +233,7 @@ flowchart TB
 | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | 修正・削除・排他・監査 | LedgerEditService, LedgerQuotationDetailPage | PUT /api/unit-price-ledger/quotations/:id, PATCH /api/unit-price-ledger/quotations/:id/marks, DELETE /api/unit-price-ledger/quotations/:id | - |
 | 6.1, 6.2, 6.3, 6.4, 6.5 | Excel の書き出しと出力の記録 | LedgerExportService, UnitPriceLedgerPage | POST /api/unit-price-ledger/exports | - |
 | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11 | 似た単価の検索と並べ方 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
-| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7 | 按分の計算 | LedgerAllocation, SimilarPriceService | `computeAllocation` | 似た単価の検索 |
+| 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 | 按分の計算 | LedgerAllocation, SimilarPriceService | `computeAllocation` | 似た単価の検索 |
 | 9.1, 9.2, 9.3, 9.4 | 閲覧範囲による表示制御 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
 | 10.1, 10.2, 10.3, 10.4, 10.5 | 権限と導線 | unit-price-ledger.routes, UnitPriceLedgerPermissionMigration, AppHeader, UnitPriceLedgerPage | `requirePermission` | - |
 
@@ -248,8 +248,8 @@ flowchart TB
 | LedgerQueryService | Backend/Service | 一覧・絞り込み・詳細 | 1.1-1.4, 4.1-4.7 | Prisma (P0) | Service |
 | LedgerEditService | Backend/Service | 修正・削除・印の更新・監査 | 5.1-5.7 | AuditLogService (P0) | Service |
 | LedgerExportService | Backend/Service | 3 つのシートの Excel | 1.1-1.4, 6.1-6.5 | LedgerQueryService (P0), ExportAuditService (P0) | Service |
-| SimilarPriceService | Backend/Service | 似た単価の検索・並べ方・表示制御 | 1.1-1.4, 7.1-7.11, 8.1-8.7, 9.1-9.4 | ProjectScopeService (P0), LedgerAllocation (P0) | Service, API |
-| LedgerAllocation | Backend/Domain | 按分の計算 | 8.1-8.7 | decimal.js (P0) | Service |
+| SimilarPriceService | Backend/Service | 似た単価の検索・並べ方・表示制御 | 1.1-1.4, 7.1-7.11, 8.1-8.8, 9.1-9.4 | ProjectScopeService (P0), LedgerAllocation (P0) | Service, API |
+| LedgerAllocation | Backend/Domain | 按分の計算 | 8.1-8.8 | decimal.js (P0) | Service |
 | unit-price-ledger.routes | Backend/Route | 経路・権限・検証 | 10.1-10.5 | requirePermission (P0) | API |
 | UnitPriceLedgerPermissionMigration | Backend/Migration | 権限・欄・索引・拡張 | 10.1-10.5 | PostgreSQL (P0) | Batch |
 | UnitPriceLedgerPage | Frontend/Page | 一覧・絞り込み・書き出し・取り込みの入口 | 4.1-4.7, 6.1-6.5, 10.1-10.5 | unitPriceLedgerApi (P0) | State |
@@ -418,7 +418,7 @@ interface LedgerImportService {
 | Field | Detail |
 |-------|--------|
 | Intent | 似た過去の単価の候補を、分類キーの一致を優先して並べ、按分の内訳と表示制御を添えて返す |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.1, 9.2, 9.3, 9.4 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 9.1, 9.2, 9.3, 9.4 |
 
 **Responsibilities & Constraints**
 - 対象は、論理削除されていない受領見積書の、区分が直接工事か産廃の明細行（7.1）
@@ -431,6 +431,7 @@ interface LedgerImportService {
   - 工種の一致は明細行の工種、改修／新営は受領見積書の改修／新営、場所は受領見積書の場所の部分一致で判定する
 - 採否と読取の確認は並べ方に使わない（7.8）。時期で補正しない（7.10）
 - 表示制御（9.1〜9.4）：`buildProjectScopeWhere(userId)` で閲覧できる案件の ID を求め、範囲外の案件の候補は案件名を「他案件」とし、案件の ID・受領見積書の ID・見積依頼・原本のファイルを返さない。案件の無い受領見積書は案件名と原本のパスを返す
+  - 範囲外の案件の候補は、参考の理由の文（`referenceReason`）を null で返し、参考の印（`isReference`）は返す（9.2・9.4）。理由の文は利用者が自由に書くため、案件の名前や場所を含みうる。範囲内の案件の候補と案件の無い受領見積書の候補は、理由の文をそのまま返す
 - 検索は `$queryRaw` に値を結び付けて行う（文字を組み立てない）
 
 **Contracts**: Service [x] / API [x]
@@ -468,8 +469,8 @@ interface SimilarPriceCandidate {
   adoption: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
   readingStatus: 'UNCONFIRMED' | 'CONFIRMED';
   isReference: boolean;
-  referenceReason: string | null;
-  allocation: AllocationBreakdown;
+  referenceReason: string | null; // 範囲外の案件の候補は null（印は isReference で返す）
+  allocation: AllocationBreakdown; // 単価を決められない行は 4 つの金額が null（8.8）
 }
 ```
 
@@ -478,26 +479,45 @@ interface SimilarPriceCandidate {
 | Field | Detail |
 |-------|--------|
 | Intent | 候補の行の単価と、その見積の区分ごとの合計から按分の内訳を求める |
-| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7 |
+| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 |
 
 **Responsibilities & Constraints**
 - 単価は、換算の単価 → 単価 → 金額÷数量 の順に決める（8.1）
 - 基準＝直接工事と産廃の金額の合計（8.2）。諸経費の率＝（諸経費＋交通費＋法定福利費）÷基準、値引きの率＝値引き÷基準。別途は使わない（8.3）
 - 単価・諸経費の按分・値引きの按分・反映する単価を、decimal.js の `ROUND_HALF_UP` で整数に丸める（8.4・8.5。estimate-creation の `roundMoney` と同じ丸め）。反映する単価は丸める前の値の和を丸める
 - 基準が 0 以下なら、按分は 0、`allocatable: false`（8.6）。反映する単価が 0 より小さければ `applicable: false`（8.7）
+- 単価を決められない行（換算の単価と単価が空で、金額か数量が空、または数量が 0）は、単価・諸経費の按分・値引きの按分・反映する単価を null とし、`allocationStatus: 'UNIT_PRICE_UNDETERMINED'`、`allocatable: false`、`applicable: false` で返す（8.8）。0 の単価と見分けられるよう、金額を "0" にしない
+- 按分の状態（`allocationStatus`）は次の 3 つで、上から順に決める
+  - `UNIT_PRICE_UNDETERMINED`：単価を決められない（8.8）。按分も反映もできない
+  - `BASE_NOT_POSITIVE`：単価は決まり、按分の基準が 0 以下（8.6）。按分は 0 で、`allocatable: false`。反映できるかは 8.7 で決める
+  - `ALLOCATED`：単価が決まり、基準が 0 より大きい。`allocatable: true`。反映できるかは 8.7 で決める
+- `allocatable` は 8.6 の印、`applicable` は 8.7 の印として残す。どちらも false になる理由は `allocationStatus` で見分ける
 
 **Contracts**: Service [x]
 
 ##### Service Interface
 ```typescript
-interface AllocationBreakdown {
-  unitPrice: string;
-  overheadAllocation: string;
-  discountAllocation: string;
-  appliedUnitPrice: string;
-  allocatable: boolean;
-  applicable: boolean;
-}
+type AllocationStatus = 'ALLOCATED' | 'BASE_NOT_POSITIVE' | 'UNIT_PRICE_UNDETERMINED';
+
+type AllocationBreakdown =
+  | {
+      allocationStatus: 'ALLOCATED' | 'BASE_NOT_POSITIVE';
+      unitPrice: string;          // 整数の文字
+      overheadAllocation: string;
+      discountAllocation: string;
+      appliedUnitPrice: string;
+      allocatable: boolean;       // 基準が 0 より大きい（8.6）
+      applicable: boolean;        // 丸めた反映する単価が 0 以上（8.7）
+    }
+  | {
+      allocationStatus: 'UNIT_PRICE_UNDETERMINED'; // 8.8
+      unitPrice: null;
+      overheadAllocation: null;
+      discountAllocation: null;
+      appliedUnitPrice: null;
+      allocatable: false;
+      applicable: false;
+    };
 
 function computeAllocation(line: AllocationLine, totals: CategoryTotals): AllocationBreakdown;
 ```
@@ -625,8 +645,8 @@ model ReceivedQuotationLineItem {
 
 - **Unit Tests**
   - LedgerCardParser：必須の項目の欠け、読めない JSON、切り詰め、細目と 6 項目の足し方、参考の理由（1 円の違い・合計の不一致・200 文字の切り詰め）
-  - LedgerAllocation：諸経費・値引きの按分、基準が 0、反映する単価が負、換算の単価、金額÷数量、負の値の丸め
-  - SimilarPriceService の並べ方と表示制御（範囲外の「他案件」と ID の秘匿）
+  - LedgerAllocation：諸経費・値引きの按分、基準が 0、反映する単価が負、換算の単価、金額÷数量、負の値の丸め、単価を決められない行の値なしと按分の状態
+  - SimilarPriceService の並べ方と表示制御（範囲外の「他案件」と ID の秘匿、範囲外の参考の理由の文の秘匿）
 - **Integration Tests**
   - 取り込み：zip とJSON、取り込み済みの飛ばし、同時の取り込み、取引先の照合、読取の確認、1 枚のカードの失敗が残らないこと、監査ログ
   - 似た単価：実 DB の pg_trgm で、分類キーの一致の優先、2 文字以下の名称、単位の一致、論理削除の除外、最大 20 件
@@ -638,11 +658,11 @@ model ReceivedQuotationLineItem {
   - 案件の無い見積を修正し、分類キーを付け、読取の確認を確認済みにする
   - 台帳の Excel を書き出す
   - 一般ユーザーには導線が無く、画面の内容も出ない
-  - 似た単価の API の候補が、分類キーの一致を先に並べ、範囲外の案件を「他案件」とする
+  - 似た単価の API の候補が、分類キーの一致を先に並べ、範囲外の案件を「他案件」とし、範囲外の候補の参考の理由の文を返さず、単価を決められない行の金額を値なしで返す
 
 ## Security Considerations
 - 台帳全体はシステム管理者だけが扱う（既定のロール）。書き出しは出力の記録に残す
-- 似た単価は見積の編集者が引けるが、範囲外の案件の名前・ID・原本は返さない
+- 似た単価は見積の編集者が引けるが、範囲外の案件の名前・ID・原本は返さない。範囲外の案件の候補の参考の理由の文も、案件を特定できる情報を含みうるため返さない（参考の印は返す）
 - 取り込みの zip は展開の前に大きさで項目を選び、ディスクへ書かない。`..` や絶対パスの名前、`.json` でない名前は読まない
 - 検索の SQL は値を結び付け、利用者の文字で SQL を組み立てない
 

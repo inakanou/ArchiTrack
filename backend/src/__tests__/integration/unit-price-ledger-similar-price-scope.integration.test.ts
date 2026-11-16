@@ -7,9 +7,12 @@
  * 確かめること:
  * - 9.1：閲覧範囲の内の案件の候補は、案件名・案件の ID・受領見積書の ID を返す
  * - 9.2：閲覧範囲の外の案件の候補は、案件名を「他案件」とし、案件の ID・受領見積書の ID・見積依頼・
- *   原本のファイルを返さない（応答のどこにも、それらの値が現れない）
+ *   原本のファイル・明細行の参考の理由の文を返さない（応答のどこにも、それらの値が現れない）
  * - 9.3：案件の無い受領見積書の候補は、利用者を問わず台帳の案件名と原本のパスを返す
- * - 9.4：閲覧範囲の外の候補にも、業者名・見積日・明細行の内容・按分の内訳を返す
+ * - 9.4：閲覧範囲の外の候補にも、業者名・見積日・明細行の内容（参考の印を含み、参考の理由の文を除く）・
+ *   按分の内訳を返す
+ *
+ * 3 つの候補の行は、どれも参考の印と、案件を特定できる文を含む参考の理由を持つ（タスク6.2）。
  *
  * 利用者：案件 A の担当者（営業担当者）、どの案件にも関係しない利用者、全案件閲覧（project:read_all）の利用者。
  * 案件 B は別の利用者が作った案件で、受領見積書は見積依頼から作られたもの（案件は見積依頼の案件を写す）。
@@ -58,6 +61,12 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
   const estimateRequestName = `${PREFIX}-見積依頼`;
   const ledgerProjectName = `${PREFIX}-台帳の案件`;
   const ledgerSourcePath = `${PREFIX}/02_見積/見積書.pdf`;
+  /** 参考の理由の文（自由な文。案件の名前を含みうる） */
+  const referenceReasons = {
+    a: `${projectAName}の図面と照合が要る`,
+    b: `${projectBName}の現場で数量を確かめる`,
+    projectless: `${ledgerProjectName}の概算`,
+  };
 
   const quotationIds: Record<'a' | 'b' | 'projectless', string> = {
     a: '',
@@ -156,6 +165,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
               amount: 100,
               category: 'DIRECT',
               sortOrder: 0,
+              isReference: true,
+              referenceReason: referenceReasons.a,
             },
           ],
         },
@@ -186,6 +197,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
               amount: 1000,
               category: 'DIRECT',
               sortOrder: 0,
+              isReference: true,
+              referenceReason: referenceReasons.b,
             },
             { name: '諸経費', amount: 100, category: 'OVERHEAD', sortOrder: 1 },
             { name: '値引き', amount: -50, category: 'DISCOUNT', sortOrder: 2 },
@@ -216,6 +229,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
               amount: 600,
               category: 'DIRECT',
               sortOrder: 0,
+              isReference: true,
+              referenceReason: referenceReasons.projectless,
             },
           ],
         },
@@ -243,6 +258,7 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
 
   /** 範囲外の候補の、応答のどこにも現れてはならない値 */
   const identifyingValuesOfB = (): string[] => [
+    referenceReasons.b,
     projectBName,
     projectBId,
     quotationIds.b,
@@ -257,6 +273,9 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
       projectId: null,
       receivedQuotationId: null,
       ledgerSourcePath: null,
+      // 9.2：参考の理由の文は返さない。9.4：参考の印は返す
+      isReference: true,
+      referenceReason: null,
     });
     const serialized = JSON.stringify(candidate);
     for (const value of identifyingValuesOfB()) {
@@ -273,6 +292,7 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
       category: 'DIRECT',
       adoption: 'ADOPTED',
       allocation: {
+        allocationStatus: 'ALLOCATED',
         unitPrice: '100',
         overheadAllocation: '10',
         discountAllocation: '-5',
@@ -291,6 +311,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
       receivedQuotationId: quotationIds.projectless,
       ledgerSourcePath,
       vendorName: `${PREFIX}-業者C`,
+      isReference: true,
+      referenceReason: referenceReasons.projectless,
     });
   };
 
@@ -315,6 +337,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
         receivedQuotationId: quotationIds.a,
         ledgerSourcePath: null,
         vendorName: `${PREFIX}-業者A`,
+        isReference: true,
+        referenceReason: referenceReasons.a,
       });
     });
 
@@ -353,10 +377,18 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
         receivedQuotationId: null,
         ledgerSourcePath: null,
         vendorName: `${PREFIX}-業者A`,
+        isReference: true,
+        referenceReason: null,
         allocation: { unitPrice: '100', appliedUnitPrice: '100' },
       });
       const serialized = JSON.stringify(candidates);
-      for (const value of [...identifyingValuesOfB(), projectAName, projectAId, quotationIds.a]) {
+      for (const value of [
+        ...identifyingValuesOfB(),
+        referenceReasons.a,
+        projectAName,
+        projectAId,
+        quotationIds.a,
+      ]) {
         expect(serialized).not.toContain(value);
       }
     });
@@ -387,6 +419,8 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
         projectId: projectBId,
         receivedQuotationId: quotationIds.b,
         ledgerSourcePath: null,
+        isReference: true,
+        referenceReason: referenceReasons.b,
         allocation: { appliedUnitPrice: '105' },
       });
       expectProjectless(candidateOf(candidates, 'projectless'));
@@ -409,8 +443,13 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
           projectName: projectBName,
           projectId: projectBId,
           receivedQuotationId: quotationIds.b,
+          referenceReason: referenceReasons.b,
         });
-        expect(candidateOf(candidates, 'a').projectName).toBe(OTHER_PROJECT_NAME);
+        expect(candidateOf(candidates, 'a')).toMatchObject({
+          projectName: OTHER_PROJECT_NAME,
+          isReference: true,
+          referenceReason: null,
+        });
       } finally {
         await prisma.project.update({
           where: { id: projectBId },

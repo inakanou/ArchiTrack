@@ -17,6 +17,7 @@
  * - 7.7〜7.10：添える内容（業者名・見積日・採否・読取の確認・参考の印と理由・按分の内訳）、
  *   不採用と未確認を含むこと
  * - 7.11：0 件は空の一覧
+ * - 8.8：単価を決められない行は、按分の内訳の 4 つの金額を値なしで返し、単価を決められない状態を返す
  *
  * 共有の試験 DB には他の試験の明細行も残りうるため、試験の行には試験ごとの単位・分類キーを付け、
  * 単位で絞るか、試験の行の ID に絞って確かめる。
@@ -667,6 +668,7 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
         referenceReason: null,
         // 単価 100、諸経費 100×0.1＝10、値引き 100×(-0.05)＝-5、反映 105
         allocation: {
+          allocationStatus: 'ALLOCATED',
           unitPrice: '100',
           overheadAllocation: '10',
           discountAllocation: '-5',
@@ -704,6 +706,7 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
         unit: UNIT_A,
         quantity: '5',
         allocation: {
+          allocationStatus: 'ALLOCATED',
           unitPrice: '300',
           overheadAllocation: '0',
           discountAllocation: '0',
@@ -728,7 +731,32 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
         referenceReason: '合計の不一致',
         source: { projectId, projectName, receivedQuotationId: quotationIds.get('project') },
         // 単価が空の行は金額÷数量（500÷2）
-        allocation: { unitPrice: '250' },
+        allocation: { allocationStatus: 'ALLOCATED', unitPrice: '250' },
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.8
+     */
+    it('単価・金額・数量の無い行は、按分の内訳の 4 つの金額を値なしで返し、単価を決められない状態を返す', async () => {
+      const matches = await search({ name: '天井下地', unit: UNIT_A, classificationKey: KEY });
+      // 分類キーの一致の行と見積依頼の受領見積書の行は、単価・金額・数量を持たない
+      for (const label of ['keyMatched', 'requested']) {
+        const match = matches.find((m) => m.lineItemId === lineId(label));
+        expect(match?.allocation, label).toEqual({
+          allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+          unitPrice: null,
+          overheadAllocation: null,
+          discountAllocation: null,
+          appliedUnitPrice: null,
+          allocatable: false,
+          applicable: false,
+        });
+      }
+      // 同じ見積の単価の決まる行は、按分の状態を ALLOCATED で返す
+      expect(matches.find((m) => m.lineItemId === lineId('reference'))?.allocation).toMatchObject({
+        allocationStatus: 'ALLOCATED',
+        unitPrice: '250',
       });
     });
   });
