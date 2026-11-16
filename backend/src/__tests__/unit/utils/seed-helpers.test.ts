@@ -1370,3 +1370,65 @@ describe('seed - 外部の AI での読み取りの専用の権限（claude_visi
     expect(requested).toContain('estimate_request:read');
   });
 });
+
+/**
+ * 単価台帳の管理の権限（unit-price-ledger の 10.3。Task 1.2）
+ * unit_price_ledger:manage を定義し、一般ユーザーロールへは割り当てない
+ * （既定のロールではシステム管理者だけが *:* で持つ）
+ */
+describe('seed - 単価台帳の管理の権限（unit_price_ledger:manage）', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('unit_price_ledger:manage の権限が定義されている', async () => {
+    let createManyData: Array<{ resource: string; action: string; description: string }> = [];
+    const mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+    await seedPermissions(mockPrisma);
+
+    const perm = createManyData.find(
+      (p) => p.resource === 'unit_price_ledger' && p.action === 'manage'
+    );
+    expect(perm).toBeDefined();
+    expect(perm!.description).toBe('単価台帳の管理');
+  });
+
+  it('一般ユーザーロールへ割り当てる権限に unit_price_ledger:manage を含めない', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const mockPrisma = {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: 'user-role-id', name: 'user' };
+          return null;
+        }),
+      },
+      permission: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany,
+      },
+      rolePermission: {
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+    await seedRolePermissions(mockPrisma);
+
+    const requested = (
+      findMany.mock.calls[0]![0] as { where: { OR: Array<{ resource: string; action: string }> } }
+    ).where.OR.map((p) => `${p.resource}:${p.action}`);
+    expect(requested).not.toContain('unit_price_ledger:manage');
+    // 前提: 見積の編集の権限は一般ユーザーへ割り当てる（空なら判定が素通りになる）
+    expect(requested).toContain('estimate:update');
+  });
+});

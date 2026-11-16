@@ -1056,6 +1056,11 @@ model ReceivedQuotation {
   readingConfirmedById String?                            @map("reading_confirmed_by_id")
   readingConfirmedAt   DateTime?                          @map("reading_confirmed_at")
   quoteDiscriminator   String                             @default("") @map("quote_discriminator") @db.VarChar(100) // 見積の区別（48.2）
+  // 単価台帳（unit-price-ledger）。どれも任意（案件の受領見積書では空）
+  // ledgerCardId は論理削除されていない行の中で一意（2.14）。部分一意索引は migration の SQL で追加
+  ledgerCardId         String?                            @map("ledger_card_id") @db.VarChar(200) // カードの ID
+  ledgerSourcePath     String?                            @map("ledger_source_path") @db.VarChar(1000) // 原本のパス（Drive の 01_案件 からの相対）
+  ledgerProjectName    String?                            @map("ledger_project_name") @db.VarChar(255) // 案件名（案件の無い受領見積書）
   createdAt            DateTime                           @default(now())
   updatedAt            DateTime                           @updatedAt
   deletedAt            DateTime? // 論理削除
@@ -1158,6 +1163,8 @@ model ReceivedQuotationLineItem {
 
   @@index([receivedQuotationId])
   @@index([sortOrder])
+  // 名称の近さの検索（unit-price-ledger の要件 7）の GIN の 3 文字組の索引。pg_trgm は migration の SQL で有効にする
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("received_quotation_line_items")
 }
 
