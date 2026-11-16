@@ -110,7 +110,7 @@
   - _Boundary: UnitPriceLedgerPage, LedgerSearchFilter, LedgerQuotationTable_
   - _Depends: 4.1_
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.7, 6.1, 6.4, 6.5, 10.1_
-- [ ] 4.3 (P) 取り込みの画面を作る
+- [x] 4.3 (P) 取り込みの画面を作る
   - zip または JSON を選んで取り込み、登録・飛ばし・失敗・切り詰め・参考の印の件数と内訳を表示する
   - 取り込みの画面の部品だけを作り、一覧の画面への組み込みは 4.6 で行う
   - 完了の状態：単体試験で、ファイルの選択・送信中の表示・結果の表示・上限超過の誤りの表示が期待どおりになる
@@ -256,3 +256,4 @@
 - 3.1：経路は `/api/unit-price-ledger` の下（GET・PUT・DELETE `/quotations[/:id]`、PATCH `/quotations/:id/marks`、POST `/imports`・`/exports`・`/similar-prices`）。書き出しは本文が必須で、絞り込まないときも画面は `{}` を送る。取り込みのファイルの欄は `files`。似た単価は `{ candidates }` を返す
 - 4.1：画面の API は `frontend/src/api/unit-price-ledger.ts` の `unitPriceLedgerApi`。書き出しは `postBlob`（`disableRetry: true`）で受け、ファイル名は `buildLedgerExportFileName(now)` で画面が作る。導線は上部の並びに権限で出す。権限の無い利用者への文言は「単価台帳を表示する権限がありません」
 - 4.2：取り込みの操作は、一覧の画面の見出しの操作の並びに 4.6 で置く（コメントで場所を残した）。採否・読取の確認・改修／新営の文字は `components/unit-price-ledger/ledger-labels.ts`。4.1 の経路の試験は本物の `listQuotations` を呼ぶので、4.6 で差し替える
+- 4.3：`LedgerImportDialog` は `{ open, onClose, onImported?(result) }` を受ける。送信中に親が閉じても、終われば `onImported` を呼ぶ（4.6 で一覧の読み直しに使う。試験は 4.6 で足す）。送信の時間切れは 120 秒で、時間切れでもサーバーは取り込みを続けうる（取り込み直しても飛ばしで安全）
