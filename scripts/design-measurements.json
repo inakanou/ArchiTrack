@@ -9,11 +9,11 @@
     {
       "id": "design-documents-scanned",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "配下の設計文書 13 ファイルである",
+      "anchor": "**unit-price-ledger の設計の作成時点の再実測は、配下の設計文書 14 ファイルである",
       "command": "ls .kiro/specs/*/design.md | wc -l",
-      "expected": "13",
-      "documentRendering": "設計文書 13 ファイル",
-      "note": "未起票の提案の走査が対象とする設計文書の数"
+      "expected": "14",
+      "documentRendering": "設計文書 14 ファイル",
+      "note": "未起票の提案の走査が対象とする設計文書の数（unit-price-ledger の設計の作成で 13 から 14 へ）"
     },
     {
       "id": "nonexistent-paths-by-git-index",
@@ -976,11 +976,11 @@
     {
       "id": "component-reqs-policy-knobs",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "**実測ちょうどと突き合わせるつまみは 51 件である**",
+      "anchor": "**unit-price-ledger の設計の作成時点の再実測では、実測ちょうどと突き合わせるつまみは 55 件である**",
       "command": "npx tsx scripts/check-design-component-requirements.ts | grep -oE '宣言のつまみ [0-9]+ 件' | grep -oE '[0-9]+'",
-      "expected": "51",
-      "documentRendering": "つまみは 51 件である",
-      "note": "check-design-component-requirements.ts が実測ちょうどと突き合わせる上限・下限の総数（上限 12 / 下限 39）。機能が増減すれば動く（タスク 115.298）"
+      "expected": "55",
+      "documentRendering": "つまみは 55 件である",
+      "note": "check-design-component-requirements.ts が実測ちょうどと突き合わせる上限・下限の総数（上限 13 / 下限 42）。機能が増減すれば動く（タスク 115.298）。unit-price-ledger の設計の作成で 51 から 55 へ"
     },
     {
       "id": "selftest-control-floor-declarations",

@@ -438,6 +438,15 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     minDetailDeclarations: 17,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
+  'unit-price-ledger': {
+    mode: 'ratchet',
+    maxContradictions: 0,
+    // 2026-11-16 の unit-price-ledger の設計の作成時の実測
+    minPairs: 15,
+    minTableDeclarations: 15,
+    minDetailDeclarations: 13,
+    reason: '新設の spec。設計の作成時点で矛盾 0 件。ラチェットで 0 を維持する',
+  },
   'user-authentication': {
     mode: 'ratchet',
     maxContradictions: 0,

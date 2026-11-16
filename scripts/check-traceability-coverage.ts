@@ -415,6 +415,13 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     maxUnparsed: 1,
     reason: 'Requirement 列に `1.3.1` という三段の番号が残り、指す受入基準を機械で確定できない',
   },
+  'unit-price-ledger': {
+    mode: 'ratchet',
+    maxMissing: 0,
+    maxOrphans: 0,
+    maxUnparsed: 0,
+    reason: '新設の spec。設計の作成時点で欠落・死語ともに 0 件。ラチェットで 0 を維持する',
+  },
   'user-authentication': {
     mode: 'ratchet',
     maxMissing: 384,
