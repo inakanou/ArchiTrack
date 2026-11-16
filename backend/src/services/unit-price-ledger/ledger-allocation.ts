@@ -1,0 +1,154 @@
+/**
+ * @fileoverview 按分の計算（unit-price-ledger タスク2.1、design.md の LedgerAllocation）
+ *
+ * 似た単価の候補の行の単価と、その見積の区分ごとの金額の合計から、諸経費と値引きを按分した
+ * 単価の内訳を求める。DB に依らない純粋な計算。
+ *
+ * - 単価は、換算の単価 → 単価 → 金額÷数量 の順に決める（8.1）
+ * - 按分の基準＝直接工事と産廃の金額の合計（8.2）
+ * - 諸経費の率＝（諸経費＋交通費＋法定福利費）÷基準、値引きの率＝値引き÷基準。別途は使わない（8.3）
+ * - 単価・諸経費の按分・値引きの按分・反映する単価を、ROUND_HALF_UP（0 から遠い側）で整数に丸める
+ *   （8.4・8.5。estimate-creation の `roundMoney` と同じ丸め）。按分と反映する単価は丸める前の単価から求め、
+ *   反映する単価は丸める前の 3 つの値の和を丸める
+ * - 基準が 0 以下なら按分は 0 で `allocatable: false`（8.6）。丸めた反映する単価が 0 より小さければ
+ *   `applicable: false`（8.7）
+ *
+ * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7
+ *
+ * @module services/unit-price-ledger/ledger-allocation
+ */
+
+import Decimal from 'decimal.js';
+import type { ReceivedQuotationLineCategory } from '../../generated/prisma/enums.js';
+
+/**
+ * 按分の計算に使う Decimal。
+ * 金額÷数量や率（÷基準）は割り切れないことがあり、既定の有効桁 20 では積の前に丸めが入りうるため、
+ * 有効桁を 64 に広げる（DB の桁は DECIMAL(15,2)・DECIMAL(15,4) で十分に収まる）
+ */
+const AllocationDecimal = Decimal.clone({ precision: 64, rounding: Decimal.ROUND_HALF_UP });
+type AllocationDecimal = InstanceType<typeof AllocationDecimal>;
+
+/** 計算の入力の値（Prisma の Decimal・文字・数）。空は null */
+export type AllocationValue = Decimal.Value | null;
+
+/**
+ * 候補の明細行のうち、単価を決めるのに使う欄（受領見積書の明細行の同名の欄）
+ */
+export interface AllocationLine {
+  /** 換算の単価（換算のある行だけ） */
+  conversionUnitPrice: AllocationValue;
+  unitPrice: AllocationValue;
+  amount: AllocationValue;
+  quantity: AllocationValue;
+}
+
+/**
+ * 候補の見積の、明細行の区分ごとの金額の合計。無い区分は 0 として扱う
+ */
+export type CategoryTotals = Partial<Record<ReceivedQuotationLineCategory, AllocationValue>>;
+
+/**
+ * 按分の内訳（design.md の AllocationBreakdown）。金額は整数の文字
+ */
+export interface AllocationBreakdown {
+  unitPrice: string;
+  overheadAllocation: string;
+  discountAllocation: string;
+  appliedUnitPrice: string;
+  /** 按分の基準が 0 より大きく、按分できたか（8.6） */
+  allocatable: boolean;
+  /** 反映する単価が 0 以上で、実行金額に反映できるか（8.7） */
+  applicable: boolean;
+}
+
+/** 諸経費の率の分子に入れる区分（8.3） */
+const OVERHEAD_CATEGORIES = ['OVERHEAD', 'TRAVEL', 'LEGAL_WELFARE'] as const;
+/** 按分の基準に入れる区分（8.2） */
+const BASE_CATEGORIES = ['DIRECT', 'WASTE'] as const;
+
+const toDecimal = (value: AllocationValue | undefined): AllocationDecimal | null =>
+  value === null || value === undefined ? null : new AllocationDecimal(value.toString());
+
+const sumCategories = (
+  totals: CategoryTotals,
+  categories: readonly ReceivedQuotationLineCategory[]
+): AllocationDecimal =>
+  categories.reduce<AllocationDecimal>(
+    (sum, category) => sum.plus(toDecimal(totals[category]) ?? 0),
+    new AllocationDecimal(0)
+  );
+
+/**
+ * 整数に丸めて文字にする（ROUND_HALF_UP：等距離なら 0 から遠い側）。-0 は "0" にする
+ */
+const roundToIntegerString = (value: AllocationDecimal): string => {
+  const rounded = value.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  return rounded.isZero() ? '0' : rounded.toFixed(0);
+};
+
+/**
+ * 候補の行の単価を決める（8.1）。換算の単価 → 単価 → 金額÷数量。
+ * 単価も換算の単価も空で、金額か数量が空、または数量が 0 なら決められないため null
+ */
+const resolveUnitPrice = (line: AllocationLine): AllocationDecimal | null => {
+  const conversionUnitPrice = toDecimal(line.conversionUnitPrice);
+  if (conversionUnitPrice) return conversionUnitPrice;
+
+  const unitPrice = toDecimal(line.unitPrice);
+  if (unitPrice) return unitPrice;
+
+  const amount = toDecimal(line.amount);
+  const quantity = toDecimal(line.quantity);
+  if (!amount || !quantity || quantity.isZero()) return null;
+  return amount.div(quantity);
+};
+
+/**
+ * 候補の行の按分の内訳を求める
+ *
+ * @param line - 候補の明細行の単価の欄
+ * @param totals - 候補の見積の、区分ごとの明細行の金額の合計
+ * @returns 按分の内訳
+ */
+export function computeAllocation(
+  line: AllocationLine,
+  totals: CategoryTotals
+): AllocationBreakdown {
+  const unitPrice = resolveUnitPrice(line);
+  if (!unitPrice) {
+    // 単価を決められない行は、按分も反映もできない
+    return {
+      unitPrice: '0',
+      overheadAllocation: '0',
+      discountAllocation: '0',
+      appliedUnitPrice: '0',
+      allocatable: false,
+      applicable: false,
+    };
+  }
+
+  const base = sumCategories(totals, BASE_CATEGORIES);
+  const allocatable = base.greaterThan(0);
+
+  const zero = new AllocationDecimal(0);
+  const overheadAllocation = allocatable
+    ? unitPrice.mul(sumCategories(totals, OVERHEAD_CATEGORIES)).div(base)
+    : zero;
+  const discountAllocation = allocatable
+    ? unitPrice.mul(toDecimal(totals.DISCOUNT) ?? 0).div(base)
+    : zero;
+
+  const appliedUnitPrice = roundToIntegerString(
+    unitPrice.plus(overheadAllocation).plus(discountAllocation)
+  );
+
+  return {
+    unitPrice: roundToIntegerString(unitPrice),
+    overheadAllocation: roundToIntegerString(overheadAllocation),
+    discountAllocation: roundToIntegerString(discountAllocation),
+    appliedUnitPrice,
+    allocatable,
+    applicable: !new AllocationDecimal(appliedUnitPrice).lessThan(0),
+  };
+}
