@@ -7378,6 +7378,7 @@ frontend/src/types/audit-log.types.ts、frontend/src/utils/audit-log-actions.ts 
 - backend/src/app.ts — 新設の admin-settings.routes.ts を `/api/v1/admin/settings` に mount する
 - backend/package.json — 指紋の埋め戻しの npm script を足す
 - frontend/src/pages/EstimateRequestDetailPage.tsx — 受領見積書のフォームへ登録の文脈（見積依頼）と業者名（取引先の名前）を渡す
+- 後の変更（unit-price-ledger のタスク 6.6。振る舞いは変えない）— backend/src/services/received-quotation.service.ts の保存の規則（明細行の金額の補い・保存の形・比較の鍵、読取の確認の遷移 D9、監査ログの台帳の項目 D10、業者名と取引先の紐づけ D4）を backend/src/services/received-quotation-rules.ts へ、ReceivedQuotationForm.tsx の明細行の変換と保存の前の検証を frontend/src/components/estimate-requests/received-quotation-line-items.ts へ、LedgerInfoSection.tsx の採否・読取の確認・改修／新営の文字を frontend/src/components/estimate-requests/ledger-info-form.ts へ出し、単価台帳と共有する
 
 ### System Flows
 

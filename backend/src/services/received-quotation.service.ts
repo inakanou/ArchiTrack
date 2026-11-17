@@ -48,6 +48,10 @@
  * `DuplicateOriginalError` で何も保存せず（ファイルも送らない）、違えばその件数を `sharedOriginalCount` で返す
  * （48.3〜48.7）。
  *
+ * 保存の規則の共通部品（unit-price-ledger タスク6.6）: 明細行の金額の補い・保存の形・比較の鍵、読取の確認の遷移、
+ * 監査ログの台帳の項目、業者名と取引先の紐づけは `received-quotation-rules.ts` に置き、単価台帳の取り込みと
+ * 修正（LedgerImportService・LedgerEditService）と共有する。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -78,6 +82,21 @@ import {
   type LineItemConversion,
 } from '../schemas/received-quotation.schema.js';
 import logger from '../utils/logger.js';
+import {
+  decideReadingConfirmation,
+  decideVendorUpdate,
+  fillLineItemAmounts,
+  haveLineItemsChanged,
+  ledgerAuditFields,
+  resolveVendor,
+  toLineItemRow,
+  toNumberOrNull,
+  toScaled,
+  type LineItemInput,
+  type ReadingConfirmationOptions,
+  type ReadingStatus,
+  type VendorAssignment,
+} from './received-quotation-rules.js';
 import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
 /**
@@ -148,35 +167,10 @@ export interface FileInfo {
 }
 
 /**
- * 明細行入力データ
- * Task 21.1: 明細行データの入力インターフェース
- * Task 61.2: netAmountを削除（受領見積書レベルに移動）
+ * 明細行入力データ（形は received-quotation-rules の `LineItemInput`。台帳の修正と共有する。
+ * unit-price-ledger タスク6.6）
  */
-export interface LineItemInput {
-  name: string;
-  sortOrder: number;
-  customCategory?: string | null;
-  workType?: string | null;
-  specification?: string | null;
-  unit?: string | null;
-  quantity?: number | null;
-  unitPrice?: number | null;
-  amount?: number | null;
-  remarks?: string | null;
-  /** 区分（45.1）。入力が無いときは直接工事（45.3。タスク113.3） */
-  category?: LineItemCategory;
-  /** 条件（45.7） */
-  condition?: string | null;
-  /** 換算（45.8）。4 列（数量・単位・単価・根拠）に分けて保存する */
-  conversion?: LineItemConversion | null;
-  /** 分類キー（47.1） */
-  classificationKey?: string | null;
-  /** 数量表の行のキー（47.4） */
-  quantityRowKey?: string | null;
-  /** 参考の印と理由（46.4） */
-  isReference?: boolean;
-  referenceReason?: string | null;
-}
+export type { LineItemInput };
 
 /**
  * 明細行情報（出力）
@@ -205,8 +199,8 @@ export interface LineItemInfo {
   referenceReason: string | null;
 }
 
-/** 読取の確認の状態（46.6） */
-export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
+/** 読取の確認の状態（46.6。形は received-quotation-rules の `ReadingStatus`） */
+export type { ReadingStatus };
 
 /**
  * 受領見積書の台帳の項目の入力（design の同章の Service Interface の `LedgerFieldsInput` のうち業者名・取引先を除く。
@@ -246,46 +240,8 @@ const LEDGER_COLUMN_KEYS = [
 type LedgerColumnKey = (typeof LEDGER_COLUMN_KEYS)[number];
 type LedgerColumns = { [K in LedgerColumnKey]?: LedgerFieldsInput[K] };
 
-/** 明細行の保存の形（DB の列）。保存と、読取の確認の変化の判定（D9）の比較に使う */
-interface LineItemRow {
-  sortOrder: number;
-  customCategory: string | null;
-  workType: string | null;
-  name: string;
-  specification: string | null;
-  unit: string | null;
-  quantity: number | null;
-  unitPrice: number | null;
-  amount: number | null;
-  remarks: string | null;
-  category: LineItemCategory;
-  condition: string | null;
-  conversionQuantity: number | null;
-  conversionUnit: string | null;
-  conversionUnitPrice: number | null;
-  conversionBasis: string | null;
-  classificationKey: string | null;
-  quantityRowKey: string | null;
-  isReference: boolean;
-  referenceReason: string | null;
-}
-
-/** 金額・数量の列の小数の桁（DB の Decimal の scale）。比較の前に揃える */
-const LINE_DECIMAL_SCALES = {
-  quantity: 4,
-  unitPrice: 2,
-  amount: 2,
-  conversionQuantity: 4,
-  conversionUnitPrice: 2,
-} as const;
-
-/** Decimal・数・null を小数の桁で揃えた数にする（比較用） */
-const toScaled = (value: unknown, scale: number): number | null =>
-  value === null || value === undefined ? null : Number(Number(value).toFixed(scale));
-
-/** Decimal・数・null を数にする（出力・記録用） */
-const toNumberOrNull = (value: unknown): number | null =>
-  value === null || value === undefined ? null : Number(value);
+/** 受領見積書の保存の読取の確認（確認済みの送り直しでも状態の列を書く。共通にする前のとおり） */
+const READING_CONFIRMATION_OPTIONS: ReadingConfirmationOptions = { reconfirm: 'writeStatus' };
 
 /**
  * 受領見積書の文脈（design の Requirements 43-50 の章の Service Interface、タスク113.1）
@@ -585,140 +541,12 @@ export class ReceivedQuotationService {
   }
 
   /**
-   * 明細行データのサーバーサイド金額検証・補正を行う
-   *
-   * Requirements: 11.12 - 金額は単価と数量の積として自動計算
-   *
-   * 送られた金額は保持する（画面以外の経路で登録された金額を書き換えない。45.12）。金額が無く（null・省略）、
-   * 数量と単価が両方あるときだけ、数量×単価を小数第 1 位で四捨五入して求める（D5。画面の自動計算と同じ
-   * `Math.round`。タスク113.3）
-   *
-   * Task 21.1: 明細行データのサーバーサイド金額検証を実装
-   *
-   * @param lineItems - 明細行入力データ
-   * @returns 金額を補った明細行データ
-   */
-  private validateAndCorrectAmounts(lineItems: LineItemInput[]): LineItemInput[] {
-    return lineItems.map((item) => {
-      if (item.amount !== undefined && item.amount !== null) {
-        return item;
-      }
-      const quantity = item.quantity ?? null;
-      const unitPrice = item.unitPrice ?? null;
-      return {
-        ...item,
-        amount: quantity !== null && unitPrice !== null ? Math.round(quantity * unitPrice) : null,
-      };
-    });
-  }
-
-  /**
-   * 明細行の入力を保存の形（DB の列）にする。区分の入力が無い行は直接工事（45.3）、換算は 4 列に分ける（タスク113.3）
-   */
-  private toLineItemRow(item: LineItemInput): LineItemRow {
-    return {
-      sortOrder: item.sortOrder,
-      customCategory: item.customCategory ?? null,
-      workType: item.workType ?? null,
-      name: item.name,
-      specification: item.specification ?? null,
-      unit: item.unit ?? null,
-      quantity: item.quantity ?? null,
-      unitPrice: item.unitPrice ?? null,
-      amount: item.amount ?? null,
-      remarks: item.remarks ?? null,
-      category: item.category ?? 'DIRECT',
-      condition: item.condition ?? null,
-      conversionQuantity: item.conversion?.quantity ?? null,
-      conversionUnit: item.conversion?.unit ?? null,
-      conversionUnitPrice: item.conversion?.unitPrice ?? null,
-      conversionBasis: item.conversion?.basis ?? null,
-      classificationKey: item.classificationKey ?? null,
-      quantityRowKey: item.quantityRowKey ?? null,
-      isReference: item.isReference ?? false,
-      referenceReason: item.referenceReason ?? null,
-    };
-  }
-
-  /**
-   * 明細行の比較の鍵（全列。金額・数量は DB の小数の桁で揃える）。読取の確認の変化の判定に使う（D9）
-   */
-  private lineItemSignature(row: Record<keyof LineItemRow, unknown>): string {
-    return JSON.stringify([
-      row.sortOrder,
-      row.customCategory ?? null,
-      row.workType ?? null,
-      row.name,
-      row.specification ?? null,
-      row.unit ?? null,
-      toScaled(row.quantity, LINE_DECIMAL_SCALES.quantity),
-      toScaled(row.unitPrice, LINE_DECIMAL_SCALES.unitPrice),
-      toScaled(row.amount, LINE_DECIMAL_SCALES.amount),
-      row.remarks ?? null,
-      row.category ?? 'DIRECT',
-      row.condition ?? null,
-      toScaled(row.conversionQuantity, LINE_DECIMAL_SCALES.conversionQuantity),
-      row.conversionUnit ?? null,
-      toScaled(row.conversionUnitPrice, LINE_DECIMAL_SCALES.conversionUnitPrice),
-      row.conversionBasis ?? null,
-      row.classificationKey ?? null,
-      row.quantityRowKey ?? null,
-      row.isReference ?? false,
-      row.referenceReason ?? null,
-    ]);
-  }
-
-  /**
    * 入力のとおりに保存する台帳の項目を取り出す（送られた欄だけ。null は消す）
    */
   private pickLedgerColumns(input: LedgerFieldsInput): LedgerColumns {
     return Object.fromEntries(
       LEDGER_COLUMN_KEYS.filter((key) => input[key] !== undefined).map((key) => [key, input[key]])
     ) as LedgerColumns;
-  }
-
-  /**
-   * 読取の確認の遷移を決める（D9。46.6〜46.8。タスク113.3）
-   *
-   * 1. 保存前が確認済みで、明細行・NET 金額・ファイルのどれかが変わる → 未確認に戻し、確認者と日時を消す
-   *    （同じ保存で確認済みを送っていても戻す）
-   * 2. 確認済みを送り、保存前が未確認（作成を含む） → 確認済み、確認者は操作した利用者、日時は今
-   * 3. それ以外は入力のとおり（未確認を送れば確認者と日時を消す。確認済みを送り直しても確認者と日時は保つ。
-   *    送らなければ変えない）
-   *
-   * @returns 書き込む列（変えないときは空）
-   */
-  private decideReadingConfirmation(
-    previousStatus: ReadingStatus | null,
-    requested: ReadingStatus | undefined,
-    contentChanged: boolean,
-    actorId: string
-  ): {
-    readingStatus?: ReadingStatus;
-    readingConfirmedById?: string | null;
-    readingConfirmedAt?: Date | null;
-  } {
-    const unconfirmed = {
-      readingStatus: 'UNCONFIRMED' as const,
-      readingConfirmedById: null,
-      readingConfirmedAt: null,
-    };
-    if (previousStatus === 'CONFIRMED' && contentChanged) {
-      return unconfirmed;
-    }
-    if (requested === 'CONFIRMED') {
-      return previousStatus === 'CONFIRMED'
-        ? { readingStatus: 'CONFIRMED' }
-        : {
-            readingStatus: 'CONFIRMED',
-            readingConfirmedById: actorId,
-            readingConfirmedAt: new Date(),
-          };
-    }
-    if (requested === 'UNCONFIRMED') {
-      return unconfirmed;
-    }
-    return {};
   }
 
   /**
@@ -749,45 +577,9 @@ export class ReceivedQuotationService {
       orderBy: { sortOrder: 'asc' },
     });
     const afterLines = correctedLineItems
-      .map((item) => this.toLineItemRow(item))
+      .map(toLineItemRow)
       .sort((a, b) => a.sortOrder - b.sortOrder);
-    if (beforeLines.length !== afterLines.length) {
-      return true;
-    }
-    return beforeLines.some(
-      (line, index) => this.lineItemSignature(line) !== this.lineItemSignature(afterLines[index]!)
-    );
-  }
-
-  /**
-   * 監査ログに前後を入れる台帳の項目（D10。46.11）。工事価格・確定金額は入れない
-   */
-  private ledgerAuditFields(quotation: {
-    vendorName: string;
-    quoteNumber: string | null;
-    overallConditions: string | null;
-    siteLocation: string | null;
-    constructionKind: string | null;
-    useType: string | null;
-    workConditions: string | null;
-    distanceKm: unknown;
-    adoption: string;
-    readingStatus: string;
-    quoteDiscriminator: string;
-  }): Record<string, string | number | null> {
-    return {
-      vendorName: quotation.vendorName,
-      quoteNumber: quotation.quoteNumber,
-      overallConditions: quotation.overallConditions,
-      siteLocation: quotation.siteLocation,
-      constructionKind: quotation.constructionKind,
-      useType: quotation.useType,
-      workConditions: quotation.workConditions,
-      distanceKm: toNumberOrNull(quotation.distanceKm),
-      adoption: quotation.adoption,
-      readingStatus: quotation.readingStatus,
-      quoteDiscriminator: quotation.quoteDiscriminator,
-    };
+    return haveLineItemsChanged(beforeLines, afterLines);
   }
 
   /**
@@ -904,37 +696,13 @@ export class ReceivedQuotationService {
     tx: PrismaTransactionClient,
     vendorNameInput: string | undefined,
     tradingPartnerId: string | null | undefined
-  ): Promise<{ vendorName: string; tradingPartnerId: string | null }> {
-    if (tradingPartnerId !== undefined && tradingPartnerId !== null) {
-      const partner = await tx.tradingPartner.findUnique({
-        where: { id: tradingPartnerId },
-        select: { id: true, name: true, deletedAt: true, types: { select: { type: true } } },
-      });
-      const isLiveSubcontractor =
-        partner !== null &&
-        partner.deletedAt === null &&
-        partner.types.some((t) => t.type === 'SUBCONTRACTOR');
-      if (!isLiveSubcontractor) {
-        throw new ValidationError(
-          RECEIVED_QUOTATION_VALIDATION_MESSAGES.TRADING_PARTNER_NOT_SUBCONTRACTOR
-        );
-      }
-      return { vendorName: partner.name, tradingPartnerId: partner.id };
-    }
-
-    const vendorName = vendorNameInput?.trim() ?? '';
-    if (vendorName.length === 0) {
+  ): Promise<VendorAssignment> {
+    const partnerId = tradingPartnerId ?? null;
+    // 案件の文脈では業者名は必須（43.8）。取引先を選んだときは取引先の名前を使うため確かめない
+    if (partnerId === null && (vendorNameInput?.trim() ?? '') === '') {
       throw new ValidationError(RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED);
     }
-    const matches = await tx.tradingPartner.findMany({
-      where: { name: vendorName, deletedAt: null, types: { some: { type: 'SUBCONTRACTOR' } } },
-      select: { id: true },
-      take: 2,
-    });
-    return {
-      vendorName,
-      tradingPartnerId: matches.length === 1 ? matches[0]!.id : null,
-    };
+    return resolveVendor(tx, vendorNameInput ?? '', partnerId);
   }
 
   /**
@@ -954,26 +722,14 @@ export class ReceivedQuotationService {
       tradingPartnerId: string | null;
     },
     input: UpdateReceivedQuotationInput
-  ): Promise<{ vendorName: string; tradingPartnerId: string | null } | null> {
+  ): Promise<VendorAssignment | null> {
     if (current.estimateRequestId !== null) {
       return null;
     }
-    if (input.vendorName === undefined && input.tradingPartnerId === undefined) {
-      return null;
-    }
-    const sameName =
-      input.vendorName === undefined || input.vendorName.trim() === current.vendorName;
-    const samePartner =
-      input.tradingPartnerId === undefined ||
-      (input.tradingPartnerId !== null && input.tradingPartnerId === current.tradingPartnerId);
-    if (sameName && samePartner) {
-      return null;
-    }
-    const partnerChoice =
-      input.tradingPartnerId !== undefined && input.tradingPartnerId !== current.tradingPartnerId
-        ? input.tradingPartnerId
-        : null;
-    return this.resolveVendor(tx, input.vendorName ?? current.vendorName, partnerChoice);
+    const choice = decideVendorUpdate(current, input);
+    return choice === null
+      ? null
+      : this.resolveVendor(tx, choice.vendorName, choice.tradingPartnerId);
   }
 
   /**
@@ -1011,10 +767,8 @@ export class ReceivedQuotationService {
     this.validateFileOrLineItemsRequired(!!input.file, input.lineItems);
 
     // 3. 明細行の金額検証・補正 (Requirements: 11.12)。送られた金額は保持する（45.12）
-    const correctedLineItems = input.lineItems
-      ? this.validateAndCorrectAmounts(input.lineItems)
-      : undefined;
-    const lineRows = (correctedLineItems ?? []).map((item) => this.toLineItemRow(item));
+    const correctedLineItems = input.lineItems ? fillLineItemAmounts(input.lineItems) : undefined;
+    const lineRows = (correctedLineItems ?? []).map(toLineItemRow);
 
     // 原本の指紋（48.1）。ファイルの内容から求め、送り手の申告値は使わない
     const fileSha256 = input.file ? this.computeFileSha256(input.file) : null;
@@ -1055,7 +809,13 @@ export class ReceivedQuotationService {
           ...this.pickLedgerColumns(input),
           quoteDiscriminator,
           // 読取の確認（D9）。作成は保存前を未確認とみる
-          ...this.decideReadingConfirmation(null, input.readingStatus, false, actorId),
+          ...decideReadingConfirmation(
+            null,
+            input.readingStatus,
+            false,
+            actorId,
+            READING_CONFIRMATION_OPTIONS
+          ),
         },
         include: {
           lineItems: {
@@ -1089,7 +849,7 @@ export class ReceivedQuotationService {
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
             lineItemCount: correctedLineItems?.length ?? 0,
-            ...this.ledgerAuditFields(quotation),
+            ...ledgerAuditFields(quotation),
           },
         },
         tx
@@ -1323,9 +1083,7 @@ export class ReceivedQuotationService {
     }
 
     // 明細行の金額検証・補正
-    const correctedLineItems = input.lineItems
-      ? this.validateAndCorrectAmounts(input.lineItems)
-      : undefined;
+    const correctedLineItems = input.lineItems ? fillLineItemAmounts(input.lineItems) : undefined;
 
     // 差し替えるファイルの原本の指紋（48.1・48.5）。ファイルを外す要求が優先する
     const newFileSha256 =
@@ -1383,11 +1141,12 @@ export class ReceivedQuotationService {
         (await this.hasReadContentChanged(tx, quotation, input, correctedLineItems));
       Object.assign(
         updateData,
-        this.decideReadingConfirmation(
+        decideReadingConfirmation(
           quotation.readingStatus,
           input.readingStatus,
           contentChanged,
-          actorId
+          actorId,
+          READING_CONFIRMATION_OPTIONS
         )
       );
 
@@ -1440,7 +1199,7 @@ export class ReceivedQuotationService {
           await tx.receivedQuotationLineItem.createMany({
             data: correctedLineItems.map((item) => ({
               receivedQuotationId: id,
-              ...this.toLineItemRow(item),
+              ...toLineItemRow(item),
             })),
           });
         }
@@ -1471,13 +1230,13 @@ export class ReceivedQuotationService {
             name: quotation.name,
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
-            ...this.ledgerAuditFields(quotation),
+            ...ledgerAuditFields(quotation),
           },
           after: {
             name: updatedQuotation.name,
             submittedAt: updatedQuotation.submittedAt.toISOString(),
             fileName: updatedQuotation.fileName,
-            ...this.ledgerAuditFields(updatedQuotation),
+            ...ledgerAuditFields(updatedQuotation),
             // 工事価格・確定金額は値を入れず変更の有無だけ（46.11）
             constructionPriceChanged:
               toScaled(quotation.constructionPrice, 0) !==
@@ -1560,7 +1319,7 @@ export class ReceivedQuotationService {
             name: quotation.name,
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
-            ...this.ledgerAuditFields(quotation),
+            ...ledgerAuditFields(quotation),
           },
           after: null,
         },

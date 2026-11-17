@@ -19,7 +19,10 @@ import type {
 } from '../../api/received-quotations';
 import { formatDateTime } from '../../utils/formatters';
 import {
+  ADOPTION_LABELS,
+  CONSTRUCTION_KIND_LABELS,
   LEDGER_INFO_MAX_LENGTHS,
+  READING_STATUS_LABELS,
   validateLedgerInfo,
   type LedgerInfoErrors,
   type LedgerInfoFormData,
@@ -32,24 +35,24 @@ import {
 /** 欄の見出し（46.9） */
 export const LEDGER_INFO_SECTION_TITLE = '台帳の情報';
 
-/** 改修／新営の選択肢（46.2。空は未設定） */
+/** 改修／新営の選択肢（46.2。空は未設定）。文字は単価台帳の画面と共有する（unit-price-ledger タスク6.6） */
 const CONSTRUCTION_KIND_OPTIONS: ReadonlyArray<{ value: ConstructionKind | ''; label: string }> = [
   { value: '', label: '未設定' },
-  { value: 'RENOVATION', label: '改修' },
-  { value: 'NEW_CONSTRUCTION', label: '新営' },
+  { value: 'RENOVATION', label: CONSTRUCTION_KIND_LABELS.RENOVATION },
+  { value: 'NEW_CONSTRUCTION', label: CONSTRUCTION_KIND_LABELS.NEW_CONSTRUCTION },
 ];
 
 /** 採否の選択肢（46.3） */
 const ADOPTION_OPTIONS: ReadonlyArray<{ value: QuotationAdoption; label: string }> = [
-  { value: 'ADOPTED', label: '採用' },
-  { value: 'REJECTED', label: '不採用' },
-  { value: 'UNKNOWN', label: '不明' },
+  { value: 'ADOPTED', label: ADOPTION_LABELS.ADOPTED },
+  { value: 'REJECTED', label: ADOPTION_LABELS.REJECTED },
+  { value: 'UNKNOWN', label: ADOPTION_LABELS.UNKNOWN },
 ];
 
 /** 読取の確認の選択肢（46.6） */
 const READING_STATUS_OPTIONS: ReadonlyArray<{ value: ReadingStatus; label: string }> = [
-  { value: 'UNCONFIRMED', label: '未確認' },
-  { value: 'CONFIRMED', label: '確認済み' },
+  { value: 'UNCONFIRMED', label: READING_STATUS_LABELS.UNCONFIRMED },
+  { value: 'CONFIRMED', label: READING_STATUS_LABELS.CONFIRMED },
 ];
 
 export interface LedgerInfoSectionProps {
