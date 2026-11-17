@@ -2,7 +2,8 @@
  * @fileoverview 似た単価の検索（SimilarPriceService）の単体試験（unit-price-ledger タスク2.8・2.9）
  *
  * Prisma をモックし、検索の SQL の組み立て（利用者の入力は結び付けた値だけに入り、SQL の文に入らない）、
- * 任意の条件の有無、行から候補への写し方、按分の内訳の添え方、閲覧範囲による表示制御を確かめる。
+ * 任意の条件の有無、行から候補への写し方、按分の内訳の添え方（単価を決められない行の値なし。タスク6.1）、
+ * 閲覧範囲による表示制御（範囲外の候補の参考の理由の文の秘匿を含む。タスク6.2）を確かめる。
  * 並べ方・近さの実際の振る舞いは統合試験（similar-price.service.int.test.ts）が確かめる。
  */
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -377,6 +378,7 @@ describe('SimilarPriceService', () => {
       });
       // 単価 1000、諸経費の率 0.1、値引きの率 -0.05 → 100、-50、1050
       expect(matches[0]?.allocation).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '1000',
         overheadAllocation: '100',
         discountAllocation: '-50',
@@ -393,6 +395,43 @@ describe('SimilarPriceService', () => {
         )
       );
       expect(matches[2]?.allocation.allocatable).toBe(false);
+      expect(matches[2]?.allocation.allocationStatus).toBe('BASE_NOT_POSITIVE');
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.8
+     */
+    it('単価を決められない行は、按分の内訳の 4 つの金額を null とし、単価を決められない状態を添える', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        row({
+          lineItemId: 'l-1',
+          unitPrice: null,
+          amount: null,
+          quantity: new Prisma.Decimal('3'),
+        }),
+        row({ lineItemId: 'l-2', unitPrice: null, quantity: new Prisma.Decimal('0') }),
+      ]);
+      prisma.receivedQuotationLineItem.groupBy.mockResolvedValue([
+        {
+          receivedQuotationId: 'q-1',
+          category: 'DIRECT',
+          _sum: { amount: new Prisma.Decimal('100000') },
+        },
+      ]);
+
+      const matches = await service.findMatches(baseQuery);
+
+      for (const match of matches) {
+        expect(match.allocation).toEqual({
+          allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+          unitPrice: null,
+          overheadAllocation: null,
+          discountAllocation: null,
+          appliedUnitPrice: null,
+          allocatable: false,
+          applicable: false,
+        });
+      }
     });
   });
 
@@ -469,6 +508,84 @@ describe('SimilarPriceService', () => {
       for (const candidate of candidates) {
         expect(candidate).not.toHaveProperty('source');
       }
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-9.2
+     * @requirement unit-price-ledger/REQ-9.4
+     */
+    it('範囲外の案件の候補は参考の理由の文を null にし、参考の印は返す。範囲内と案件の無い候補は理由の文を返す', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        row({
+          lineItemId: 'l-in',
+          projectId: 'p-1',
+          isReference: true,
+          referenceReason: '案件Aの図面と照合',
+        }),
+        row({
+          lineItemId: 'l-out',
+          receivedQuotationId: 'q-2',
+          projectId: 'p-2',
+          projectName: '案件B',
+          isReference: true,
+          referenceReason: '案件Bの現場で数量を確認',
+        }),
+        row({
+          lineItemId: 'l-out-plain',
+          receivedQuotationId: 'q-2',
+          projectId: 'p-2',
+          projectName: '案件B',
+        }),
+        row({
+          lineItemId: 'l-none',
+          receivedQuotationId: 'q-3',
+          projectId: null,
+          projectName: null,
+          ledgerProjectName: '台帳の案件',
+          isReference: true,
+          referenceReason: '概算のみ',
+        }),
+      ]);
+      prisma.receivedQuotationLineItem.groupBy.mockResolvedValue([]);
+      buildProjectScopeWhere.mockResolvedValue({ OR: [{ salesPersonId: 'u-1' }] });
+      prisma.project.findMany.mockResolvedValue([{ id: 'p-1' }]);
+
+      const candidates = await service.search(baseQuery, 'u-1');
+
+      expect(
+        candidates.map(({ lineItemId, projectName, isReference, referenceReason }) => ({
+          lineItemId,
+          projectName,
+          isReference,
+          referenceReason,
+        }))
+      ).toEqual([
+        {
+          lineItemId: 'l-in',
+          projectName: '案件A',
+          isReference: true,
+          referenceReason: '案件Aの図面と照合',
+        },
+        {
+          lineItemId: 'l-out',
+          projectName: OTHER_PROJECT_NAME,
+          isReference: true,
+          referenceReason: null,
+        },
+        {
+          lineItemId: 'l-out-plain',
+          projectName: OTHER_PROJECT_NAME,
+          isReference: false,
+          referenceReason: null,
+        },
+        {
+          lineItemId: 'l-none',
+          projectName: '台帳の案件',
+          isReference: true,
+          referenceReason: '概算のみ',
+        },
+      ]);
+      expect(JSON.stringify(candidates)).not.toContain('案件Bの現場で数量を確認');
     });
 
     /**

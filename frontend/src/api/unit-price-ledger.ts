@@ -186,17 +186,39 @@ export interface SimilarPriceQuery {
   siteLocation?: string;
 }
 
-/** 按分の内訳（8.1〜8.7）。金額は桁を失わないよう文字で返る */
-export interface SimilarPriceAllocation {
-  unitPrice: string;
-  overheadAllocation: string;
-  discountAllocation: string;
-  appliedUnitPrice: string;
-  /** 按分できたか */
-  allocatable: boolean;
-  /** 適用の単価を使えるか */
-  applicable: boolean;
-}
+/**
+ * 按分の状態
+ * - `ALLOCATED`：按分できた
+ * - `BASE_NOT_POSITIVE`：按分の基準が 0 以下（8.6）
+ * - `UNIT_PRICE_UNDETERMINED`：単価を決められない（8.8）
+ */
+export type SimilarPriceAllocationStatus =
+  | 'ALLOCATED'
+  | 'BASE_NOT_POSITIVE'
+  | 'UNIT_PRICE_UNDETERMINED';
+
+/** 按分の内訳（8.1〜8.8）。金額は桁を失わないよう文字で返り、単価を決められない行は null */
+export type SimilarPriceAllocation =
+  | {
+      allocationStatus: Exclude<SimilarPriceAllocationStatus, 'UNIT_PRICE_UNDETERMINED'>;
+      unitPrice: string;
+      overheadAllocation: string;
+      discountAllocation: string;
+      appliedUnitPrice: string;
+      /** 按分の基準が 0 より大きく、按分できたか（8.6） */
+      allocatable: boolean;
+      /** 反映する単価が 0 以上で、反映できるか（8.7） */
+      applicable: boolean;
+    }
+  | {
+      allocationStatus: 'UNIT_PRICE_UNDETERMINED';
+      unitPrice: null;
+      overheadAllocation: null;
+      discountAllocation: null;
+      appliedUnitPrice: null;
+      allocatable: false;
+      applicable: false;
+    };
 
 /** 似た単価の候補の区分（直接工事・産廃だけ。7.1） */
 export type SimilarPriceCategory = Extract<LineItemCategory, 'DIRECT' | 'WASTE'>;
@@ -224,6 +246,7 @@ export interface SimilarPriceCandidate {
   adoption: QuotationAdoption;
   readingStatus: ReadingStatus;
   isReference: boolean;
+  /** 閲覧範囲の外の案件は null（参考の印は isReference で返る） */
   referenceReason: string | null;
   allocation: SimilarPriceAllocation;
 }

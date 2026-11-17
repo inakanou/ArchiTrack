@@ -8,8 +8,10 @@
  *   出さず、台帳の API（一覧・詳細・修正・印の更新・削除・取り込み・書き出し）は 403 で内容を返さない
  * - ロールの無い利用者（見積の編集の権限が無い）の似た単価の問い合わせは 403 で候補を返さない
  * - 一般ユーザーが似た単価を問い合わせると、分類キーが一致する行が名称の近さや見積日を問わず先に並び、
- *   担当外の案件の候補は「他案件」として案件の ID・受領見積書の ID・原本のパスを返さず、担当の案件の候補は
- *   案件名を返し、案件の無い受領見積書の候補は台帳の案件名と原本のパスを返し、候補ごとに按分の内訳を返す
+ *   担当外の案件の候補は「他案件」として案件の ID・受領見積書の ID・原本のパス・参考の理由の文を返さず
+ *   （参考の印は返す）、担当の案件の候補は案件名と参考の理由の文を返し、案件の無い受領見積書の候補は台帳の
+ *   案件名と原本のパスを返し、候補ごとに按分の内訳と按分の状態を返し、単価を決められない行は内訳の 4 つの
+ *   金額を値なし（null）で返す
  *
  * 似た単価には、この仕様の画面が無い（後の claude-connector・見積の作成が使う）。そこで似た単価の問い合わせは、
  * 一般ユーザーとしてログインした利用者のアクセストークンで、E2E から API（POST /api/unit-price-ledger/similar-prices）
@@ -21,9 +23,11 @@
  * 利用者は共有の役割の利用者と別に作り（案件の担当にするため）、ほかの spec の後始末
  * （`e2e-session-` の利用者を消す）に巻き込まれないメールアドレスにする。
  * - 担当外：管理者が営業担当者・作成者の案件の受領見積書。分類キーの一致する直接工事の行（名称は問い合わせと
- *   似ていない。単価が空で金額÷数量）、似ていない直接工事の行・産廃の行、諸経費・交通費・法定福利費・値引き・別途の行
- * - 担当：一般ユーザーが営業担当者の案件の受領見積書。問い合わせと同じ名称の直接工事の行と、同じ名称の諸経費の行
- *   （区分で外れる）、産廃の行・値引きの行
+ *   似ていない。単価が空で金額÷数量。参考の印と、担当外の案件の名前を含む参考の理由）、似ていない直接工事の行・
+ *   産廃の行、問い合わせと同じ名称で単価・金額の無い直接工事の行（単価を決められない）、諸経費・交通費・
+ *   法定福利費・値引き・別途の行
+ * - 担当：一般ユーザーが営業担当者の案件の受領見積書。問い合わせと同じ名称の直接工事の行（参考の印と理由）と、
+ *   同じ名称の諸経費の行（区分で外れる）、産廃の行・値引きの行
  * - 案件なし：案件の無い受領見積書（不採用・未確認）。問い合わせと同じ名称の直接工事の行（参考の印）
  *
  * 按分の内訳の期待値（8.1〜8.5。丸めは整数へ四捨五入（0 から遠い側））:
@@ -33,6 +37,8 @@
  * - 担当：基準＝15000＋5000＝20000、諸経費の率＝2000÷20000＝0.1、値引きの率＝-1000÷20000＝-0.05。
  *   単価 3000、諸経費の按分 300、値引きの按分 -150、反映する単価 3150
  * - 案件なし：基準＝28000、諸経費・値引きは無い。単価 2800、按分 0・0、反映する単価 2800
+ * - 担当外の単価を決められない行：換算の単価・単価・金額が無い（8.8）。4 つの金額は null で、状態は
+ *   UNIT_PRICE_UNDETERMINED、按分できない印・反映できない印（金額の無い行は基準に入らない）
  *
  * Requirements coverage (unit-price-ledger):
  * - 7.1: 区分が直接工事か産廃の明細行から候補を返す（同じ名称の諸経費の行は候補にならない）
@@ -40,9 +46,14 @@
  * - 7.7: 候補ごとに業者名・見積日・案件名・名称・規格・単位・数量・区分・分類キーの一致・採否・読取の確認・
  *   参考の印と理由・按分の内訳を返す
  * - 8.4: 候補ごとに単価・諸経費の按分・値引きの按分・反映する単価を返す
+ * - 8.8: 単価を決められない行は、単価・諸経費の按分・値引きの按分・反映する単価を値なしで返し、単価を
+ *   決められないことを示す印（allocationStatus の UNIT_PRICE_UNDETERMINED）を返す
  * - 9.1: 閲覧範囲の内の案件の候補に案件名を返す
- * - 9.2: 閲覧範囲の外の案件の候補は「他案件」と返し、案件の ID・受領見積書の ID・原本のパスを返さない
+ * - 9.2: 閲覧範囲の外の案件の候補は「他案件」と返し、案件の ID・受領見積書の ID・原本のパス・参考の理由の文を
+ *   返さない
  * - 9.3: 案件の無い受領見積書の候補に案件名と原本のパスを返す
+ * - 9.4: 閲覧範囲の外の案件の候補にも、業者名・見積日・明細行の内容（参考の印を含み、参考の理由の文を除く）・
+ *   按分の内訳を返す
  * - 10.1: 台帳の画面・取り込み・修正・削除・書き出しを、台帳の管理の権限を持つ利用者だけに許す
  * - 10.2: 似た単価の問い合わせを、見積の編集の権限を持つ利用者だけに許す
  * - 10.4: 権限の無い利用者の要求を拒み、内容を返さない
@@ -98,10 +109,11 @@ interface SimilarPriceCandidateBody {
   isReference: boolean;
   referenceReason: string | null;
   allocation: {
-    unitPrice: string;
-    overheadAllocation: string;
-    discountAllocation: string;
-    appliedUnitPrice: string;
+    allocationStatus: string;
+    unitPrice: string | null;
+    overheadAllocation: string | null;
+    discountAllocation: string | null;
+    appliedUnitPrice: string | null;
     allocatable: boolean;
     applicable: boolean;
   };
@@ -117,6 +129,8 @@ interface Fixtures {
     quotationId: string;
     vendorName: string;
     keyLineId: string;
+    undeterminedLineId: string;
+    referenceReason: string;
   };
   inScope: {
     projectId: string;
@@ -124,6 +138,7 @@ interface Fixtures {
     quotationId: string;
     vendorName: string;
     lineId: string;
+    referenceReason: string;
   };
   noProject: {
     quotationId: string;
@@ -194,6 +209,8 @@ async function createFixtures(): Promise<Fixtures> {
     select: { id: true },
   });
   const outVendorName = `${KEYWORD}_保温業者_${suffix}`;
+  // 参考の理由の文は自由な文で、案件の名前を含みうる（範囲外の候補では返さない。9.2）
+  const outReferenceReason = `${outProjectName}の図面と数量を照合する`;
   const outQuotation = await prisma.receivedQuotation.create({
     data: {
       projectId: outProject.id,
@@ -213,6 +230,8 @@ async function createFixtures(): Promise<Fixtures> {
             unit: 'm',
             amount: 10000,
             classificationKey: CLASSIFICATION_KEY,
+            isReference: true,
+            referenceReason: outReferenceReason,
           },
           {
             sortOrder: 1,
@@ -237,10 +256,15 @@ async function createFixtures(): Promise<Fixtures> {
           { sortOrder: 5, category: 'LEGAL_WELFARE', name: '法定福利費', amount: 1000 },
           { sortOrder: 6, category: 'DISCOUNT', name: '出精値引き', amount: -1500 },
           { sortOrder: 7, category: 'EXCLUDED', name: '別途工事', amount: 50000 },
+          // 単価・金額の無い直接工事の行（単価を決められない。8.8）。金額が無いので基準に入らない
+          { sortOrder: 8, category: 'DIRECT', name: QUERY_NAME, quantity: 2, unit: 'm2' },
         ],
       },
     },
-    select: { id: true, lineItems: { where: { sortOrder: 0 }, select: { id: true } } },
+    select: {
+      id: true,
+      lineItems: { where: { sortOrder: { in: [0, 8] } }, select: { id: true, sortOrder: true } },
+    },
   });
 
   // 担当：一般ユーザーが営業担当者の案件
@@ -250,6 +274,7 @@ async function createFixtures(): Promise<Fixtures> {
     select: { id: true },
   });
   const inVendorName = `${KEYWORD}_被覆業者_${suffix}`;
+  const inReferenceReason = `${inProjectName}の数量は概算`;
   const inQuotation = await prisma.receivedQuotation.create({
     data: {
       projectId: inProject.id,
@@ -268,6 +293,8 @@ async function createFixtures(): Promise<Fixtures> {
             unit: 'm2',
             unitPrice: 3000,
             amount: 15000,
+            isReference: true,
+            referenceReason: inReferenceReason,
           },
           {
             sortOrder: 1,
@@ -326,6 +353,11 @@ async function createFixtures(): Promise<Fixtures> {
     }
     return line.id;
   };
+  const outLineId = (sortOrder: number): string =>
+    firstLineId(
+      outQuotation.lineItems.filter((item) => item.sortOrder === sortOrder),
+      `担当外の見積（並び ${sortOrder}）`
+    );
 
   return {
     generalUser,
@@ -335,7 +367,9 @@ async function createFixtures(): Promise<Fixtures> {
       projectName: outProjectName,
       quotationId: outQuotation.id,
       vendorName: outVendorName,
-      keyLineId: firstLineId(outQuotation.lineItems, '担当外の見積'),
+      keyLineId: outLineId(0),
+      undeterminedLineId: outLineId(8),
+      referenceReason: outReferenceReason,
     },
     inScope: {
       projectId: inProject.id,
@@ -343,6 +377,7 @@ async function createFixtures(): Promise<Fixtures> {
       quotationId: inQuotation.id,
       vendorName: inVendorName,
       lineId: firstLineId(inQuotation.lineItems, '担当の見積'),
+      referenceReason: inReferenceReason,
     },
     noProject: {
       quotationId: noQuotation.id,
@@ -544,12 +579,14 @@ test.describe('単価台帳の権限と似た単価', () => {
    * @requirement unit-price-ledger/REQ-7.2
    * @requirement unit-price-ledger/REQ-7.7
    * @requirement unit-price-ledger/REQ-8.4
+   * @requirement unit-price-ledger/REQ-8.8
    * @requirement unit-price-ledger/REQ-9.1
    * @requirement unit-price-ledger/REQ-9.2
    * @requirement unit-price-ledger/REQ-9.3
+   * @requirement unit-price-ledger/REQ-9.4
    * @requirement unit-price-ledger/REQ-10.2
    */
-  test('見積の編集の権限を持つ一般ユーザーが似た単価を問い合わせると、分類キーの一致が先に並び、担当外の案件は「他案件」になり、按分の内訳が返る (unit-price-ledger/REQ-7.1, REQ-7.2, REQ-7.7, REQ-8.4, REQ-9.1, REQ-9.2, REQ-9.3, REQ-10.2)', async ({
+  test('見積の編集の権限を持つ一般ユーザーが似た単価を問い合わせると、分類キーの一致が先に並び、担当外の案件は「他案件」になって参考の理由の文を返さず、按分の内訳が返り、単価を決められない行は値なしになる (unit-price-ledger/REQ-7.1, REQ-7.2, REQ-7.7, REQ-8.4, REQ-8.8, REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4, REQ-10.2)', async ({
     page,
     request,
   }) => {
@@ -562,19 +599,22 @@ test.describe('単価台帳の権限と似た単価', () => {
     const { candidates } = (await response.json()) as { candidates: SimilarPriceCandidateBody[] };
 
     // 7.1・7.2：分類キーの一致する担当外の行（名称は似ていない・見積日は古い）が先頭で、名称で選んだ
-    // 担当・案件なしの直接工事の行が続く。同じ名称の諸経費の行と、似ていない行は候補にならない
+    // 直接工事の行が見積日の新しい順（担当 → 担当外の単価を決められない行 → 案件なし）に続く。
+    // 同じ名称の諸経費の行と、似ていない行は候補にならない
     expect(candidates.map((candidate) => candidate.lineItemId)).toEqual([
       fixtures.outOfScope.keyLineId,
       fixtures.inScope.lineId,
+      fixtures.outOfScope.undeterminedLineId,
       fixtures.noProject.lineId,
     ]);
     expect(candidates.map((candidate) => candidate.classificationKeyMatched)).toEqual([
       true,
       false,
       false,
+      false,
     ]);
 
-    const [outOfScope, inScope, noProject] = candidates;
+    const [outOfScope, inScope, undetermined, noProject] = candidates;
 
     // 9.2：担当外の案件は「他案件」で、案件を特定できる情報を返さない。業者名・見積日・明細行・按分は返す（9.4）
     expect(outOfScope).toEqual({
@@ -593,10 +633,12 @@ test.describe('単価台帳の権限と似た単価', () => {
       classificationKeyMatched: true,
       adoption: 'ADOPTED',
       readingStatus: 'CONFIRMED',
-      isReference: false,
+      // 9.2・9.4：参考の印は返し、参考の理由の文（担当外の案件の名前を含む）は返さない
+      isReference: true,
       referenceReason: null,
       // 8.4：単価 10000÷3、諸経費の率 0.1、値引きの率 -0.05（別途を使わない）。丸めは整数へ四捨五入
       allocation: {
+        allocationStatus: 'ALLOCATED',
         unitPrice: '3333',
         overheadAllocation: '333',
         discountAllocation: '-167',
@@ -605,10 +647,43 @@ test.describe('単価台帳の権限と似た単価', () => {
         applicable: true,
       },
     });
-    const outOfScopeText = JSON.stringify(outOfScope);
-    expect(outOfScopeText).not.toContain(fixtures.outOfScope.projectName);
-    expect(outOfScopeText).not.toContain(fixtures.outOfScope.projectId);
-    expect(outOfScopeText).not.toContain(fixtures.outOfScope.quotationId);
+    for (const candidate of [outOfScope, undetermined]) {
+      const outOfScopeText = JSON.stringify(candidate);
+      expect(outOfScopeText).not.toContain(fixtures.outOfScope.projectName);
+      expect(outOfScopeText).not.toContain(fixtures.outOfScope.projectId);
+      expect(outOfScopeText).not.toContain(fixtures.outOfScope.quotationId);
+      expect(outOfScopeText).not.toContain(fixtures.outOfScope.referenceReason);
+    }
+
+    // 8.8：担当外の単価を決められない行は、按分の内訳の 4 つの金額を値なし（null）で返し、状態で理由を示す
+    expect(undetermined).toEqual({
+      lineItemId: fixtures.outOfScope.undeterminedLineId,
+      vendorName: fixtures.outOfScope.vendorName,
+      submittedAt: '2026-03-01',
+      projectName: '他案件',
+      projectId: null,
+      receivedQuotationId: null,
+      ledgerSourcePath: null,
+      name: QUERY_NAME,
+      specification: null,
+      unit: 'm2',
+      quantity: '2',
+      category: 'DIRECT',
+      classificationKeyMatched: false,
+      adoption: 'ADOPTED',
+      readingStatus: 'CONFIRMED',
+      isReference: false,
+      referenceReason: null,
+      allocation: {
+        allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+        unitPrice: null,
+        overheadAllocation: null,
+        discountAllocation: null,
+        appliedUnitPrice: null,
+        allocatable: false,
+        applicable: false,
+      },
+    });
 
     // 9.1：担当の案件は案件名・案件の ID・受領見積書の ID を返す
     expect(inScope).toEqual({
@@ -627,10 +702,12 @@ test.describe('単価台帳の権限と似た単価', () => {
       classificationKeyMatched: false,
       adoption: 'ADOPTED',
       readingStatus: 'CONFIRMED',
-      isReference: false,
-      referenceReason: null,
+      // 範囲内の案件の候補は、参考の理由の文をそのまま返す
+      isReference: true,
+      referenceReason: fixtures.inScope.referenceReason,
       // 8.4：単価 3000、諸経費の率 2000÷20000、値引きの率 -1000÷20000
       allocation: {
+        allocationStatus: 'ALLOCATED',
         unitPrice: '3000',
         overheadAllocation: '300',
         discountAllocation: '-150',
@@ -660,6 +737,7 @@ test.describe('単価台帳の権限と似た単価', () => {
       isReference: true,
       referenceReason: '概算のみ',
       allocation: {
+        allocationStatus: 'ALLOCATED',
         unitPrice: '2800',
         overheadAllocation: '0',
         discountAllocation: '0',

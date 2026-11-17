@@ -2,7 +2,8 @@
  * @fileoverview 按分の計算（LedgerAllocation）の単体試験（unit-price-ledger タスク2.1）
  *
  * 候補の行の単価（換算の単価 → 単価 → 金額÷数量）、按分の基準（直接工事＋産廃）、
- * 諸経費と値引きの率、内訳、丸め（ROUND_HALF_UP：0 から遠い側）、按分できない印・反映できない印を確かめる。
+ * 諸経費と値引きの率、内訳、丸め（ROUND_HALF_UP：0 から遠い側）、按分できない印・反映できない印、
+ * 按分の状態（allocationStatus）と、単価を決められない行の値なしの内訳（タスク6.1）を確かめる。
  */
 import { describe, it, expect } from 'vitest';
 import Decimal from 'decimal.js';
@@ -46,6 +47,7 @@ describe('computeAllocation', () => {
       const result = computeAllocation(line({ unitPrice: '1234' }), standardTotals);
 
       expect(result).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '1234',
         overheadAllocation: '154',
         discountAllocation: '-62',
@@ -80,6 +82,7 @@ describe('computeAllocation', () => {
       });
 
       expect(result).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '2000',
         overheadAllocation: '200',
         discountAllocation: '0',
@@ -137,6 +140,7 @@ describe('computeAllocation', () => {
       });
 
       expect(result).toEqual({
+        allocationStatus: 'BASE_NOT_POSITIVE',
         unitPrice: '1500',
         overheadAllocation: '0',
         discountAllocation: '0',
@@ -156,6 +160,7 @@ describe('computeAllocation', () => {
         OVERHEAD: '10000',
       });
 
+      expect(result.allocationStatus).toBe('BASE_NOT_POSITIVE');
       expect(result.allocatable).toBe(false);
       expect(result.overheadAllocation).toBe('0');
       expect(result.discountAllocation).toBe('0');
@@ -168,6 +173,7 @@ describe('computeAllocation', () => {
     it('合計が 1 つも無いときも按分できない印を返す', () => {
       const result = computeAllocation(line({ unitPrice: '1500' }), {});
 
+      expect(result.allocationStatus).toBe('BASE_NOT_POSITIVE');
       expect(result.allocatable).toBe(false);
       expect(result.appliedUnitPrice).toBe('1500');
     });
@@ -185,6 +191,7 @@ describe('computeAllocation', () => {
       });
 
       expect(result).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '1000',
         overheadAllocation: '0',
         discountAllocation: '-1500',
@@ -252,6 +259,7 @@ describe('computeAllocation', () => {
       );
 
       expect(result).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '500',
         overheadAllocation: '63',
         discountAllocation: '-25',
@@ -287,6 +295,7 @@ describe('computeAllocation', () => {
       const result = computeAllocation(line({ amount: '10000', quantity: '3' }), standardTotals);
 
       expect(result).toEqual({
+        allocationStatus: 'ALLOCATED',
         unitPrice: '3333',
         overheadAllocation: '417',
         discountAllocation: '-167',
@@ -310,26 +319,59 @@ describe('computeAllocation', () => {
 
     /**
      * @requirement unit-price-ledger/REQ-8.1
+     * @requirement unit-price-ledger/REQ-8.8
      */
-    it('単価・金額・数量が求められない行は、0 とし、按分できない印と反映できない印を返す', () => {
+    it('単価を決められない行は、4 つの金額を値なし（null）で返し、単価を決められない状態と、按分できない印・反映できない印を返す', () => {
       const expected = {
-        unitPrice: '0',
-        overheadAllocation: '0',
-        discountAllocation: '0',
-        appliedUnitPrice: '0',
+        allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+        unitPrice: null,
+        overheadAllocation: null,
+        discountAllocation: null,
+        appliedUnitPrice: null,
         allocatable: false,
         applicable: false,
       };
 
-      expect(computeAllocation(line({ amount: '1000', quantity: null }), standardTotals)).toEqual(
-        expected
-      );
-      expect(computeAllocation(line({ amount: '1000', quantity: '0' }), standardTotals)).toEqual(
-        expected
-      );
-      expect(computeAllocation(line({ amount: null, quantity: '5' }), standardTotals)).toEqual(
-        expected
-      );
+      // 数量が空・数量が 0・金額が空・すべて空
+      for (const undetermined of [
+        line({ amount: '1000', quantity: null }),
+        line({ amount: '1000', quantity: '0' }),
+        line({ amount: null, quantity: '5' }),
+        line(),
+      ]) {
+        expect(computeAllocation(undetermined, standardTotals)).toEqual(expected);
+      }
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.8
+     */
+    it('単価を決められない状態は、按分の基準が 0 以下でも単価を決められない状態を優先する', () => {
+      expect(computeAllocation(line({ amount: '1000', quantity: '0' }), {})).toMatchObject({
+        allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+        unitPrice: null,
+        appliedUnitPrice: null,
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.1
+     * @requirement unit-price-ledger/REQ-8.8
+     */
+    it('単価が 0 の行は単価を決められる行で、"0" の金額と按分の状態を返す（値なしと見分けられる）', () => {
+      expect(computeAllocation(line({ unitPrice: '0' }), standardTotals)).toEqual({
+        allocationStatus: 'ALLOCATED',
+        unitPrice: '0',
+        overheadAllocation: '0',
+        discountAllocation: '0',
+        appliedUnitPrice: '0',
+        allocatable: true,
+        applicable: true,
+      });
+      // 換算の単価が 0 の行も換算の単価を使う（単価へ移らない）
+      expect(
+        computeAllocation(line({ conversionUnitPrice: '0', unitPrice: '2000' }), standardTotals)
+      ).toMatchObject({ allocationStatus: 'ALLOCATED', unitPrice: '0' });
     });
   });
 

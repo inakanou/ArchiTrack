@@ -12,7 +12,8 @@
  * - 単位の指定があれば、単位（換算のある行は換算の単位）が一致するものだけ（7.5）
  * - 並べ方（7.6）：群 → 工種・改修／新営・場所の一致の数（多い順）→ 近さ（高い順）→ 見積日（新しい順）
  *   → 明細行の ID。最大 20 件。採否と読取の確認は並べ方に使わない（7.8）。時期で補正しない（7.10）
- * - 按分の内訳（8.x）は候補の見積の区分ごとの金額の合計から求める。合計は候補の見積をまとめて 1 回で集計する
+ * - 按分の内訳（8.x）は候補の見積の区分ごとの金額の合計から求める。合計は候補の見積をまとめて 1 回で集計する。
+ *   単価を決められない行は、内訳の 4 つの金額が null で、按分の状態が `UNIT_PRICE_UNDETERMINED`（8.8）
  * - 検索は `$queryRaw` に値を結び付けて行う（文字を組み立てない）
  *
  * 閲覧範囲による表示制御（9.1〜9.4。タスク2.9）は `search` が担う。`findMatches` は表示制御の前の
@@ -20,13 +21,14 @@
  * API の候補へ写す
  * - 範囲内の案件の候補：案件名・案件の ID・受領見積書の ID を返す（9.1）
  * - 範囲外の案件の候補：案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパスを null にする。
- *   見積依頼は候補に含めない（9.2）。業者名・見積日・明細行の内容・按分の内訳は返す（9.4）
+ *   見積依頼は候補に含めない。参考の理由の文は自由な文で案件を特定できる情報を含みうるため null にし、
+ *   参考の印は返す（9.2。タスク6.2）。業者名・見積日・明細行の内容・按分の内訳は返す（9.4）
  * - 案件の無い受領見積書の候補：台帳の案件名・受領見積書の ID・原本のパスを返す（9.3）
  * - 閲覧範囲は `ProjectScopeService.buildProjectScopeWhere` の条件で、候補の案件の ID をまとめて 1 回で引く。
  *   論理削除された案件は、全案件閲覧の権限があっても範囲外とする（`evaluateProjectAccess` と同じ）
  *
  * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11,
- *   9.1, 9.2, 9.3, 9.4
+ *   8.8, 9.1, 9.2, 9.3, 9.4
  *
  * @module services/unit-price-ledger/similar-price.service
  */
@@ -96,7 +98,9 @@ export interface SimilarPriceMatch {
   adoption: ReceivedQuotationAdoption;
   readingStatus: ReceivedQuotationReadingStatus;
   isReference: boolean;
+  /** 参考の理由の文（表示制御の前。範囲外の案件の候補は `toCandidate` が null にする） */
   referenceReason: string | null;
+  /** 按分の内訳（単価を決められない行は 4 つの金額が null。8.8） */
   allocation: AllocationBreakdown;
   source: SimilarPriceSource;
 }
@@ -119,6 +123,35 @@ export interface SimilarPriceProjectFields {
  * 単位と数量は DB で空を許すため `string | null`
  */
 export type SimilarPriceCandidate = Omit<SimilarPriceMatch, 'source'> & SimilarPriceProjectFields;
+
+/**
+ * 候補の案件が、問い合わせた利用者の閲覧範囲の外か（案件の無い受領見積書は範囲外にしない）
+ *
+ * @param source - 候補の案件の識別の元
+ * @param visibleProjectIds - 問い合わせた利用者が閲覧できる、候補の案件の ID
+ */
+const isOutOfScope = (
+  source: SimilarPriceSource,
+  visibleProjectIds: ReadonlySet<string>
+): boolean => source.projectId !== null && !visibleProjectIds.has(source.projectId);
+
+/**
+ * 表示制御の前の候補を、閲覧範囲に応じて API の候補に写す（9.1〜9.4）
+ *
+ * 範囲外の案件の候補は、案件の情報を隠し（`toProjectFields`）、参考の理由の文を null にする。
+ * 参考の印は返す（9.2・9.4）
+ *
+ * @param match - 表示制御の前の候補
+ * @param visibleProjectIds - 問い合わせた利用者が閲覧できる、候補の案件の ID
+ */
+export const toCandidate = (
+  { source, ...rest }: SimilarPriceMatch,
+  visibleProjectIds: ReadonlySet<string>
+): SimilarPriceCandidate => ({
+  ...rest,
+  referenceReason: isOutOfScope(source, visibleProjectIds) ? null : rest.referenceReason,
+  ...toProjectFields(source, visibleProjectIds),
+});
 
 /**
  * 似た単価のサービスの依存
@@ -230,10 +263,7 @@ export class SimilarPriceService {
       userId
     );
 
-    return matches.map(({ source, ...rest }) => ({
-      ...rest,
-      ...toProjectFields(source, visibleProjectIds),
-    }));
+    return matches.map((match) => toCandidate(match, visibleProjectIds));
   }
 
   /**

@@ -308,7 +308,10 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
   });
 
   describe('似た単価（POST /similar-prices）', () => {
-    it('問い合わせを本文にして送り、候補の配列を返す', async () => {
+    /**
+     * @requirement unit-price-ledger/REQ-8.8
+     */
+    it('問い合わせを本文にして送り、候補の配列を返す（単価を決められない候補の値なしの内訳を含む）', async () => {
       const candidate: SimilarPriceCandidate = {
         lineItemId: LINE_ITEM_ID,
         vendorName: '山田設備',
@@ -328,6 +331,7 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
         isReference: false,
         referenceReason: null,
         allocation: {
+          allocationStatus: 'ALLOCATED',
           unitPrice: '1000',
           overheadAllocation: '100',
           discountAllocation: '0',
@@ -336,7 +340,21 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
           applicable: true,
         },
       };
-      vi.mocked(apiClient.post).mockResolvedValue({ candidates: [candidate] });
+      // 単価を決められない行は、4 つの金額が null で、状態が UNIT_PRICE_UNDETERMINED（8.8）
+      const undetermined: SimilarPriceCandidate = {
+        ...candidate,
+        lineItemId: '00000000-0000-4000-8000-0000000000b2',
+        allocation: {
+          allocationStatus: 'UNIT_PRICE_UNDETERMINED',
+          unitPrice: null,
+          overheadAllocation: null,
+          discountAllocation: null,
+          appliedUnitPrice: null,
+          allocatable: false,
+          applicable: false,
+        },
+      };
+      vi.mocked(apiClient.post).mockResolvedValue({ candidates: [candidate, undetermined] });
 
       const candidates = await unitPriceLedgerApi.searchSimilarPrices({
         name: '配管',
@@ -347,7 +365,7 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
         name: '配管',
         unit: 'm',
       });
-      expect(candidates).toEqual([candidate]);
+      expect(candidates).toEqual([candidate, undetermined]);
     });
   });
 });

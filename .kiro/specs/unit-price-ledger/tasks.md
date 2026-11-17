@@ -3,7 +3,7 @@
 ## Task Overview
 
 - **対象**: unit-price-ledger（単価台帳）
-- **要件カバレッジ**: 10 要件、72 受入基準すべてをカバー
+- **要件カバレッジ**: 10 要件、73 受入基準すべてをカバー
 - **前提**: estimate-request の拡張（Requirement 43〜48）は develop に入っている
 
 ## Tasks
@@ -157,6 +157,20 @@
   - 完了の状態：pre-push の検査の spec の関門がすべて緑になる
   - _Requirements: 1.4_
 
+- [x] 6. 判断事項の対応（2026-11-17 利用者の決定）
+- [x] 6.1 単価を決められない行の按分の内訳を値なしで返す
+  - 単価を決められない行（換算の単価と単価が空で、金額か数量が空、または数量が 0）は、単価・諸経費の按分・値引きの按分・反映する単価を null とし、按分の状態 `allocationStatus` を `UNIT_PRICE_UNDETERMINED` にする。`allocatable` と `applicable` はどちらも false
+  - 単価が決まる行は、按分の基準が 0 以下なら `BASE_NOT_POSITIVE`、0 より大きければ `ALLOCATED` を返し、`allocatable`（8.6）と `applicable`（8.7）の決め方は変えない
+  - 似た単価の応答の型（バックエンドの型・OpenAPI の注記・画面の API の型）を、金額が null を許し状態を持つ形にする
+  - 完了の状態：按分の単体試験で 3 つの状態と値なしの内訳が期待どおりになり、似た単価の単体・統合試験と E2E で、候補の按分の内訳に状態が返り、単価を決められない行の 4 つの金額が null で返る
+  - _Boundary: LedgerAllocation, SimilarPriceService_
+  - _Requirements: 8.8_
+- [x] 6.2 閲覧範囲の外の候補の参考の理由の文を返さない
+  - 閲覧範囲の外の案件の候補（案件名が「他案件」）は、参考の理由の文を null で返し、参考の印は返す。範囲内の案件の候補と案件の無い受領見積書の候補は、理由の文をそのまま返す
+  - 完了の状態：似た単価の単体試験・表示制御の統合試験・E2E で、範囲外の候補の理由の文が null で印が残り、範囲内と案件の無い候補が理由の文を返す
+  - _Boundary: SimilarPriceService_
+  - _Requirements: 9.2, 9.4_
+
 ## Requirements Coverage Matrix
 
 | 要件ID | 要件概要 | カバータスク |
@@ -224,10 +238,11 @@
 | 8.5 | 按分の計算 | 2.1 |
 | 8.6 | 按分の計算 | 2.1 |
 | 8.7 | 按分の計算 | 2.1 |
+| 8.8 | 按分の計算 | 6.1 |
 | 9.1 | 案件の閲覧範囲による候補の表示制御 | 2.9, 5.4 |
-| 9.2 | 案件の閲覧範囲による候補の表示制御 | 2.9, 5.4 |
+| 9.2 | 案件の閲覧範囲による候補の表示制御 | 2.9, 5.4, 6.2 |
 | 9.3 | 案件の閲覧範囲による候補の表示制御 | 2.9, 5.4 |
-| 9.4 | 案件の閲覧範囲による候補の表示制御 | 2.9 |
+| 9.4 | 案件の閲覧範囲による候補の表示制御 | 2.9, 6.2 |
 | 10.1 | 権限 | 3.1, 4.1, 4.2, 5.4 |
 | 10.2 | 権限 | 3.1, 5.4 |
 | 10.3 | 権限 | 1.2 |
@@ -238,7 +253,7 @@
 
 - 1.4：印の更新の検証は、`isReference: false` と理由が一緒に来たときだけを拒む。印を送らずに理由だけが来たときは、2.7 のサービスで保存済みの印と照合して拒み、試験を置く
 - 1.4：`LEDGER_FIELD_LIMITS.ledgerCardId`（200）は 2.2 の取り込みで使う。上限は `received-quotation.schema.ts` の `RECEIVED_QUOTATION_FIELD_LIMITS`・`LINE_ITEM_FIELD_LIMITS` から取り、数を書き写さない
-- 2.1：単価を決められない行（換算の単価・単価が空で、金額か数量が空、または数量が 0）は、仕様に定めが無い。今は内訳をすべて "0"、`allocatable` と `applicable` をどちらも false で返す（利用者の判断待ち）。2.8 と画面は、この組を「単価を求められない」として扱う
+- 2.1：単価を決められない行（換算の単価・単価が空で、金額か数量が空、または数量が 0）は、仕様に定めが無かった。2.1 の時点では内訳をすべて "0"、`allocatable` と `applicable` をどちらも false で返していた。2026-11-17 に利用者が決め、要件 8.8 を足し、タスク 6.1 で 4 つの金額を null、按分の状態 `allocationStatus` を `UNIT_PRICE_UNDETERMINED` で返すようにした（`allocatable`・`applicable` は 8.6・8.7 の印に戻した）
 - 2.2：読み取りは数量・単価・金額・換算の値の DB の桁（Decimal）を確かめない。桁を超えるカードは 2.4 の登録のトランザクションで失敗するので、そのカードだけの失敗として結果に返す
 - 2.2：2.3 の材料として、読み取りの結果に `truncatedFields`・`unreadableFields`・`referenceReasons`（カードの 参考.理由）・`declaredTotals` を返す。明細行の `isReference` と `referenceReason` は 2.3 が付ける
 - 2.3：合計の不一致は、行の合計とカードの合計をどちらも整数の円に丸めて（ROUND_HALF_UP）比べる。見積全体の条件が上限に近いと、足した理由の全文が切れる（切り詰めとして記録し、理由も足す。利用者の判断待ち）
@@ -251,7 +266,7 @@
 - 2.7：明細行だけを変える更新でも、受領見積書の `updatedAt` を進める（2.6 の排他は受領見積書の `updatedAt` の条件付きの更新で判定するため）
 - 2.8：EXPLAIN（enable_seqscan=off）で、似た単価の検索は名称の 3 文字組の索引を使わないことを確かめた（名称と規格の式と OR のため）。正しさには響かない。式の索引か群ごとの UNION にするかは利用者の判断待ち
 - 2.8：`findMatches` は案件を特定できる情報を `source` に隠さずに返す。2.9 は `source` を API の projectName・projectId・receivedQuotationId・ledgerSourcePath へ写す段を足す。単位と数量は DB で空を許すため `string | null` で、API の表し方は 2.9・3.1 で決める
-- 2.9：API の候補は `SimilarPriceService.search(query, userId)` が返す。論理削除された案件の候補は、全案件閲覧の利用者にも「他案件」と出す（`evaluateProjectAccess` と同じ扱い）
+- 2.9：API の候補は `SimilarPriceService.search(query, userId)` が返す。論理削除された案件の候補は、全案件閲覧の利用者にも「他案件」と出す（`evaluateProjectAccess` と同じ扱い）。範囲外の候補の参考の理由の文（自由な文で案件を特定できる情報を含みうる）は、2.9 の時点では範囲内の候補と同じく返していた。2026-11-17 に利用者が決め、要件 9.2・9.4 を改め、タスク 6.2 で範囲外の候補の理由の文を null で返し、参考の印は返すようにした
 - 2.10：`LedgerExportService.export(filter, actorId, ctx)` は Buffer・ファイル名（`単価台帳_YYYYMMDD.xlsx`、日本時間）・見積の数を返す。0 件は 400 `LEDGER_EXPORT_EMPTY`、記録の失敗は 500 `EXPORT_RECORD_FAILED`。書き出す行の数に上限は無い（全件をメモリに読む。上限を置くかは利用者の判断待ち）
 - 3.1：経路は `/api/unit-price-ledger` の下（GET・PUT・DELETE `/quotations[/:id]`、PATCH `/quotations/:id/marks`、POST `/imports`・`/exports`・`/similar-prices`）。書き出しは本文が必須で、絞り込まないときも画面は `{}` を送る。取り込みのファイルの欄は `files`。似た単価は `{ candidates }` を返す
 - 4.1：画面の API は `frontend/src/api/unit-price-ledger.ts` の `unitPriceLedgerApi`。書き出しは `postBlob`（`disableRetry: true`）で受け、ファイル名は `buildLedgerExportFileName(now)` で画面が作る。導線は上部の並びに権限で出す。権限の無い利用者への文言は「単価台帳を表示する権限がありません」

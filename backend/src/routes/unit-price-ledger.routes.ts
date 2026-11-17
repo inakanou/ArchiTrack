@@ -578,7 +578,7 @@ router.post(
  * /api/unit-price-ledger/similar-prices:
  *   post:
  *     summary: 似た過去の単価の検索
- *     description: 分類キーの一致を先に、名称の一致・近さで似た明細行を最大 20 件返す。閲覧範囲の外の案件は案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパスを返さない。見積の編集の権限（estimate:update）が要る
+ *     description: 分類キーの一致を先に、名称の一致・近さで似た明細行を最大 20 件返す。閲覧範囲の外の案件は案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパス・参考の理由の文を返さない（参考の印は返す）。単価を決められない行は、按分の内訳の 4 つの金額を null、allocationStatus を UNIT_PRICE_UNDETERMINED で返す。見積の編集の権限（estimate:update）が要る
  *     tags:
  *       - Unit Price Ledger
  *     security:
@@ -627,16 +627,21 @@ router.post(
  *                       adoption: { type: string, enum: [ADOPTED, REJECTED, UNKNOWN] }
  *                       readingStatus: { type: string, enum: [UNCONFIRMED, CONFIRMED] }
  *                       isReference: { type: boolean }
- *                       referenceReason: { type: string, nullable: true }
+ *                       referenceReason: { type: string, nullable: true, description: 範囲外の案件の候補は null（参考の印は isReference で返す） }
  *                       allocation:
  *                         type: object
+ *                         required: [allocationStatus, unitPrice, overheadAllocation, discountAllocation, appliedUnitPrice, allocatable, applicable]
  *                         properties:
- *                           unitPrice: { type: string }
- *                           overheadAllocation: { type: string }
- *                           discountAllocation: { type: string }
- *                           appliedUnitPrice: { type: string }
- *                           allocatable: { type: boolean }
- *                           applicable: { type: boolean }
+ *                           allocationStatus:
+ *                             type: string
+ *                             enum: [ALLOCATED, BASE_NOT_POSITIVE, UNIT_PRICE_UNDETERMINED]
+ *                             description: ALLOCATED は按分できた、BASE_NOT_POSITIVE は按分の基準が 0 以下、UNIT_PRICE_UNDETERMINED は単価を決められない
+ *                           unitPrice: { type: string, nullable: true, description: 整数の文字。単価を決められない行は null }
+ *                           overheadAllocation: { type: string, nullable: true, description: 単価を決められない行は null }
+ *                           discountAllocation: { type: string, nullable: true, description: 単価を決められない行は null }
+ *                           appliedUnitPrice: { type: string, nullable: true, description: 単価を決められない行は null }
+ *                           allocatable: { type: boolean, description: 按分の基準が 0 より大きい（単価を決められない行は false） }
+ *                           applicable: { type: boolean, description: 反映する単価が 0 以上（単価を決められない行は false） }
  *       400:
  *         description: 検証の失敗（名称が空、上限の超過）
  *       401:
