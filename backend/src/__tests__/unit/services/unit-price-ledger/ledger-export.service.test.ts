@@ -16,8 +16,11 @@ import {
 import {
   LedgerExportService,
   LEDGER_EXPORT_EMPTY_MESSAGE,
+  LEDGER_EXPORT_MAX_QUOTATIONS,
   LEDGER_EXPORT_RECORD_FAILED_MESSAGE,
+  LEDGER_EXPORT_TOO_MANY_MESSAGE,
   LEDGER_EXPORT_SHEET_NAMES,
+  buildLedgerExportTooManyMessage,
   writeLedgerWorkbook,
   type LedgerExportSheet,
 } from '../../../../services/unit-price-ledger/ledger-export.service.js';
@@ -27,6 +30,8 @@ import type { ExportAuditService } from '../../../../services/export-audit.servi
 type AuditRecorder = Pick<ExportAuditService, 'record'>;
 
 const ACTOR_ID = 'actor-1';
+/** design.md の LedgerExportService に記した書き出しの件数の上限 */
+const EXPECTED_MAX_QUOTATIONS = 3000;
 const CTX = { ipAddress: '192.0.2.1', userAgent: 'vitest' };
 
 const QUOTATION_HEADER = [
@@ -124,22 +129,33 @@ const readWorkbook = (buffer: Buffer) => {
 };
 
 describe('LedgerExportService', () => {
-  let prisma: { receivedQuotation: { findMany: ReturnType<typeof vi.fn> } };
+  let prisma: {
+    receivedQuotation: { findMany: ReturnType<typeof vi.fn>; count: ReturnType<typeof vi.fn> };
+  };
   let exportAuditService: { record: ReturnType<typeof vi.fn> };
   let now: () => Date;
   const filter = ledgerFilterSchema.parse({});
 
-  const createService = (writeWorkbook?: (sheets: LedgerExportSheet[]) => Buffer) =>
+  const createService = (
+    writeWorkbook?: (sheets: LedgerExportSheet[]) => Buffer,
+    maxQuotations?: number
+  ) =>
     new LedgerExportService({
       prisma: prisma as unknown as PrismaClient,
       exportAuditService: exportAuditService as unknown as AuditRecorder,
       now,
       ...(writeWorkbook ? { writeWorkbook } : {}),
+      ...(maxQuotations !== undefined ? { maxQuotations } : {}),
     });
 
   beforeEach(() => {
     vi.clearAllMocks();
-    prisma = { receivedQuotation: { findMany: vi.fn().mockResolvedValue([quotationRow()]) } };
+    prisma = {
+      receivedQuotation: {
+        findMany: vi.fn().mockResolvedValue([quotationRow()]),
+        count: vi.fn().mockResolvedValue(1),
+      },
+    };
     exportAuditService = {
       record: vi.fn().mockResolvedValue({ ok: true, value: { recordId: 'audit-1' } }),
     };
@@ -157,7 +173,8 @@ describe('LedgerExportService', () => {
       expect(args.where).toEqual(buildLedgerWhere(keywordFilter));
       expect(args.orderBy).toEqual(LEDGER_ORDER_BY);
       expect(args).not.toHaveProperty('skip');
-      expect(args).not.toHaveProperty('take');
+      // 数えた後に増えた分まで読まないよう、上限を 1 件超える分までに限って読む
+      expect(args.take).toBe(LEDGER_EXPORT_MAX_QUOTATIONS + 1);
       expect(args.select.lineItems.orderBy).toEqual({ sortOrder: 'asc' });
     });
   });
@@ -180,6 +197,90 @@ describe('LedgerExportService', () => {
       expect(LEDGER_EXPORT_EMPTY_MESSAGE).toBe('条件に合う見積はありません');
       expect(exportAuditService.record).not.toHaveBeenCalled();
       expect(writeWorkbook).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('件数の上限', () => {
+    it('@requirement unit-price-ledger/REQ-6.6 既定の上限は設計で決めた件数とする', () => {
+      expect(LEDGER_EXPORT_MAX_QUOTATIONS).toBe(EXPECTED_MAX_QUOTATIONS);
+    });
+
+    it('@requirement unit-price-ledger/REQ-6.6 読む前に一覧と同じ条件で数え、上限を超えたら 400 LEDGER_EXPORT_TOO_MANY で拒み、記録もファイルも作らない', async () => {
+      const keywordFilter = ledgerFilterSchema.parse({ keyword: 'ボード' });
+      prisma.receivedQuotation.count.mockResolvedValue(3);
+      const writeWorkbook = vi.fn(() => Buffer.from('x'));
+
+      const error = await createService(writeWorkbook, 2)
+        .export(keywordFilter, ACTOR_ID, CTX)
+        .catch((e: unknown) => e);
+
+      expect(prisma.receivedQuotation.count).toHaveBeenCalledWith({
+        where: buildLedgerWhere(keywordFilter),
+      });
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        statusCode: 400,
+        code: 'LEDGER_EXPORT_TOO_MANY',
+        message: buildLedgerExportTooManyMessage(2),
+        details: { count: 3, maxQuotations: 2 },
+      });
+      expect(buildLedgerExportTooManyMessage(2)).toBe(
+        '書き出す見積が多すぎます。一度に書き出せるのは 2 件までです。絞り込みを狭めてから、もう一度書き出してください'
+      );
+      expect(LEDGER_EXPORT_TOO_MANY_MESSAGE).toBe(
+        buildLedgerExportTooManyMessage(EXPECTED_MAX_QUOTATIONS)
+      );
+      expect(prisma.receivedQuotation.findMany).not.toHaveBeenCalled();
+      expect(exportAuditService.record).not.toHaveBeenCalled();
+      expect(writeWorkbook).not.toHaveBeenCalled();
+    });
+
+    it('@requirement unit-price-ledger/REQ-6.6 上限ちょうどの件数は書き出す', async () => {
+      prisma.receivedQuotation.count.mockResolvedValue(2);
+      prisma.receivedQuotation.findMany.mockResolvedValue([
+        quotationRow({ id: 'rq-1' }),
+        quotationRow({ id: 'rq-2' }),
+      ]);
+
+      const result = await createService(undefined, 2).export(filter, ACTOR_ID, CTX);
+
+      expect(result.quotationCount).toBe(2);
+      expect(exportAuditService.record).toHaveBeenCalledTimes(1);
+    });
+
+    it('@requirement unit-price-ledger/REQ-6.6 数えた後に見積が増えて上限を超えたら、読んだ数で 400 LEDGER_EXPORT_TOO_MANY で拒み、記録もファイルも作らない', async () => {
+      prisma.receivedQuotation.count.mockResolvedValue(2);
+      prisma.receivedQuotation.findMany.mockResolvedValue([
+        quotationRow({ id: 'rq-1' }),
+        quotationRow({ id: 'rq-2' }),
+        quotationRow({ id: 'rq-3' }),
+      ]);
+      const writeWorkbook = vi.fn(() => Buffer.from('x'));
+
+      const error = await createService(writeWorkbook, 2)
+        .export(filter, ACTOR_ID, CTX)
+        .catch((e: unknown) => e);
+
+      expect(prisma.receivedQuotation.findMany.mock.calls[0]![0].take).toBe(3);
+      expect(error).toMatchObject({
+        statusCode: 400,
+        code: 'LEDGER_EXPORT_TOO_MANY',
+        details: { count: 3, maxQuotations: 2 },
+      });
+      expect(exportAuditService.record).not.toHaveBeenCalled();
+      expect(writeWorkbook).not.toHaveBeenCalled();
+    });
+
+    it('@requirement unit-price-ledger/REQ-6.5 数えて 0 件なら、見積を読まずに 400 LEDGER_EXPORT_EMPTY で拒む', async () => {
+      prisma.receivedQuotation.count.mockResolvedValue(0);
+
+      const error = await createService()
+        .export(filter, ACTOR_ID, CTX)
+        .catch((e: unknown) => e);
+
+      expect(error).toMatchObject({ statusCode: 400, code: 'LEDGER_EXPORT_EMPTY' });
+      expect(prisma.receivedQuotation.findMany).not.toHaveBeenCalled();
+      expect(exportAuditService.record).not.toHaveBeenCalled();
     });
   });
 

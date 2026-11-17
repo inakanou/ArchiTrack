@@ -7,6 +7,7 @@
  * 導線を出す（タスク4.5）。API は `unitPriceLedgerApi` を差し替える。
  *
  * @requirement unit-price-ledger/REQ-4.6 見積の情報・カードの ID・原本のパスと、すべての明細行を表示する
+ * @requirement unit-price-ledger/REQ-4.8 論理削除された案件の見積は、案件名の隣に「削除済みの案件」と出す
  * @requirement unit-price-ledger/REQ-5.1 案件の無い受領見積書の業者名・見積日・見積の情報・案件名・原本のパス・明細行の修正
  * @requirement unit-price-ledger/REQ-5.2 案件の受領見積書は読取の確認・参考の印と理由・分類キーだけを編集でき、ほかの欄は受領見積書の画面への導線を出す
  * @requirement unit-price-ledger/REQ-5.3 明細行の分類キーを入力して保存する
@@ -117,6 +118,7 @@ function detail(overrides: Partial<LedgerQuotationDetail> = {}): LedgerQuotation
     estimateRequestId: null,
     projectId: null,
     projectName: null,
+    projectDeleted: false,
     name: '山田設備_2026-04-01',
     vendorName: '山田設備',
     tradingPartnerId: null,
@@ -369,6 +371,16 @@ describe('LedgerQuotationDetailPage（unit-price-ledger タスク4.4・4.5）', 
       expect(infoValue('原本のパス')).toBe('-');
       expect(screen.queryByRole('button', { name: '修正' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
+    it('論理削除された案件の受領見積書は、案件名の隣に「削除済みの案件」と出す（4.8）', async () => {
+      mocks.getQuotation.mockResolvedValue(
+        projectDetail({ projectName: '旧庁舎改修工事', projectDeleted: true })
+      );
+      renderPage();
+      await waitForLineItemTable();
+
+      expect(infoValue('案件名')).toBe('旧庁舎改修工事（削除済みの案件）');
     });
 
     it('見積が無いときは、見つからない旨と一覧へ戻る導線を出す', async () => {

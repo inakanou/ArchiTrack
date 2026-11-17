@@ -303,6 +303,29 @@ describe('単価台帳の API（統合・実 DB）', () => {
     });
 
     /**
+     * @requirement unit-price-ledger/REQ-4.8
+     * @requirement unit-price-ledger/REQ-4.9
+     */
+    it('GET /quotations が「削除済みの案件を除く」の指定を受け、行に案件の削除済みの印を返す', async () => {
+      const res = await request(app)
+        .get(`${BASE}/quotations`)
+        .query({ keyword: PREFIX, excludeDeletedProjects: 'true' })
+        .set('Authorization', auth(admin));
+
+      expect(res.status).toBe(200);
+      const row = (res.body.data as Array<{ id: string; projectDeleted: boolean }>).find(
+        (item) => item.id === ledgerQuotationId
+      );
+      expect(row).toMatchObject({ projectDeleted: false });
+
+      const invalid = await request(app)
+        .get(`${BASE}/quotations`)
+        .query({ excludeDeletedProjects: 'yes' })
+        .set('Authorization', auth(admin));
+      expect(invalid.status).toBe(400);
+    });
+
+    /**
      * @requirement unit-price-ledger/REQ-4.2
      */
     it('GET /quotations が正しくない問い合わせを 400 で拒む', async () => {

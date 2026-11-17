@@ -111,6 +111,7 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
         constructionKind: 'RENOVATION',
         needsReview: true,
         missingClassificationKey: false,
+        excludeDeletedProjects: true,
         page: 2,
       });
 
@@ -129,6 +130,7 @@ describe('unitPriceLedgerApi（unit-price-ledger タスク4.1）', () => {
         constructionKind: 'RENOVATION',
         needsReview: 'true',
         missingClassificationKey: 'false',
+        excludeDeletedProjects: 'true',
         page: '2',
       });
 

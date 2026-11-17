@@ -230,8 +230,12 @@ flowchart TB
 | 2.10, 2.11, 2.12, 2.13, 2.14, 2.15, 2.16 | 取引先の照合・読取の確認・取り込み済みの飛ばし・結果・まとめての登録 | LedgerImportService, LedgerImportDialog | POST /api/unit-price-ledger/imports | 取り込み |
 | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 | 取り込みの参考の印と理由 | LedgerCardParser | `parseUpload` | 取り込み |
 | 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7 | 一覧・絞り込み・詳細 | LedgerQueryService, UnitPriceLedgerPage, LedgerSearchFilter, LedgerQuotationTable, LedgerQuotationDetailPage | GET /api/unit-price-ledger/quotations, GET /api/unit-price-ledger/quotations/:id | - |
+| 4.8 | 論理削除された案件の受領見積書の表示（削除済みの案件の印） | LedgerQueryService, LedgerExportService, LedgerQuotationTable, LedgerQuotationDetailPage | GET /api/unit-price-ledger/quotations, GET /api/unit-price-ledger/quotations/:id, POST /api/unit-price-ledger/exports | - |
+| 4.9 | 削除済みの案件を除く絞り込み | LedgerQueryService, LedgerExportService, UnitPriceLedgerPage, LedgerSearchFilter | GET /api/unit-price-ledger/quotations, POST /api/unit-price-ledger/exports | - |
 | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 | 修正・削除・排他・監査 | LedgerEditService, LedgerQuotationDetailPage | PUT /api/unit-price-ledger/quotations/:id, PATCH /api/unit-price-ledger/quotations/:id/marks, DELETE /api/unit-price-ledger/quotations/:id | - |
+| 5.8 | 業者名・見積日の修正での名前の作り直し | LedgerEditService, LedgerCardParser | PUT /api/unit-price-ledger/quotations/:id | - |
 | 6.1, 6.2, 6.3, 6.4, 6.5 | Excel の書き出しと出力の記録 | LedgerExportService, UnitPriceLedgerPage | POST /api/unit-price-ledger/exports | - |
+| 6.6 | 書き出しの件数の上限 | LedgerExportService, UnitPriceLedgerPage | POST /api/unit-price-ledger/exports | - |
 | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11 | 似た単価の検索と並べ方 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
 | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 | 按分の計算 | LedgerAllocation, SimilarPriceService | `computeAllocation` | 似た単価の検索 |
 | 9.1, 9.2, 9.3, 9.4 | 閲覧範囲による表示制御 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
@@ -243,20 +247,20 @@ flowchart TB
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
 |-----------|--------------|--------|--------------|------------------|-----------|
-| LedgerCardParser | Backend/Service | カードの読み取り・検査・対応づけ・参考の理由 | 2.1-2.9, 3.1-3.6 | fflate, received-quotation.schema (P0) | Service |
+| LedgerCardParser | Backend/Service | カードの読み取り・検査・対応づけ・参考の理由・受領見積書の名前の形 | 2.1-2.9, 3.1-3.6, 5.8 | fflate, received-quotation.schema (P0) | Service |
 | LedgerImportService | Backend/Service | カードごとの登録と取り込みの結果 | 2.1-2.16 | LedgerCardParser (P0), AuditLogService (P0) | Service |
-| LedgerQueryService | Backend/Service | 一覧・絞り込み・詳細 | 1.1-1.4, 4.1-4.7 | Prisma (P0) | Service |
-| LedgerEditService | Backend/Service | 修正・削除・印の更新・監査 | 5.1-5.7 | AuditLogService (P0) | Service |
-| LedgerExportService | Backend/Service | 3 つのシートの Excel | 1.1-1.4, 6.1-6.5 | LedgerQueryService (P0), ExportAuditService (P0) | Service |
+| LedgerQueryService | Backend/Service | 一覧・絞り込み・詳細 | 1.1-1.4, 4.1-4.9 | Prisma (P0) | Service |
+| LedgerEditService | Backend/Service | 修正・削除・印の更新・名前の作り直し・監査 | 5.1-5.8 | AuditLogService (P0) | Service |
+| LedgerExportService | Backend/Service | 3 つのシートの Excel・件数の上限 | 1.1-1.4, 4.8, 4.9, 6.1-6.6 | LedgerQueryService (P0), ExportAuditService (P0) | Service |
 | SimilarPriceService | Backend/Service | 似た単価の検索・並べ方・表示制御 | 1.1-1.4, 7.1-7.11, 8.1-8.8, 9.1-9.4 | ProjectScopeService (P0), LedgerAllocation (P0) | Service, API |
 | LedgerAllocation | Backend/Domain | 按分の計算 | 8.1-8.8 | decimal.js (P0) | Service |
 | unit-price-ledger.routes | Backend/Route | 経路・権限・検証 | 10.1-10.5 | requirePermission (P0) | API |
 | UnitPriceLedgerPermissionMigration | Backend/Migration | 権限・欄・索引・拡張 | 10.1-10.5 | PostgreSQL (P0) | Batch |
-| UnitPriceLedgerPage | Frontend/Page | 一覧・絞り込み・書き出し・取り込みの入口 | 4.1-4.7, 6.1-6.5, 10.1-10.5 | unitPriceLedgerApi (P0) | State |
-| LedgerSearchFilter | Frontend/Component | 絞り込みの欄 | 4.1-4.7 | - | State |
-| LedgerQuotationTable | Frontend/Component | 一覧の表 | 4.1-4.7 | - | - |
+| UnitPriceLedgerPage | Frontend/Page | 一覧・絞り込み・書き出し・取り込みの入口 | 4.1-4.7, 4.9, 6.1-6.6, 10.1-10.5 | unitPriceLedgerApi (P0) | State |
+| LedgerSearchFilter | Frontend/Component | 絞り込みの欄 | 4.1-4.7, 4.9 | - | State |
+| LedgerQuotationTable | Frontend/Component | 一覧の表 | 4.1-4.8 | - | - |
 | LedgerImportDialog | Frontend/Component | 取り込みと結果 | 2.1-2.16 | unitPriceLedgerApi (P0) | State |
-| LedgerQuotationDetailPage | Frontend/Page | 詳細と修正 | 4.1-4.7, 5.1-5.7 | LineItemEditor, LedgerInfoSection (P0) | State |
+| LedgerQuotationDetailPage | Frontend/Page | 詳細と修正 | 4.1-4.8, 5.1-5.7 | LineItemEditor, LedgerInfoSection (P0) | State |
 | AppHeader | Frontend/Component | 台帳への導線の出し分け | 10.1-10.5 | usePermission (P0) | - |
 
 ### Backend Layer
@@ -266,7 +270,7 @@ flowchart TB
 | Field | Detail |
 |-------|--------|
 | Intent | アップロードされたファイルから見積カードを読み、検査し、受領見積書の形へ対応づける |
-| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 |
+| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 5.8 |
 
 **Responsibilities & Constraints**
 - zip は fflate の `unzipSync` で読み、`.json` の項目だけを選ぶ。上限は、zip の大きさ 50 MB、項目の数 2000、1 項目の展開後 1 MB、展開後の合計 200 MB とし、超えたらその要求を 413 で拒む
@@ -280,7 +284,7 @@ flowchart TB
   - 行：名称・規格・数量・単位・単価・金額・条件・備考・区分（本体 → 直接工事）・換算 → 明細行の同名の欄
   - 行の細目は、備考の末尾に「細目：<値>」と足す（2.7）
   - 発注者・延床・工事価格の根拠・工種の一覧・読取の方法とメモ・種別（単価見積）は、見積全体の条件の末尾に「<見出し>：<値>」の行として足す（2.8）
-  - 受領見積書の名前は「<業者>_<見積日>」とする
+  - 受領見積書の名前は「<業者>_<見積日>」とする。形は `formatLedgerQuotationName` に置き、受領見積書の名前の上限（`createReceivedQuotationSchema` の name の上限）までで切り詰める `buildLedgerQuotationName` を LedgerEditService の名前の作り直し（5.8）と共有する
 - 上限を超える値は上限で切り詰め、切り詰めた欄の名前を返す（2.9）。上限の値は `lineItemSchema` と `receivedQuotationLedgerFieldsShape` の上限を使う
 - 参考の理由（3.1〜3.5）
   - カードの参考.理由に、数量×単価と金額の 1 円を超える違い（単価のある行だけ）・合計の不一致・切り詰めを加える
@@ -351,13 +355,16 @@ interface LedgerImportService {
 | Field | Detail |
 |-------|--------|
 | Intent | 台帳の一覧・絞り込み・総件数・詳細を返す |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9 |
 
 **Responsibilities & Constraints**
 - 対象は論理削除されていない受領見積書のすべて（見積依頼・案件の有無を問わない。1.1・1.3）。見積依頼に紐づく受領見積書は、見積依頼が論理削除されていないものに限る
 - 案件名は、案件があれば案件の名前、無ければ ledgerProjectName を返す
 - 絞り込み（4.2〜4.4）：文字（業者名・案件名・明細行の名称の部分一致）、見積日の期間、案件の有無、採否、読取の確認、改修／新営、要確認（参考の印のある行を持つ）、分類キーの無い行がある（直接工事・産廃で分類キーが空）
 - 並びは見積日の新しい順、同じ日は登録の新しい順。1 ページ 50 件（4.5）
+- 論理削除された案件の受領見積書は、過去の単価として台帳の見積に含める（4.8）。一覧の行と詳細は、案件が論理削除されていれば `projectDeleted` を true で返す（案件の無い受領見積書と生きている案件は false）。案件名は削除された案件の名前をそのまま返す
+- 「削除済みの案件を除く」（`excludeDeletedProjects`、4.9）が true のときは、案件が無いか、案件が論理削除されていない受領見積書に限る。false と指定なしは除かない。書き出しは同じ `buildLedgerWhere` を使うため、同じ指定で同じ見積を除く
+- 似た単価（SimilarPriceService）は、論理削除された案件の候補を引き続き「他案件」として返す（2.9 の扱いのまま変えない）
 
 **Contracts**: Service [x] / API [x]
 
@@ -367,12 +374,46 @@ interface LedgerImportService {
 | GET | /api/unit-price-ledger/quotations | LedgerListQuery | `{ data: LedgerQuotationSummary[]; pagination }` | 400, 403 |
 | GET | /api/unit-price-ledger/quotations/:id | - | LedgerQuotationDetail | 403, 404 |
 
+```typescript
+interface LedgerFilter {
+  keyword?: string;
+  submittedFrom?: string; // YYYY-MM-DD
+  submittedTo?: string;
+  hasProject?: boolean;
+  adoption?: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+  readingStatus?: 'UNCONFIRMED' | 'CONFIRMED';
+  constructionKind?: 'RENOVATION' | 'NEW_CONSTRUCTION';
+  needsReview?: boolean;
+  missingClassificationKey?: boolean;
+  excludeDeletedProjects?: boolean; // 4.9。true のときだけ論理削除された案件の受領見積書を除く
+}
+
+interface LedgerListQuery extends LedgerFilter {
+  page?: number; // 1 以上、既定 1
+}
+
+interface LedgerQuotationSummary {
+  id: string;
+  vendorName: string;
+  submittedAt: string;
+  projectId: string | null;
+  projectName: string | null; // 案件の名前、案件が無ければ ledgerProjectName
+  projectDeleted: boolean; // 4.8。案件が論理削除されている
+  totalAmount: number | null; // 別途を除く
+  adoption: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+  readingStatus: 'UNCONFIRMED' | 'CONFIRMED';
+  hasReferenceLines: boolean;
+  // ほかの欄（name・estimateRequestId・constructionKind・ledgerCardId・作成と更新の日時）は実装の型のとおり
+}
+```
+- LedgerQuotationDetail も `projectDeleted: boolean` を持つ（4.8）
+
 #### LedgerEditService
 
 | Field | Detail |
 |-------|--------|
 | Intent | 台帳の画面からの修正・削除・印の更新を、受領見積書の監査ログの決まりで記録する |
-| Requirements | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7 |
+| Requirements | 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8 |
 
 **Responsibilities & Constraints**
 - 案件の無い受領見積書は、業者名・見積日・台帳の情報の欄・案件名・原本のパス・明細行の全体を修正できる（5.1）。明細行の検証は `lineItemSchema` を使う。明細行を変えたときは、estimate-request Requirement 46.8 と同じく読取の確認を未確認に戻す
@@ -382,6 +423,7 @@ interface LedgerImportService {
 - 削除は案件の無い受領見積書だけを論理削除する。案件の受領見積書の削除の要求は 409 で拒む（5.5）
 - 楽観的排他制御は更新の日時の一致で判定し、不一致は 409 `LEDGER_CONFLICT` と「ほかの利用者が更新しました。最新の内容を読み込み直してください」（5.6）
 - 監査ログは `RECEIVED_QUOTATION_UPDATED` / `RECEIVED_QUOTATION_DELETED` を同じトランザクションで書き、metadata の source は `unit_price_ledger`。工事価格と確定金額は変わったかどうかだけを記録する（5.7）
+- 名前の作り直し（5.8）：案件の無い受領見積書の修正で、保存後の業者名（取引先を選んだときは取引先の名前）か見積日（UTC の日付の YYYY-MM-DD）が保存前と違うときは、`name` を LedgerCardParser の `buildLedgerQuotationName`（取り込みと同じ「<業者>_<見積日>」。受領見積書の名前の上限までで切り詰める）で作り直す。どちらも変わらないときは名前を変えない。名前の前後は監査ログの before・after の name に入る
 
 **Contracts**: Service [x] / API [x]
 
@@ -399,19 +441,22 @@ interface LedgerImportService {
 | Field | Detail |
 |-------|--------|
 | Intent | 絞り込みの結果を 3 つのシートの Excel にし、作る前に出力を記録する |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 6.1, 6.2, 6.3, 6.4, 6.5 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 4.8, 4.9, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6 |
 
 **Responsibilities & Constraints**
 - シートは「見積」「明細行」「要確認」（6.1）。明細行のシートの列は 6.2 のとおり
 - 作る前に `ExportAuditService.record`（kind `unit_price_ledger_xlsx`、projectId null、件数は見積の数）を呼ぶ。記録に失敗したら 500 `EXPORT_RECORD_FAILED` と「書き出しを記録できなかったため、出力を中止しました」を返し、ファイルを作らない（6.3・6.4）
 - 結果が 0 件の要求は 400 で拒む。画面は 0 件のとき書き出しの操作を無効にする（6.5）
+- 論理削除された案件の受領見積書も書き出し、「削除済みの案件を除く」は一覧と同じ条件で除く（4.8・4.9）
+- 件数の上限（6.6）：見積を読む前に、一覧と同じ条件で見積を数える。0 件なら 400 `LEDGER_EXPORT_EMPTY`、上限 3,000 件（`LEDGER_EXPORT_MAX_QUOTATIONS`）を超えたら 400 `LEDGER_EXPORT_TOO_MANY` で拒み、見積を読まず、出力を記録せず、ファイルを作らない。文言は「書き出す見積が多すぎます。一度に書き出せるのは 3,000 件までです。絞り込みを狭めてから、もう一度書き出してください」で、details に数えた件数と上限を入れる。画面はこの code のときサーバーの文言をそのまま出す
+- 上限の値の決め方：書き出しは全件をメモリに読み、SheetJS の表を作ってから xlsx にするため、使うメモリと時間は見積と明細行の数に比例する。ローカルの試験の DB で 1 見積 10 行の見積を 1,000・2,000・3,000・5,000・10,000・20,000 件にして測った（research.md の「書き出しの件数とメモリの実測」）。RSS の増分は明細行の数におおよそ比例し（明細行 1,000 行あたり約 7〜10 MB）、3,000 件で約 300 MB・1.1 秒、5,000 件で約 370 MB・2 秒、10,000 件で約 770 MB・3.9 秒だった。backend のコンテナの記憶域の上限は `docs/deployment` に記載が無いため、試験の環境の 1 GB の制限と基準の RSS（約 240 MB）から、増分の目安を 512 MB 未満・時間の目安を 30 秒未満に置いた。1 見積の行の数は見積ごとに違うため、10 行の見積で増分が目安の 6 割ほどに収まり、行の平均が 17 行ほどまで増えても目安に届かない 3,000 件を上限とする。時間はどの件数でも目安を大きく下回るため、上限を決めるのはメモリである
 
 **Contracts**: Service [x] / API [x]
 
 ##### API Contract
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| POST | /api/unit-price-ledger/exports | LedgerListQuery（ページを除く） | xlsx のファイル | 400, 403, 500 |
+| POST | /api/unit-price-ledger/exports | LedgerFilter（LedgerListQuery のページを除く） | xlsx のファイル | 400（検証・`LEDGER_EXPORT_EMPTY`・`LEDGER_EXPORT_TOO_MANY`）, 403, 500 |
 
 #### SimilarPriceService
 
@@ -562,14 +607,38 @@ function computeAllocation(line: AllocationLine, totals: CategoryTotals): Alloca
 | Field | Detail |
 |-------|--------|
 | Intent | 台帳の一覧・絞り込み・書き出し・取り込みの入口 |
-| Requirements | 4.1, 4.2, 4.3, 4.5, 4.7, 6.1, 6.5, 10.1, 10.5 |
+| Requirements | 4.1, 4.2, 4.3, 4.5, 4.7, 4.9, 6.1, 6.5, 6.6, 10.1, 10.5 |
 
 **Responsibilities & Constraints**
 - 経路は `/unit-price-ledger`（認証済みの経路）。画面の中で `hasPermission('unit_price_ledger:manage')` を確かめ、無ければ内容を出さない
 - 絞り込みとページは URL の検索の値に持つ（取引先の一覧の作りと同じ）
 - 0 件のとき「条件に合う見積はありません」を出し、書き出しを無効にする
+- 「削除済みの案件を除く」（`excludeDeletedProjects`）も URL の検索の値に持ち、一覧と書き出しに同じ条件を送る（4.9）
+- 書き出しが 400 `LEDGER_EXPORT_TOO_MANY` で拒まれたら、ファイルを保存せず、サーバーの文言（絞り込みを狭める案内）を出す（6.6）
 
 **Contracts**: State [x]
+
+#### LedgerSearchFilter
+
+| Field | Detail |
+|-------|--------|
+| Intent | 一覧の絞り込みの欄 |
+| Requirements | 4.2, 4.3, 4.4, 4.9 |
+
+**Responsibilities & Constraints**
+- 文字・見積日の期間・案件の有無・採否・読取の確認・改修／新営の欄と、「要確認」「分類キーの無い行がある」「削除済みの案件を除く」の印を持ち、「検索」で親へ条件を渡す
+- 「削除済みの案件を除く」は印を付けたときだけ `excludeDeletedProjects: true` を渡す（4.9）
+
+#### LedgerQuotationTable
+
+| Field | Detail |
+|-------|--------|
+| Intent | 一覧の表 |
+| Requirements | 4.1, 4.8 |
+
+**Responsibilities & Constraints**
+- 業者名・見積日・案件名・合計・採否・読取の確認・参考の行の有無を出し、業者名から詳細へ移る
+- `projectDeleted` が true の行は、案件名の隣に「削除済みの案件」の印を出す（4.8）
 
 #### LedgerImportDialog
 
@@ -585,11 +654,12 @@ function computeAllocation(line: AllocationLine, totals: CategoryTotals): Alloca
 | Field | Detail |
 |-------|--------|
 | Intent | 見積の詳細を表示し、案件の有無に応じた範囲で修正・削除する |
-| Requirements | 4.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 |
+| Requirements | 4.6, 4.8, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 |
 
 **Responsibilities & Constraints**
 - 案件の無い受領見積書は `LineItemEditor` と `LedgerInfoSection` で全体を修正できる
 - 案件の受領見積書は、読取の確認・参考の印と理由・分類キーだけを編集でき、ほかの欄は受領見積書の画面への導線を出す
+- `projectDeleted` が true のときは、見積の情報の案件名を「<案件名>（削除済みの案件）」と出す（4.8）
 
 **Contracts**: State [x]
 
@@ -630,7 +700,7 @@ model ReceivedQuotationLineItem {
 ## Error Handling
 
 ### Error Categories and Responses
-- 400：検証の失敗（問い合わせの名称が空、上限の超過、書き出しの結果が 0 件）
+- 400：検証の失敗（問い合わせの名称が空、上限の超過、書き出しの結果が 0 件 `LEDGER_EXPORT_EMPTY`、書き出しの見積の数が上限を超える `LEDGER_EXPORT_TOO_MANY`）
 - 403：権限が無い
 - 404：見積が無い、または論理削除済み
 - 409：排他の不一致（`LEDGER_CONFLICT`）、案件の受領見積書の全体の修正・削除（`LEDGER_PROJECT_QUOTATION_READ_ONLY`）
@@ -647,16 +717,20 @@ model ReceivedQuotationLineItem {
   - LedgerCardParser：必須の項目の欠け、読めない JSON、切り詰め、細目と 6 項目の足し方、参考の理由（1 円の違い・合計の不一致・200 文字の切り詰め）
   - LedgerAllocation：諸経費・値引きの按分、基準が 0、反映する単価が負、換算の単価、金額÷数量、負の値の丸め、単価を決められない行の値なしと按分の状態
   - SimilarPriceService の並べ方と表示制御（範囲外の「他案件」と ID の秘匿、範囲外の参考の理由の文の秘匿）
+  - LedgerQueryService の削除済みの案件の印と除く絞り込み、LedgerEditService の名前の作り直し、LedgerExportService の件数の上限（既定の値が本書の値と同じこと）
 - **Integration Tests**
   - 取り込み：zip とJSON、取り込み済みの飛ばし、同時の取り込み、取引先の照合、読取の確認、1 枚のカードの失敗が残らないこと、監査ログ
   - 似た単価：実 DB の pg_trgm で、分類キーの一致の優先、2 文字以下の名称、単位の一致、論理削除の除外、最大 20 件
   - 修正と削除：排他の不一致、案件の受領見積書の制限、監査ログの工事価格と確定金額の扱い
-  - 書き出し：出力の記録の後に作ること、記録の失敗で作らないこと
+  - 書き出し：出力の記録の後に作ること、記録の失敗で作らないこと、上限を超える件数を記録もファイルも作らずに拒むこと（上限は依存で小さくする）、削除済みの案件を除く
+  - 一覧と詳細：論理削除された案件の受領見積書の削除済みの印、削除済みの案件を除く絞り込み
+  - 修正：業者名・見積日を直したときの名前の作り直しと監査ログの名前の前後
   - 権限：user ロールでの 403
 - **E2E Tests**
   - 管理者がカードの zip を取り込み、結果を見て、一覧の「要確認」で絞り込む
   - 案件の無い見積を修正し、分類キーを付け、読取の確認を確認済みにする
   - 台帳の Excel を書き出す
+  - 一覧の「削除済みの案件を除く」の絞り込みが、一覧の問い合わせに条件を付ける
   - 一般ユーザーには導線が無く、画面の内容も出ない
   - 似た単価の API の候補が、分類キーの一致を先に並べ、範囲外の案件を「他案件」とし、範囲外の候補の参考の理由の文を返さず、単価を決められない行の金額を値なしで返す
 

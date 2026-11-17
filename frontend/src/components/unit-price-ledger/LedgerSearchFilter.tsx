@@ -8,6 +8,7 @@
  * - 4.2: 業者名・案件名・明細行の名称の文字、見積日の期間、案件の有無、採否、読取の確認、改修／新営で絞り込む
  * - 4.3: 「要確認」（参考の印のある明細行を持つ）で絞り込む
  * - 4.4: 「分類キーの無い行がある」で絞り込む
+ * - 4.9: 「削除済みの案件を除く」で、論理削除された案件の見積を除く
  */
 
 import { useCallback, useId, useState, type ChangeEvent, type FormEvent } from 'react';
@@ -43,6 +44,7 @@ interface DraftFilter {
   constructionKind: '' | ConstructionKind;
   needsReview: boolean;
   missingClassificationKey: boolean;
+  excludeDeletedProjects: boolean;
 }
 
 // ============================================================================
@@ -95,6 +97,7 @@ function toDraft(filter: LedgerFilter): DraftFilter {
     constructionKind: filter.constructionKind ?? '',
     needsReview: filter.needsReview === true,
     missingClassificationKey: filter.missingClassificationKey === true,
+    excludeDeletedProjects: filter.excludeDeletedProjects === true,
   };
 }
 
@@ -111,6 +114,7 @@ function toFilter(draft: DraftFilter): LedgerFilter {
   if (draft.constructionKind !== '') filter.constructionKind = draft.constructionKind;
   if (draft.needsReview) filter.needsReview = true;
   if (draft.missingClassificationKey) filter.missingClassificationKey = true;
+  if (draft.excludeDeletedProjects) filter.excludeDeletedProjects = true;
   return filter;
 }
 
@@ -137,6 +141,7 @@ export default function LedgerSearchFilter({
     constructionKind: `${baseId}-construction-kind`,
     needsReview: `${baseId}-needs-review`,
     missingClassificationKey: `${baseId}-missing-classification-key`,
+    excludeDeletedProjects: `${baseId}-exclude-deleted-projects`,
     rangeError: `${baseId}-range-error`,
   };
 
@@ -195,7 +200,10 @@ export default function LedgerSearchFilter({
     </div>
   );
 
-  const renderCheckbox = (key: 'needsReview' | 'missingClassificationKey', label: string) => (
+  const renderCheckbox = (
+    key: 'needsReview' | 'missingClassificationKey' | 'excludeDeletedProjects',
+    label: string
+  ) => (
     <label
       htmlFor={ids[key]}
       className="flex items-center gap-2 cursor-pointer text-sm text-gray-700"
@@ -271,6 +279,7 @@ export default function LedgerSearchFilter({
       <div className="mt-4 flex flex-wrap gap-6">
         {renderCheckbox('needsReview', '要確認')}
         {renderCheckbox('missingClassificationKey', '分類キーの無い行がある')}
+        {renderCheckbox('excludeDeletedProjects', '削除済みの案件を除く')}
       </div>
 
       {rangeError && (

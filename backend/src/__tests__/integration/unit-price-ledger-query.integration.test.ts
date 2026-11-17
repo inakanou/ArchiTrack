@@ -15,6 +15,8 @@
  * - 4.4：分類キーの無い行がある（直接工事・産廃で分類キーが空の行を 1 行以上持つ）
  * - 4.5：1 ページ 50 件と絞り込みの結果の総件数
  * - 4.6：詳細は見積の情報・カードの ID・原本のパス・すべての明細行を返す
+ * - 4.8：論理削除された案件の受領見積書も一覧と詳細に出し、案件が削除済みであることを返す
+ * - 4.9：「削除済みの案件を除く」の絞り込みで、論理削除された案件の受領見積書だけを除く
  *
  * 共有の試験 DB には他の試験の受領見積書も残りうるため、一覧の試験は試験ごとの印（PREFIX）を
  * 文字の絞り込みに入れて対象を試験の見積に限る。
@@ -338,6 +340,7 @@ describe('台帳の一覧・絞り込み・詳細（統合・実 DB）', () => {
         projectId: null,
         estimateRequestId: null,
         projectName: `${PREFIX}-台帳案件X`,
+        projectDeleted: false,
         constructionKind: 'RENOVATION',
         totalAmount: 1100,
         adoption: 'ADOPTED',
@@ -351,6 +354,7 @@ describe('台帳の一覧・絞り込み・詳細（統合・実 DB）', () => {
       expect(byId.get(ids.projectOnly)).toMatchObject({
         projectId,
         projectName: `${PREFIX}-本案件Y`,
+        projectDeleted: false,
         totalAmount: 2000.5,
         adoption: 'REJECTED',
         readingStatus: 'UNCONFIRMED',
@@ -646,6 +650,118 @@ describe('台帳の一覧・絞り込み・詳細（統合・実 DB）', () => {
       expect(await service.findById(ids.deleted)).toBeNull();
       expect(await service.findById(ids.underDeletedRequest)).toBeNull();
       expect(await service.findById(MISSING_ID)).toBeNull();
+    });
+  });
+
+  describe('論理削除された案件の受領見積書（4.8・4.9）', () => {
+    /** この群の見積の印（PREFIX を含まない。ほかの群の件数を変えない） */
+    const DP_PREFIX = `${MARK}-dp${RUN}`;
+    let deletedProjectId: string;
+    let liveProjectId: string;
+    const dp = { deletedProject: '', liveProject: '', ledgerOnly: '' };
+
+    const listDp = (query: Partial<Record<keyof LedgerListQuery, unknown>> = {}) =>
+      service.list(ledgerListQuerySchema.parse({ keyword: DP_PREFIX, ...query }));
+
+    beforeAll(async () => {
+      const deletedProject = await prisma.project.create({
+        data: {
+          name: `${DP_PREFIX}-削除した案件`,
+          salesPersonId: userId,
+          createdById: userId,
+          deletedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      deletedProjectId = deletedProject.id;
+      const liveProject = await prisma.project.create({
+        data: { name: `${DP_PREFIX}-生きている案件`, salesPersonId: userId, createdById: userId },
+        select: { id: true },
+      });
+      liveProjectId = liveProject.id;
+
+      dp.deletedProject = await createQuotation(
+        {
+          projectId: deletedProjectId,
+          vendorName: `${DP_PREFIX}-業者P`,
+          name: `${DP_PREFIX}-業者P見積`,
+          submittedAt: new Date('2026-07-03'),
+        },
+        [{ name: '削除した案件の行', amount: 100, category: 'DIRECT' }]
+      );
+      dp.liveProject = await createQuotation(
+        {
+          projectId: liveProjectId,
+          vendorName: `${DP_PREFIX}-業者Q`,
+          name: `${DP_PREFIX}-業者Q見積`,
+          submittedAt: new Date('2026-07-02'),
+        },
+        [{ name: '生きている案件の行', amount: 200, category: 'DIRECT' }]
+      );
+      dp.ledgerOnly = await createQuotation(
+        {
+          vendorName: `${DP_PREFIX}-業者R`,
+          name: `${DP_PREFIX}-業者R見積`,
+          submittedAt: new Date('2026-07-01'),
+          ledgerProjectName: `${DP_PREFIX}-台帳の案件`,
+        },
+        [{ name: '台帳の行', amount: 300, category: 'DIRECT' }]
+      );
+    });
+
+    afterAll(async () => {
+      await prisma.receivedQuotation.deleteMany({
+        where: { vendorName: { startsWith: DP_PREFIX } },
+      });
+      await prisma.project.deleteMany({ where: { id: { in: [deletedProjectId, liveProjectId] } } });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.8
+     */
+    it('論理削除された案件の受領見積書も一覧に出し、その案件だけを削除済みとして返す', async () => {
+      const result = await listDp();
+
+      expect(result.data.map((row) => [row.id, row.projectName, row.projectDeleted])).toEqual([
+        [dp.deletedProject, `${DP_PREFIX}-削除した案件`, true],
+        [dp.liveProject, `${DP_PREFIX}-生きている案件`, false],
+        [dp.ledgerOnly, `${DP_PREFIX}-台帳の案件`, false],
+      ]);
+      expect(result.pagination.total).toBe(3);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.9
+     */
+    it('削除済みの案件を除くと、論理削除された案件の受領見積書だけを除き、案件の無い見積は残す', async () => {
+      const result = await listDp({ excludeDeletedProjects: 'true' });
+
+      expect(idsOf(result.data)).toEqual([dp.liveProject, dp.ledgerOnly]);
+      expect(result.pagination.total).toBe(2);
+      // 除かない指定は、指定しないときと同じ
+      expect(idsOf((await listDp({ excludeDeletedProjects: 'false' })).data)).toEqual([
+        dp.deletedProject,
+        dp.liveProject,
+        dp.ledgerOnly,
+      ]);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.8
+     */
+    it('論理削除された案件の受領見積書の詳細を返し、削除済みとして返す', async () => {
+      const deleted = await service.findById(dp.deletedProject);
+      const live = await service.findById(dp.liveProject);
+      const ledgerOnly = await service.findById(dp.ledgerOnly);
+
+      expect(deleted).toMatchObject({
+        id: dp.deletedProject,
+        projectId: deletedProjectId,
+        projectName: `${DP_PREFIX}-削除した案件`,
+        projectDeleted: true,
+      });
+      expect(live).toMatchObject({ projectDeleted: false });
+      expect(ledgerOnly).toMatchObject({ projectId: null, projectDeleted: false });
     });
   });
 

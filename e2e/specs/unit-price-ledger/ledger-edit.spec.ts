@@ -6,6 +6,7 @@
  *   読取の確認を確認済みにすると確認者と日時が記録され、確認の後に論理削除できる
  * - 案件の受領見積書：読取の確認・参考の印と理由・分類キーだけを直せ、ほかの欄は受領見積書の画面への導線が出る
  * - 開いた後にほかの利用者が見積を更新していたときは、保存せずに排他の不一致の文言が出る
+ * - 論理削除された案件の受領見積書は、一覧と詳細で削除済みの案件と出て、除く絞り込みで出なくなる
  *
  * 材料はテストごとに DB へ作る（業者名・案件名に `E2E修正検証` と一意の接尾辞を付ける）。
  * 始める前と終わった後に、その文字の受領見積書（明細行は連鎖して消える）と案件を消す。
@@ -14,6 +15,8 @@
  * ほかの利用者の更新は、画面を開いた後に DB の見積を直接更新して作る（`updatedAt` が進む）。
  *
  * Requirements coverage (unit-price-ledger):
+ * - 4.8: 論理削除された案件の受領見積書を一覧と詳細に出し、案件名の隣に「削除済みの案件」と出す
+ * - 4.9: 「削除済みの案件を除く」で絞り込むと、論理削除された案件の受領見積書を出さない
  * - 4.6: 見積の情報・カードの ID・原本のパスと、すべての明細行（区分・条件・換算・参考の印と理由・分類キー・
  *   数量表の行のキー）を出す
  * - 5.1: 案件の無い受領見積書の業者名・案件名・原本のパスと、明細行の追加・削除・並べ替え・各欄を直せる
@@ -721,5 +724,66 @@ test.describe('単価台帳の見積の修正・印の編集・削除', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(infoValue(page, '見積番号')).toHaveText('Q-OTHER-USER');
     await expectLineCells(page, [{ 分類キー: '-' }, { 分類キー: '-' }]);
+  });
+
+  /**
+   * @requirement unit-price-ledger/REQ-4.8
+   * @requirement unit-price-ledger/REQ-4.9
+   */
+  test('論理削除された案件の見積は一覧と詳細で「削除済みの案件」と出て、「削除済みの案件を除く」で絞り込むと出ない (unit-price-ledger/REQ-4.8, REQ-4.9)', async ({
+    page,
+  }) => {
+    const quotation = await createProjectQuotation();
+    await getPrismaClient().project.update({
+      where: { id: quotation.projectId },
+      data: { deletedAt: new Date() },
+    });
+
+    await page.goto('/unit-price-ledger');
+    const form = page.getByRole('search', { name: '台帳の絞り込み' });
+    const resultCount = page.getByRole('status', { name: '絞り込みの結果' });
+    await expect(resultCount).toBeVisible({ timeout: getTimeout(15000) });
+
+    const search = async (exclude: boolean) => {
+      await form.getByLabel('キーワード').fill(quotation.vendorName);
+      await form.getByLabel('削除済みの案件を除く').setChecked(exclude);
+      const listResponse = page.waitForResponse(
+        (response) => {
+          if (
+            !response.url().includes('/api/unit-price-ledger/quotations?') ||
+            response.request().method() !== 'GET'
+          ) {
+            return false;
+          }
+          const params = new URL(response.url()).searchParams;
+          return (
+            params.get('keyword') === quotation.vendorName &&
+            params.get('excludeDeletedProjects') === (exclude ? 'true' : null)
+          );
+        },
+        { timeout: getTimeout(30000) }
+      );
+      await form.getByRole('button', { name: '検索' }).click();
+      expect((await listResponse).status()).toBe(200);
+    };
+
+    // 除かないときは出て、案件名の隣に「削除済みの案件」と出る（4.8）
+    await search(false);
+    await expect(resultCount).toHaveText('1 件');
+    const row = page
+      .getByRole('table', { name: '台帳の見積の一覧' })
+      .getByRole('row')
+      .filter({ hasText: quotation.vendorName });
+    await expect(row.getByRole('cell').nth(2)).toHaveText(/^E2E修正検証_案件_.+削除済みの案件$/);
+
+    // 「削除済みの案件を除く」で絞り込むと出ない（4.9）
+    await search(true);
+    await expect(page).toHaveURL(/excludeDeletedProjects=true/);
+    await expect(resultCount).toHaveText('0 件');
+    await expect(page.getByText('条件に合う見積はありません')).toBeVisible();
+
+    // 詳細の案件名にも「削除済みの案件」と出る（4.8）
+    await openDetail(page, quotation.id);
+    await expect(infoValue(page, '案件名')).toHaveText(/^E2E修正検証_案件_.+（削除済みの案件）$/);
   });
 });

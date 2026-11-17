@@ -172,6 +172,24 @@ const QUOTATION_NAME_MAX = (() => {
   return max;
 })();
 
+/**
+ * 案件の無い受領見積書の名前の元の文字（取り込みと台帳の修正で同じ形。業者名と見積日を「_」でつなぐ）
+ *
+ * @param vendorName - 業者名
+ * @param submittedDate - 見積日（YYYY-MM-DD）
+ */
+export const formatLedgerQuotationName = (vendorName: string, submittedDate: string): string =>
+  `${vendorName}_${submittedDate}`;
+
+/**
+ * 案件の無い受領見積書の名前を作る（受領見積書の名前の上限までで切り詰める。unit-price-ledger 5.8 の修正で使う）
+ *
+ * @param vendorName - 業者名
+ * @param submittedDate - 見積日（YYYY-MM-DD）
+ */
+export const buildLedgerQuotationName = (vendorName: string, submittedDate: string): string =>
+  cutToLength(formatLedgerQuotationName(vendorName, submittedDate), QUOTATION_NAME_MAX);
+
 /** カードの行の区分 → 明細行の区分（2.6。本体は直接工事） */
 const CARD_LINE_CATEGORIES: Readonly<Record<string, LineItemCategory>> = {
   本体: 'DIRECT',
@@ -626,7 +644,11 @@ const mapCard = (
     RECEIVED_QUOTATION_FIELD_LIMITS.vendorName,
     '業者名'
   );
-  const name = log.truncate(`${vendorName}_${submittedDate}`, QUOTATION_NAME_MAX, '受領見積書名');
+  const name = log.truncate(
+    formatLedgerQuotationName(vendorName, submittedDate),
+    QUOTATION_NAME_MAX,
+    '受領見積書名'
+  );
 
   const quoteNumber = log.resolve(readText(card['見積番号']), '見積番号');
   const sourcePath = log.resolve(readText(source['パス']), '原本のパス');

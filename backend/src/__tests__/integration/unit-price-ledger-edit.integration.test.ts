@@ -12,6 +12,8 @@
  * - 5.6：開いた後にほかの利用者が更新していたら、保存せずに排他の不一致にする（同時の保存でも 1 つだけ通す）
  * - 5.7：修正・削除を RECEIVED_QUOTATION_UPDATED / DELETED（source は unit_price_ledger）で記録し、
  *   工事価格・確定金額は変わったかどうかだけを記録する
+ * - 5.8：業者名か見積日を直したら、受領見積書の名前を取り込みと同じ形（業者名_見積日）で作り直し、
+ *   名前の前後を監査ログに入れる
  * - 5.2（タスク2.7）：案件の受領見積書は、読取の確認・明細行の参考の印と理由・分類キーだけを更新し、
  *   ほかの欄は変えず、読取の確認を戻さない。印を送らない理由は保存済みの印と照合する（46.5）。
  *   明細行だけの更新でも受領見積書の更新の日時を進め、排他の不一致と監査ログを確かめる（5.3・5.4・5.6・5.7）
@@ -360,6 +362,70 @@ describe('案件の無い受領見積書の修正と削除（統合・実 DB）'
       expect(row.siteLocation).toBe('A市');
       expect(row.updatedAt.getTime()).toBe(seeded.updatedAt.getTime());
       expect(await logsOf(seeded.id)).toHaveLength(0);
+    });
+  });
+
+  describe('受領見積書の名前の作り直し（5.8）', () => {
+    /**
+     * @requirement unit-price-ledger/REQ-5.8
+     */
+    it('業者名を直したら、取り込みと同じ形（業者名_見積日）で名前を作り直し、監査ログに名前の前後を入れる', async () => {
+      const seeded = await createLedgerQuotation('rename-vendor');
+      const vendorName = `${PREFIX}-名前を直す業者-${seq}`;
+
+      const detail = await service.updateQuotation(
+        seeded.id,
+        buildInput(seeded, { vendorName }),
+        actorId
+      );
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: seeded.id } });
+      expect(row.name).toBe(`${vendorName}_2026-03-10`);
+      expect(detail.name).toBe(`${vendorName}_2026-03-10`);
+      const [log] = await logsOf(seeded.id);
+      expect(log!.before).toMatchObject({ name: seeded.name, vendorName: seeded.vendorName });
+      expect(log!.after).toMatchObject({ name: `${vendorName}_2026-03-10`, vendorName });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-5.8
+     */
+    it('見積日を直したら、今の業者名と新しい見積日で名前を作り直す', async () => {
+      const seeded = await createLedgerQuotation('rename-date');
+
+      await service.updateQuotation(
+        seeded.id,
+        buildInput(seeded, { submittedAt: '2026-04-15T00:00:00.000Z' }),
+        actorId
+      );
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: seeded.id } });
+      expect(row.name).toBe(`${seeded.vendorName}_2026-04-15`);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-5.8
+     */
+    it('業者名も見積日も直さない修正では、名前を変えない', async () => {
+      const seeded = await createLedgerQuotation('rename-none');
+      await prisma.receivedQuotation.update({
+        where: { id: seeded.id },
+        data: { name: `${PREFIX}-手で付けた名前` },
+      });
+      const current = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: seeded.id },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+
+      await service.updateQuotation(
+        seeded.id,
+        buildInput(current, { siteLocation: 'E市' }),
+        actorId
+      );
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: seeded.id } });
+      expect(row.siteLocation).toBe('E市');
+      expect(row.name).toBe(`${PREFIX}-手で付けた名前`);
     });
   });
 

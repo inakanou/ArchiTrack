@@ -9,12 +9,13 @@
  * - 絞り込み（4.2〜4.4）：文字（業者名・案件名・明細行の名称の部分一致。大文字と小文字を区別せず、
  *   `%`・`_`・`\` は文字として扱う）、見積日の期間（両端を含む）、案件の有無、採否、読取の確認、
  *   改修／新営、要確認（参考の印のある行を持つ）、分類キーの無い行がある（直接工事・産廃で分類キーが
- *   無い、または空の文字の行を持つ）
+ *   無い、または空の文字の行を持つ）、削除済みの案件を除く（4.9：案件が無いか、案件が論理削除されていない）
+ * - 論理削除された案件の受領見積書も台帳の見積とし、一覧と詳細で `projectDeleted` を true にする（4.8）
  * - 並びは見積日の新しい順、同じ日は登録の新しい順（さらに同じなら ID の順）。1 ページ 50 件（4.5）
  * - 総件数は一覧と同じ条件で数える。合計（別途を除く。45.5）と参考の行の有無は、ページの見積の明細行を
  *   まとめて集計して求める（見積ごとに問い合わせない）
  *
- * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6
+ * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9
  *
  * @module services/unit-price-ledger/ledger-query.service
  */
@@ -54,6 +55,8 @@ export interface LedgerQuotationSummary {
   estimateRequestId: string | null;
   /** 案件の名前、案件が無ければ台帳の案件名 */
   projectName: string | null;
+  /** 案件が論理削除されている（4.8。案件の無い受領見積書は false） */
+  projectDeleted: boolean;
   constructionKind: LedgerConstructionKind | null;
   /** 区分が別途の行を除いた金額の合計。金額を持つ別途以外の行が無ければ null（45.5） */
   totalAmount: number | null;
@@ -94,6 +97,8 @@ export interface LedgerQuotationDetail {
   projectId: string | null;
   /** 案件の名前、案件が無ければ台帳の案件名 */
   projectName: string | null;
+  /** 案件が論理削除されている（4.8。案件の無い受領見積書は false） */
+  projectDeleted: boolean;
   name: string;
   vendorName: string;
   tradingPartnerId: string | null;
@@ -165,6 +170,14 @@ const MISSING_KEY_LINE_WHERE: Prisma.ReceivedQuotationLineItemWhereInput = {
  */
 export const escapeLikePattern = (value: string): string => value.replace(/[\\%_]/g, '\\$&');
 
+/** 案件が無いか、案件が論理削除されていない受領見積書（4.9） */
+const LIVE_PROJECT_WHERE: Prisma.ReceivedQuotationWhereInput = {
+  OR: [{ projectId: null }, { project: { is: { deletedAt: null } } }],
+};
+
+/** 案件の名前と論理削除の日時（4.8 の削除済みの印に使う） */
+const PROJECT_SELECT = { select: { name: true, deletedAt: true } } as const;
+
 /** 見積日（YYYY-MM-DD）を DB の日付（UTC の 0 時）にする */
 const toDateOnly = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
 
@@ -221,6 +234,9 @@ export function buildLedgerWhere(filter: LedgerFilter): Prisma.ReceivedQuotation
         : { none: MISSING_KEY_LINE_WHERE },
     });
   }
+  if (filter.excludeDeletedProjects === true) {
+    conditions.push(LIVE_PROJECT_WHERE);
+  }
 
   return { AND: conditions };
 }
@@ -241,6 +257,10 @@ const resolveProjectName = (
   project: { name: string } | null,
   ledgerProjectName: string | null
 ): string | null => (project ? project.name : ledgerProjectName);
+
+/** 案件が論理削除されているか（4.8。案件の無い受領見積書は false） */
+const isProjectDeleted = (project: { deletedAt?: Date | null } | null): boolean =>
+  (project?.deletedAt ?? null) !== null;
 
 /** 明細行の行を出力の形にする（換算は 4 つ揃うときだけ返す。45.8・45.9） */
 const toLineItemInfo = (line: {
@@ -350,7 +370,7 @@ export class LedgerQueryService {
           ledgerCardId: true,
           createdAt: true,
           updatedAt: true,
-          project: { select: { name: true } },
+          project: PROJECT_SELECT,
           _count: { select: { lineItems: { where: REFERENCE_LINE_WHERE } } },
         },
       }),
@@ -383,6 +403,7 @@ export class LedgerQueryService {
         projectId: row.projectId,
         estimateRequestId: row.estimateRequestId,
         projectName: resolveProjectName(row.project, row.ledgerProjectName),
+        projectDeleted: isProjectDeleted(row.project),
         constructionKind: row.constructionKind,
         totalAmount: totalById.get(row.id) ?? null,
         adoption: row.adoption,
@@ -415,7 +436,7 @@ export class LedgerQueryService {
       where: { AND: [{ id }, LEDGER_BASE_WHERE] },
       include: {
         lineItems: { orderBy: { sortOrder: 'asc' } },
-        project: { select: { name: true } },
+        project: PROJECT_SELECT,
         readingConfirmedBy: { select: { id: true, displayName: true } },
       },
     });
@@ -429,6 +450,7 @@ export class LedgerQueryService {
       estimateRequestId: quotation.estimateRequestId,
       projectId: quotation.projectId,
       projectName: resolveProjectName(quotation.project, quotation.ledgerProjectName),
+      projectDeleted: isProjectDeleted(quotation.project),
       name: quotation.name,
       vendorName: quotation.vendorName,
       tradingPartnerId: quotation.tradingPartnerId,

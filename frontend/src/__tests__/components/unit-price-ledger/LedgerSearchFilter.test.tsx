@@ -4,6 +4,7 @@
  * @requirement unit-price-ledger/REQ-4.2 キーワード・見積日の期間・案件の有無・採否・読取の確認・改修／新営の絞り込み
  * @requirement unit-price-ledger/REQ-4.3 「要確認」の絞り込み
  * @requirement unit-price-ledger/REQ-4.4 「分類キーの無い行がある」の絞り込み
+ * @requirement unit-price-ledger/REQ-4.9 「削除済みの案件を除く」の絞り込み
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -26,6 +27,7 @@ describe('LedgerSearchFilter', () => {
     await user.selectOptions(screen.getByLabelText('改修／新営'), '改修');
     await user.click(screen.getByRole('checkbox', { name: '要確認' }));
     await user.click(screen.getByRole('checkbox', { name: '分類キーの無い行がある' }));
+    await user.click(screen.getByRole('checkbox', { name: '削除済みの案件を除く' }));
     await user.click(screen.getByRole('button', { name: '検索' }));
 
     expect(onSearch).toHaveBeenCalledWith({
@@ -38,6 +40,7 @@ describe('LedgerSearchFilter', () => {
       constructionKind: 'RENOVATION',
       needsReview: true,
       missingClassificationKey: true,
+      excludeDeletedProjects: true,
     });
   });
 
@@ -72,6 +75,7 @@ describe('LedgerSearchFilter', () => {
           readingStatus: 'UNCONFIRMED',
           constructionKind: 'NEW_CONSTRUCTION',
           missingClassificationKey: true,
+          excludeDeletedProjects: true,
         }}
         onSearch={vi.fn()}
       />
@@ -86,6 +90,7 @@ describe('LedgerSearchFilter', () => {
     expect(screen.getByLabelText('改修／新営')).toHaveDisplayValue('新営');
     expect(screen.getByRole('checkbox', { name: '要確認' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: '分類キーの無い行がある' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '削除済みの案件を除く' })).toBeChecked();
   });
 
   it('見積日の始まりが終わりより後なら、検索せずに知らせる', async () => {

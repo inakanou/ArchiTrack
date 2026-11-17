@@ -96,6 +96,7 @@ function summary(overrides: Partial<LedgerQuotationSummary> = {}): LedgerQuotati
     projectId: 'p-1',
     estimateRequestId: 'er-1',
     projectName: '庁舎改修工事',
+    projectDeleted: false,
     constructionKind: 'RENOVATION',
     totalAmount: 1234000,
     adoption: 'ADOPTED',
@@ -331,6 +332,13 @@ describe('UnitPriceLedgerPage（unit-price-ledger タスク4.2）', () => {
         },
         expected: { missingClassificationKey: true, page: 1 },
       },
+      {
+        title: '削除済みの案件を除く',
+        apply: async (user) => {
+          await user.click(screen.getByRole('checkbox', { name: '削除済みの案件を除く' }));
+        },
+        expected: { excludeDeletedProjects: true, page: 1 },
+      },
     ];
 
     it.each(cases)('$title で絞り込むと、その条件で問い合わせる', async ({ apply, expected }) => {
@@ -343,6 +351,24 @@ describe('UnitPriceLedgerPage（unit-price-ledger タスク4.2）', () => {
 
       await waitFor(() => expect(mocks.listQuotations).toHaveBeenCalledTimes(2));
       expect(lastListQuery()).toEqual(expected);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.9
+     */
+    it('URL の検索の値から「削除済みの案件を除く」を戻し、書き出しにも同じ条件を送る', async () => {
+      const user = userEvent.setup();
+      mocks.exportLedger.mockResolvedValue(new Blob(['xlsx']));
+      renderPage([MANAGE], '/unit-price-ledger?excludeDeletedProjects=true');
+      await waitForTable();
+
+      expect(lastListQuery()).toEqual({ excludeDeletedProjects: true, page: 1 });
+      expect(screen.getByRole('checkbox', { name: '削除済みの案件を除く' })).toBeChecked();
+
+      await user.click(screen.getByRole('button', { name: '書き出し' }));
+      await waitFor(() =>
+        expect(mocks.exportLedger).toHaveBeenCalledWith({ excludeDeletedProjects: true })
+      );
     });
 
     it('URL の検索の値から絞り込みとページを戻す', async () => {
@@ -539,6 +565,26 @@ describe('UnitPriceLedgerPage（unit-price-ledger タスク4.2）', () => {
       await user.click(screen.getByRole('button', { name: '書き出し' }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_MESSAGE);
+      expect(createObjectURL).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-6.6
+     */
+    it('見積が上限を超えて拒まれたら、保存せずにサーバーの文言（絞り込みを狭める案内）を出す', async () => {
+      const user = userEvent.setup();
+      const message =
+        '書き出す見積が多すぎます。一度に書き出せるのは 3,000 件までです。絞り込みを狭めてから、もう一度書き出してください';
+      mocks.exportLedger.mockRejectedValue(
+        new ApiError(400, message, { code: 'LEDGER_EXPORT_TOO_MANY', detail: message })
+      );
+      renderPage();
+      await waitForTable();
+
+      await user.click(screen.getByRole('button', { name: '書き出し' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message);
+      expect(screen.queryByText(/書き出しに失敗しました/)).not.toBeInTheDocument();
       expect(createObjectURL).not.toHaveBeenCalled();
     });
 

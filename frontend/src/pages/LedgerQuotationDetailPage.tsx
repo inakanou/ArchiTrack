@@ -11,6 +11,7 @@
  * Requirements (unit-price-ledger):
  * - 4.6: 見積の情報・カードの ID・原本のパスと、すべての明細行（区分・条件・換算・参考の印と理由・分類キー・
  *   数量表の行のキーを含む）を表示する
+ * - 4.8: 論理削除された案件の見積は、案件名の隣に「削除済みの案件」と出す
  * - 5.1: 案件の無い受領見積書は、業者名・見積日・見積の情報・案件名・原本のパスと、明細行の追加・削除・並べ替え・
  *   各欄を修正できる（LineItemEditor・LedgerInfoSection）
  * - 5.2: 案件の受領見積書は、読取の確認・参考の印と理由・分類キーだけを編集でき（PATCH /quotations/:id/marks）、
@@ -53,6 +54,7 @@ import {
 import {
   ADOPTION_LABELS,
   CONSTRUCTION_KIND_LABELS,
+  DELETED_PROJECT_LABEL,
   READING_STATUS_LABELS,
 } from '../components/unit-price-ledger/ledger-labels';
 import {
@@ -122,6 +124,12 @@ function textOrEmpty(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' ? EMPTY : value;
 }
 
+/** 案件名。論理削除された案件は隣に「削除済みの案件」を添える（4.8） */
+function formatProjectName(detail: LedgerQuotationDetail): string {
+  const name = textOrEmpty(detail.projectName ?? detail.ledgerProjectName);
+  return detail.projectDeleted ? `${name}（${DELETED_PROJECT_LABEL}）` : name;
+}
+
 function formatConversion(conversion: LineItemConversion | null): string {
   if (conversion === null) return EMPTY;
   return `${conversion.quantity} ${conversion.unit} × ${formatYen(conversion.unitPrice)}（${conversion.basis}）`;
@@ -152,7 +160,7 @@ function buildInfoItems(detail: LedgerQuotationDetail): InfoItem[] {
   const items: InfoItem[] = [
     { term: '業者名', value: detail.vendorName },
     { term: '見積日', value: formatDate(detail.submittedAt) },
-    { term: '案件名', value: textOrEmpty(detail.projectName ?? detail.ledgerProjectName) },
+    { term: '案件名', value: formatProjectName(detail) },
     { term: '見積番号', value: textOrEmpty(detail.quoteNumber) },
     { term: '見積の区別', value: textOrEmpty(detail.quoteDiscriminator) },
     { term: '見積全体の条件', value: textOrEmpty(detail.overallConditions) },

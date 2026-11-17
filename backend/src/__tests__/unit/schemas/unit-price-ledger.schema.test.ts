@@ -127,6 +127,22 @@ describe('unit-price-ledger.schema', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ hasProject: true, needsReview: false });
     });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.9
+     */
+    it('削除済みの案件を除く指定を、一覧のクエリの文字と書き出しの本文の真偽の値の両方で受ける', () => {
+      expect(ledgerListQuerySchema.parse({ excludeDeletedProjects: 'true' })).toEqual({
+        excludeDeletedProjects: true,
+        page: 1,
+      });
+      expect(ledgerFilterSchema.parse({ excludeDeletedProjects: true })).toEqual({
+        excludeDeletedProjects: true,
+      });
+      const invalid = ledgerListQuerySchema.safeParse({ excludeDeletedProjects: 'yes' });
+      expect(invalid.success).toBe(false);
+      expect(firstMessage(invalid)).toBe(UNIT_PRICE_LEDGER_VALIDATION_MESSAGES.FLAG_INVALID);
+    });
   });
 
   describe('見積の ID（ledgerQuotationIdParamSchema）', () => {

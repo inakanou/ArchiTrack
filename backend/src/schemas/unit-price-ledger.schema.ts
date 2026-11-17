@@ -6,7 +6,7 @@
  * 要求を検証する。欄の上限の値は受領見積書の明細行と台帳の情報の検証の定義
  * （`schemas/received-quotation.schema.ts`）から取り、ここで数を重ねて書かない。
  *
- * Requirements (unit-price-ledger): 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.6, 7.1
+ * Requirements (unit-price-ledger): 4.2, 4.3, 4.4, 4.5, 4.9, 5.1, 5.2, 5.3, 5.6, 7.1
  *
  * @module schemas/unit-price-ledger
  */
@@ -168,6 +168,8 @@ const ledgerFilterShape = {
   needsReview: optionalFlag,
   /** 分類キーの無い行がある：直接工事・産廃で分類キーが空の行を 1 行以上持つ（4.4） */
   missingClassificationKey: optionalFlag,
+  /** 削除済みの案件を除く：論理削除された案件の受領見積書を除く（4.9。false と指定なしは除かない） */
+  excludeDeletedProjects: optionalFlag,
 };
 
 /** 見積日の期間の始まりが終わりより後でないこと（YYYY-MM-DD は文字の比較で日付の順になる） */
