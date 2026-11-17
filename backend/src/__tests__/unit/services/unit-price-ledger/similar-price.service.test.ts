@@ -2,7 +2,8 @@
  * @fileoverview 似た単価の検索（SimilarPriceService）の単体試験（unit-price-ledger タスク2.8・2.9）
  *
  * Prisma をモックし、検索の SQL の組み立て（利用者の入力は結び付けた値だけに入り、SQL の文に入らない）、
- * 任意の条件の有無、行から候補への写し方、按分の内訳の添え方（単価を決められない行の値なし。タスク6.1）、
+ * 任意の条件の有無、行から候補への写し方、按分の内訳の添え方（単価を決められない行の値なし。タスク6.1。
+ * 整数に丸める前の値。タスク6.7）、
  * 閲覧範囲による表示制御（範囲外の候補の参考の理由の文の秘匿を含む。タスク6.2）を確かめる。
  * 並べ方・近さの実際の振る舞いは統合試験（similar-price.service.int.test.ts）が確かめる。
  */
@@ -385,6 +386,12 @@ describe('SimilarPriceService', () => {
         appliedUnitPrice: '1050',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '1000',
+          overheadAllocation: '100',
+          discountAllocation: '-50',
+          appliedUnitPrice: '1050',
+        },
       });
       expect(matches[1]?.allocation).toMatchObject({ unitPrice: '500', appliedUnitPrice: '525' });
       // 合計の無い見積は区分の合計が空として按分できない
@@ -430,8 +437,60 @@ describe('SimilarPriceService', () => {
           appliedUnitPrice: null,
           allocatable: false,
           applicable: false,
+          unrounded: null,
         });
       }
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('按分の内訳に、整数に丸める前の 4 つの値を小数点以下 10 桁までの文字で添える', async () => {
+      // 単価が空の行：単価 = 10000 / 3、諸経費の率 = 10000 / 120000、値引きの率 = -6000 / 120000
+      prisma.$queryRaw.mockResolvedValue([
+        row({
+          unitPrice: null,
+          amount: new Prisma.Decimal('10000.00'),
+          quantity: new Prisma.Decimal('3.0000'),
+        }),
+      ]);
+      prisma.receivedQuotationLineItem.groupBy.mockResolvedValue([
+        {
+          receivedQuotationId: 'q-1',
+          category: 'DIRECT',
+          _sum: { amount: new Prisma.Decimal('120000') },
+        },
+        {
+          receivedQuotationId: 'q-1',
+          category: 'OVERHEAD',
+          _sum: { amount: new Prisma.Decimal('10000') },
+        },
+        {
+          receivedQuotationId: 'q-1',
+          category: 'DISCOUNT',
+          _sum: { amount: new Prisma.Decimal('-6000') },
+        },
+      ]);
+
+      const [match] = await service.findMatches(baseQuery);
+
+      // 3333.333… × 10000 / 120000 = 277.777…、3333.333… × -6000 / 120000 = -166.666…
+      // 反映する単価 = 3333.333… × (1 + 1/12 - 1/20) = 3444.444…
+      expect(match?.allocation).toEqual({
+        allocationStatus: 'ALLOCATED',
+        unitPrice: '3333',
+        overheadAllocation: '278',
+        discountAllocation: '-167',
+        appliedUnitPrice: '3444',
+        allocatable: true,
+        applicable: true,
+        unrounded: {
+          unitPrice: '3333.3333333333',
+          overheadAllocation: '277.7777777778',
+          discountAllocation: '-166.6666666667',
+          appliedUnitPrice: '3444.4444444444',
+        },
+      });
     });
   });
 

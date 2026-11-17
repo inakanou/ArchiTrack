@@ -11,7 +11,8 @@
  *   担当外の案件の候補は「他案件」として案件の ID・受領見積書の ID・原本のパス・参考の理由の文を返さず
  *   （参考の印は返す）、担当の案件の候補は案件名と参考の理由の文を返し、案件の無い受領見積書の候補は台帳の
  *   案件名と原本のパスを返し、候補ごとに按分の内訳と按分の状態を返し、単価を決められない行は内訳の 4 つの
- *   金額を値なし（null）で返す
+ *   金額を値なし（null）で返し、整数に丸める前の 4 つの値（小数点以下 10 桁まで）を `allocation.unrounded` で返す
+ *   （単価を決められない行は null）
  *
  * 似た単価には、この仕様の画面が無い（後の claude-connector・見積の作成が使う）。そこで似た単価の問い合わせは、
  * 一般ユーザーとしてログインした利用者のアクセストークンで、E2E から API（POST /api/unit-price-ledger/similar-prices）
@@ -33,7 +34,8 @@
  * 按分の内訳の期待値（8.1〜8.5。丸めは整数へ四捨五入（0 から遠い側））:
  * - 担当外：基準＝直接工事 10000＋14000＋産廃 6000＝30000、諸経費の率＝(1500＋500＋1000)÷30000＝0.1、
  *   値引きの率＝-1500÷30000＝-0.05（別途の 50000 は使わない）。単価＝10000÷3＝3333.33…→3333、
- *   諸経費の按分＝333.33…→333、値引きの按分＝-166.66…→-167、反映する単価＝3500→3500
+ *   諸経費の按分＝333.33…→333、値引きの按分＝-166.66…→-167、反映する単価＝3500→3500。
+ *   丸める前の値（8.9）は 3333.3333333333・333.3333333333・-166.6666666667・3500
  * - 担当：基準＝15000＋5000＝20000、諸経費の率＝2000÷20000＝0.1、値引きの率＝-1000÷20000＝-0.05。
  *   単価 3000、諸経費の按分 300、値引きの按分 -150、反映する単価 3150
  * - 案件なし：基準＝28000、諸経費・値引きは無い。単価 2800、按分 0・0、反映する単価 2800
@@ -48,6 +50,8 @@
  * - 8.4: 候補ごとに単価・諸経費の按分・値引きの按分・反映する単価を返す
  * - 8.8: 単価を決められない行は、単価・諸経費の按分・値引きの按分・反映する単価を値なしで返し、単価を
  *   決められないことを示す印（allocationStatus の UNIT_PRICE_UNDETERMINED）を返す
+ * - 8.9: 整数に丸める前の単価・諸経費の按分・値引きの按分・反映する単価を、小数点以下 10 桁までの十進の文字で
+ *   整数の値とは別の欄（allocation.unrounded）でも返し、単価を決められない行はその欄を null で返す
  * - 9.1: 閲覧範囲の内の案件の候補に案件名を返す
  * - 9.2: 閲覧範囲の外の案件の候補は「他案件」と返し、案件の ID・受領見積書の ID・原本のパス・参考の理由の文を
  *   返さない
@@ -116,6 +120,12 @@ interface SimilarPriceCandidateBody {
     appliedUnitPrice: string | null;
     allocatable: boolean;
     applicable: boolean;
+    unrounded: {
+      unitPrice: string;
+      overheadAllocation: string;
+      discountAllocation: string;
+      appliedUnitPrice: string;
+    } | null;
   };
 }
 
@@ -580,13 +590,14 @@ test.describe('単価台帳の権限と似た単価', () => {
    * @requirement unit-price-ledger/REQ-7.7
    * @requirement unit-price-ledger/REQ-8.4
    * @requirement unit-price-ledger/REQ-8.8
+   * @requirement unit-price-ledger/REQ-8.9
    * @requirement unit-price-ledger/REQ-9.1
    * @requirement unit-price-ledger/REQ-9.2
    * @requirement unit-price-ledger/REQ-9.3
    * @requirement unit-price-ledger/REQ-9.4
    * @requirement unit-price-ledger/REQ-10.2
    */
-  test('見積の編集の権限を持つ一般ユーザーが似た単価を問い合わせると、分類キーの一致が先に並び、担当外の案件は「他案件」になって参考の理由の文を返さず、按分の内訳が返り、単価を決められない行は値なしになる (unit-price-ledger/REQ-7.1, REQ-7.2, REQ-7.7, REQ-8.4, REQ-8.8, REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4, REQ-10.2)', async ({
+  test('見積の編集の権限を持つ一般ユーザーが似た単価を問い合わせると、分類キーの一致が先に並び、担当外の案件は「他案件」になって参考の理由の文を返さず、按分の内訳と丸める前の値が返り、単価を決められない行は値なしになる (unit-price-ledger/REQ-7.1, REQ-7.2, REQ-7.7, REQ-8.4, REQ-8.8, REQ-8.9, REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4, REQ-10.2)', async ({
     page,
     request,
   }) => {
@@ -645,6 +656,13 @@ test.describe('単価台帳の権限と似た単価', () => {
         appliedUnitPrice: '3500',
         allocatable: true,
         applicable: true,
+        // 8.9：丸める前の値は小数点以下 10 桁まで（11 桁目で四捨五入、0 から遠い側）。末尾の 0 は付けない
+        unrounded: {
+          unitPrice: '3333.3333333333',
+          overheadAllocation: '333.3333333333',
+          discountAllocation: '-166.6666666667',
+          appliedUnitPrice: '3500',
+        },
       },
     });
     for (const candidate of [outOfScope, undetermined]) {
@@ -682,6 +700,7 @@ test.describe('単価台帳の権限と似た単価', () => {
         appliedUnitPrice: null,
         allocatable: false,
         applicable: false,
+        unrounded: null,
       },
     });
 
@@ -714,6 +733,12 @@ test.describe('単価台帳の権限と似た単価', () => {
         appliedUnitPrice: '3150',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '3000',
+          overheadAllocation: '300',
+          discountAllocation: '-150',
+          appliedUnitPrice: '3150',
+        },
       },
     });
 
@@ -744,6 +769,12 @@ test.describe('単価台帳の権限と似た単価', () => {
         appliedUnitPrice: '2800',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '2800',
+          overheadAllocation: '0',
+          discountAllocation: '0',
+          appliedUnitPrice: '2800',
+        },
       },
     });
   });

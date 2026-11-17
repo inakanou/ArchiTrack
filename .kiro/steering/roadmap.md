@@ -10,6 +10,8 @@
 
 更新: 2026-11-08（kiro-discovery の再入。ArchiBench からの提案 Issue #869 を取り込んだ。利用者の判断は下の「2026-11-08 の決定（Issue #869）」に記録する）
 
+更新: 2026-11-17（ArchiBench からの回答 inakanou/ArchiBench#9 と利用者の判断を、下の「2026-11-17 の決定（ArchiBench#9）」に記録する）
+
 ## Approach Decision
 
 - **Chosen**: ArchiTrack をリモート MCP サーバーとして Claude Desktop のカスタムコネクタに登録し、利用者ごとに OAuth 2.1（既存のログインと 2FA を通る同意）で接続する。単価台帳は受領見積を拡張して兼ねる。ArchiBench の提出版と手直しの記録は、新しい spec（submission-intake）が 3 種類の形（数量表・見積・工程表）に共通の仕組みとして持つ
@@ -86,14 +88,32 @@
 - 大きなデータは、connector の操作が発行する期限付き・1 回限りのアップロード先へローカルから上げ、取り込みの操作にはその ID を渡す。利用者のトークンはローカルに置かない（利用者の判断：推奨案）
 - estimate-request の要件（2026-11-08）で、見積依頼に紐づかない受領見積書は案件を必須とし、登録と一覧は estimate-request の専用の画面が持ち、案件の詳細画面への欄の配置は project-management の拡張が持つと決めた（利用者の判断：推奨案）。project-management を開くため、その IPA の是正（5.3）を同じ回に行う
 - 未決の点:
-  - 1 回限りのアップロード先は、#869 の「ArchiBench の Python から API へ直接つながない」の例外になる。ArchiBench 側の了承を Issue #869 で得る
+  - 1 回限りのアップロード先は、#869 の「ArchiBench の Python から API へ直接つながない」の例外になる。ArchiBench 側の了承を Issue #869 で得る（2026-11-17 に条件付きで了承された。下の節）
   - 見積の単価・金額の端数は、ArchiBench（国の運用：細目の単価は有効上位 3 桁など、金額は 1 円未満切捨て）と ArchiTrack（estimate-creation 要件22：小数第 1 位の四捨五入）で 1 円違いうる。取り込みで丸め直すかを estimate-creation の 2 回目の拡張で決める
   - 取り込みを「全体」で受けるか「差分」で受けるか。submission-intake の要件で決める（ArchiBench の送る内容は両方を持てる）
+
+## 2026-11-17 の決定（ArchiBench#9）
+
+- ArchiBench の回答:
+  - 1 回限りのアップロード先の例外を、次の条件で了承した。HTTPS だけ、期限は数分、1 回だけ使える、上げるだけで読めない、大きさの上限を置く、応答で ArchiTrack が計算した SHA-256 を返す。ArchiBench はアップロード先の URL を保存しない。条件は claude-connector の要件に入れる
+  - 受領見積の形（received-quote@0.2）を了承した。行のキー（row_key）は最長 821 文字で、ArchiTrack の 1000 文字に収まる
+  - 換算の単価は、ArchiBench が 0.01 に丸めて送る
+- ArchiBench の問いへの ArchiTrack の答え:
+  - 見積日（submittedAt）は、その日の UTC の 0 時として送る（ArchiTrack は日付だけを保存し、画面も同じ形で送る）
+- 利用者の判断:
+  1. 似た単価の候補の按分の内訳に、整数に丸める前の 4 つの値（単価・諸経費の按分・値引きの按分・反映する単価）を、小数点以下 10 桁までの文字で別の欄として返す。ArchiBench は公的な積算の丸めを自ら行うため。unit-price-ledger の要件 8.9（タスク 6.7）で入れる。2026-11-08 の未決の点の「端数が 1 円違いうる」に、似た単価の側で丸める前の値を渡して応える
+  2. 受領見積書に「読取の確認の経路」（画面・台帳の取り込み・ArchiBench）の欄を足す。コネクタからの登録は確認済みで受け、確認者を接続した利用者、確認の日時を送られた値とし、ArchiTrack の画面にも経路を出す。claude-connector と estimate-request の要件に入れる
+  3. 受領見積書の登録の応答と現在の状態の読み出しで、原本の指紋（fileSha256）を返す。409 DUPLICATE_ORIGINAL の応答に、同じ案件の中の既存の受領見積書の ID を含める。claude-connector と estimate-request の要件に入れる
+  4. 明細行の区分に「端数調整」（正も負も取る）を足す。見積の合計には数え、似た単価の検索の対象と按分の基準からは外す。estimate-request と unit-price-ledger の要件に入れる
+- 未決の点:
+  - ArchiBench の回答の数量表の行のキー（quantityRowKey）の書き方が 2 通りあり、その一方は GlobalId を含み、2026-11-08 の決定（行の同一性は行のキーで持ち、GlobalId の組は追跡用の別の欄）とぶつかる。quantity-table-generation の拡張の要件の前に、ArchiBench#9 で決める
 
 ## Existing Spec Updates
 
 - [x] estimate-request -- 受領見積の見積依頼を任意にし（14.1 の改訂）、明細行に区分（諸経費・交通費・産廃・値引き・法定福利費・別途）・条件・換算・分類キー・数量表の行のキー、受領見積に案件の条件・参考の印・読取の確認・採否・業者名（文字）・原本の指紋（sha256）・見積の区別を持たせ、指紋と区別で二重登録を検出する。同じ回に IPA の是正項目（5.5）も行う。Dependencies: IPA の user-authentication の完了
 - [x] project-management -- 案件の詳細画面に「受領見積書」の欄を置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（同 spec の Requirement 27・38・40 の先例）。同じ回に IPA の是正項目（5.3）も行う。Dependencies: estimate-request の拡張（完了。2026-11-12 に develop へ統合〔#893〕。完全削除の詰まりの是正は #894）
+- [ ] estimate-request（追補。2026-11-17 の決定） -- 受領見積書に読取の確認の経路（画面・台帳の取り込み・ArchiBench）の欄を足して画面にも出し、登録の応答と現在の状態で原本の指紋（fileSha256）を返し、409 DUPLICATE_ORIGINAL に同じ案件の中の既存の受領見積書の ID を含め、明細行の区分に「端数調整」（正も負も取り、見積の合計に数える）を足す。Dependencies: none（claude-connector の要件の前に）
+- [ ] unit-price-ledger（追補） -- 2026-11-17 に develop へ統合した（#918・#919・#920）。残り：受領見積書の保存と台帳で書き写した処理の共通化（タスク 6.6）と、似た単価の丸める前の按分の値（要件 8.9・タスク 6.7）の develop への統合。明細行の区分「端数調整」を、似た単価の検索の対象と按分の基準から外す（2026-11-17 の決定 4）。Dependencies: 端数調整は estimate-request の追補
 - [ ] estimate-creation -- 明細行ごとに似た過去単価を表示し（単価＋諸経費按分−値引き按分、業者名つき）、実行金額の行へ反映して出典を記録する（4.5 の改訂、実行金額行の出典欄）。同じ回に IPA の是正項目（5.8）も行う。Dependencies: unit-price-ledger
 - [ ] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）
 - [ ] quantity-table-generation -- 数量項目に行のキー（分類キー＋区別）・分類キー・追跡用の GlobalId の組を持たせ、行のキーで差分を当てる処理を加える（31.9 の「末尾への追加のみ」との整理）。同じ回に IPA の是正項目（5.6）も行う。Dependencies: claude-connector（第 1 段）
@@ -111,14 +131,15 @@
 - [ ] bim-quantity-takeoff の出力を数量表の取り込みの形式でも出す。Dependencies: quantity-table-generation の拡張
 - [ ] 調査写真を Blender 側（PC）で使うための取得手順（期限付き URL を PC 側の Python から取りに行く）。Dependencies: claude-connector
 - [ ] ArchiBench の architrack-exchange の写しを、ArchiTrack の spec で決まった形（受領見積は estimate-request、数量表・見積・工程表は submission-intake）に合わせて 1.0 にする。Dependencies: estimate-request の拡張、submission-intake
-- [ ] ArchiBench 側に 1 回限りのアップロード先の利用（#869 の「直接つながない」の例外）の了承を得る。Dependencies: none（claude-connector の要件の前に）
+- [x] ArchiBench 側に 1 回限りのアップロード先の利用（#869 の「直接つながない」の例外）の了承を得る（2026-11-17 に条件付きで了承。ArchiBench#9）。Dependencies: none（claude-connector の要件の前に）
+- [ ] ArchiBench#9 の数量表の行のキー（quantityRowKey）の書き方を 1 つに決める（2026-11-17 の未決の点）。Dependencies: none（quantity-table-generation の拡張の要件の前に）
 
 ## 実施順（本計画と IPA の是正の合わせた順）
 
 1. IPA の是正：user-authentication（完了。2026-10-30・10-31 に機能ごとの実装の総合検証が GO）
 2. estimate-request の拡張と IPA の是正（5.5）。#869 の受領見積の欄（分類キー・数量表の行のキー・原本の指紋・見積の区別）を含む（完了。2026-11-08 に機能ごとの実装の総合検証が GO、2026-11-09 に develop へ統合）
 3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）（完了。2026-11-12 に develop へ統合〔#893・#894〕）
-4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）
+4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）（2026-11-17 に develop へ統合〔#918・#919・#920〕。タスク 6.6・6.7 と端数調整の除外は Existing Spec Updates の追補）
 5. estimate-creation の拡張と IPA の是正（5.8）
 6. user-authentication の拡張（外部アプリの認可）
 7. claude-connector 第 1 段（読み取り・似た単価・受領見積の構造化した登録と原本の添付・1 回限りのアップロード先）
@@ -130,6 +151,6 @@
 
 ## Specs (dependency order)
 
-- [ ] unit-price-ledger -- 過去の見積を文字情報で持つ単価台帳（全件移行、管理者画面、Excel 書き出し、似た単価の検索と按分計算の API、権限）。検索は分類キーの一致を名称の近さより優先する。Dependencies: none
-- [ ] claude-connector -- Claude Desktop 用のリモート MCP コネクタ（利用者の権限・閲覧範囲・出力記録を通す操作の一覧。読み取りから始め、台帳の登録・数量表と見積・工程の下書きの取り込み・見積の反映へ広げる。1 回限りのアップロード先を持つ）。Dependencies: unit-price-ledger（第 2 段は submission-intake）
+- [x] unit-price-ledger -- 過去の見積を文字情報で持つ単価台帳（全件移行、管理者画面、Excel 書き出し、似た単価の検索と按分計算の API、権限）。検索は分類キーの一致を名称の近さより優先する。Dependencies: none
+- [ ] claude-connector -- Claude Desktop 用のリモート MCP コネクタ（利用者の権限・閲覧範囲・出力記録を通す操作の一覧。読み取りから始め、台帳の登録・数量表と見積・工程の下書きの取り込み・見積の反映へ広げる。1 回限りのアップロード先を持つ）。要件には 2026-11-17 の決定（アップロード先の条件、確認済みでの登録と読取の確認の経路、fileSha256 と 409 の既存の ID）を入れる。Dependencies: unit-price-ledger、estimate-request の追補（第 2 段は submission-intake）
 - [ ] submission-intake -- ArchiBench が作った数量表・見積・工程表の下書きの提出版の取り込み（提出版の保存、欄ごとの出所、現在の版と手直しの読み出し、もとにした版の照合と行のキーでの差分の適用）。Dependencies: quantity-table-generation の拡張、estimate-creation の 2 回目の拡張、construction-schedule の拡張

@@ -203,7 +203,17 @@ export type SimilarPriceAllocationStatus =
   | 'BASE_NOT_POSITIVE'
   | 'UNIT_PRICE_UNDETERMINED';
 
-/** 按分の内訳（8.1〜8.8）。金額は桁を失わないよう文字で返り、単価を決められない行は null */
+/**
+ * 整数に丸める前の按分の内訳（8.9）。小数点以下 10 桁までの十進の文字（末尾の 0 を除く）
+ */
+export interface SimilarPriceUnroundedAllocation {
+  unitPrice: string;
+  overheadAllocation: string;
+  discountAllocation: string;
+  appliedUnitPrice: string;
+}
+
+/** 按分の内訳（8.1〜8.9）。金額は桁を失わないよう文字で返り、単価を決められない行は null */
 export type SimilarPriceAllocation =
   | {
       allocationStatus: Exclude<SimilarPriceAllocationStatus, 'UNIT_PRICE_UNDETERMINED'>;
@@ -215,6 +225,8 @@ export type SimilarPriceAllocation =
       allocatable: boolean;
       /** 反映する単価が 0 以上で、反映できるか（8.7） */
       applicable: boolean;
+      /** 整数に丸める前の 4 つの値（8.9） */
+      unrounded: SimilarPriceUnroundedAllocation;
     }
   | {
       allocationStatus: 'UNIT_PRICE_UNDETERMINED';
@@ -224,6 +236,7 @@ export type SimilarPriceAllocation =
       appliedUnitPrice: null;
       allocatable: false;
       applicable: false;
+      unrounded: null;
     };
 
 /** 似た単価の候補の区分（直接工事・産廃だけ。7.1） */

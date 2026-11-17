@@ -281,7 +281,7 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
     for (const value of identifyingValuesOfB()) {
       expect(serialized).not.toContain(value);
     }
-    // 9.4：業者名・見積日・明細行の内容・按分の内訳は返す
+    // 9.4：業者名・見積日・明細行の内容・按分の内訳（丸める前の値を含む。8.9）は返す
     expect(candidate).toMatchObject({
       vendorName: `${PREFIX}-業者B`,
       submittedAt: '2026-04-01',
@@ -299,6 +299,12 @@ describe('似た単価の候補の閲覧範囲による表示制御（統合・�
         appliedUnitPrice: '105',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '100',
+          overheadAllocation: '10',
+          discountAllocation: '-5',
+          appliedUnitPrice: '105',
+        },
       },
     });
   };

@@ -13,7 +13,8 @@
  * - 並べ方（7.6）：群 → 工種・改修／新営・場所の一致の数（多い順）→ 近さ（高い順）→ 見積日（新しい順）
  *   → 明細行の ID。最大 20 件。採否と読取の確認は並べ方に使わない（7.8）。時期で補正しない（7.10）
  * - 按分の内訳（8.x）は候補の見積の区分ごとの金額の合計から求める。合計は候補の見積をまとめて 1 回で集計する。
- *   単価を決められない行は、内訳の 4 つの金額が null で、按分の状態が `UNIT_PRICE_UNDETERMINED`（8.8）
+ *   単価を決められない行は、内訳の 4 つの金額が null で、按分の状態が `UNIT_PRICE_UNDETERMINED`（8.8）。
+ *   整数に丸める前の 4 つの値も `allocation.unrounded` に添える（単価を決められない行は null。8.9）
  * - 検索は `$queryRaw` に値を結び付けて行う（文字を組み立てない）
  *
  * 閲覧範囲による表示制御（9.1〜9.4。タスク2.9）は `search` が担う。`findMatches` は表示制御の前の
@@ -28,7 +29,7 @@
  *   論理削除された案件は、全案件閲覧の権限があっても範囲外とする（`evaluateProjectAccess` と同じ）
  *
  * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11,
- *   8.8, 9.1, 9.2, 9.3, 9.4
+ *   8.8, 8.9, 9.1, 9.2, 9.3, 9.4
  *
  * @module services/unit-price-ledger/similar-price.service
  */
@@ -100,7 +101,7 @@ export interface SimilarPriceMatch {
   isReference: boolean;
   /** 参考の理由の文（表示制御の前。範囲外の案件の候補は `toCandidate` が null にする） */
   referenceReason: string | null;
-  /** 按分の内訳（単価を決められない行は 4 つの金額が null。8.8） */
+  /** 按分の内訳（単価を決められない行は 4 つの金額と丸める前の値が null。8.8・8.9） */
   allocation: AllocationBreakdown;
   source: SimilarPriceSource;
 }

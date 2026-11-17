@@ -244,6 +244,7 @@ flowchart TB
 | 6.6 | 書き出しの件数の上限 | LedgerExportService, UnitPriceLedgerPage | POST /api/unit-price-ledger/exports | - |
 | 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11 | 似た単価の検索と並べ方 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
 | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 | 按分の計算 | LedgerAllocation, SimilarPriceService | `computeAllocation` | 似た単価の検索 |
+| 8.9 | 整数に丸める前の按分の値 | LedgerAllocation, SimilarPriceService | `computeAllocation`, POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
 | 9.1, 9.2, 9.3, 9.4 | 閲覧範囲による表示制御 | SimilarPriceService | POST /api/unit-price-ledger/similar-prices | 似た単価の検索 |
 | 10.1, 10.2, 10.3, 10.4, 10.5 | 権限と導線 | unit-price-ledger.routes, UnitPriceLedgerPermissionMigration, AppHeader, UnitPriceLedgerPage | `requirePermission` | - |
 
@@ -258,8 +259,8 @@ flowchart TB
 | LedgerQueryService | Backend/Service | 一覧・絞り込み・詳細 | 1.1-1.4, 4.1-4.9 | Prisma (P0) | Service |
 | LedgerEditService | Backend/Service | 修正・削除・印の更新・名前の作り直し・監査 | 5.1-5.8 | AuditLogService (P0) | Service |
 | LedgerExportService | Backend/Service | 3 つのシートの Excel・件数の上限 | 1.1-1.4, 4.8, 4.9, 6.1-6.6 | LedgerQueryService (P0), ExportAuditService (P0) | Service |
-| SimilarPriceService | Backend/Service | 似た単価の検索・並べ方・表示制御 | 1.1-1.4, 7.1-7.11, 8.1-8.8, 9.1-9.4 | ProjectScopeService (P0), LedgerAllocation (P0) | Service, API |
-| LedgerAllocation | Backend/Domain | 按分の計算 | 8.1-8.8 | decimal.js (P0) | Service |
+| SimilarPriceService | Backend/Service | 似た単価の検索・並べ方・表示制御 | 1.1-1.4, 7.1-7.11, 8.1-8.9, 9.1-9.4 | ProjectScopeService (P0), LedgerAllocation (P0) | Service, API |
+| LedgerAllocation | Backend/Domain | 按分の計算 | 8.1-8.9 | decimal.js (P0) | Service |
 | unit-price-ledger.routes | Backend/Route | 経路・権限・検証 | 10.1-10.5 | requirePermission (P0) | API |
 | UnitPriceLedgerPermissionMigration | Backend/Migration | 権限・欄・索引・拡張 | 10.1-10.5 | PostgreSQL (P0) | Batch |
 | UnitPriceLedgerPage | Frontend/Page | 一覧・絞り込み・書き出し・取り込みの入口 | 4.1-4.7, 4.9, 6.1-6.6, 10.1-10.5 | unitPriceLedgerApi (P0) | State |
@@ -469,7 +470,7 @@ interface LedgerQuotationSummary {
 | Field | Detail |
 |-------|--------|
 | Intent | 似た過去の単価の候補を、分類キーの一致を優先して並べ、按分の内訳と表示制御を添えて返す |
-| Requirements | 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 9.1, 9.2, 9.3, 9.4 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 9.1, 9.2, 9.3, 9.4 |
 
 **Responsibilities & Constraints**
 - 対象は、論理削除されていない受領見積書の、区分が直接工事か産廃の明細行（7.1）
@@ -521,7 +522,7 @@ interface SimilarPriceCandidate {
   readingStatus: 'UNCONFIRMED' | 'CONFIRMED';
   isReference: boolean;
   referenceReason: string | null; // 範囲外の案件の候補は null（印は isReference で返す）
-  allocation: AllocationBreakdown; // 単価を決められない行は 4 つの金額が null（8.8）
+  allocation: AllocationBreakdown; // 単価を決められない行は 4 つの金額と unrounded が null（8.8・8.9）
 }
 ```
 
@@ -530,7 +531,7 @@ interface SimilarPriceCandidate {
 | Field | Detail |
 |-------|--------|
 | Intent | 候補の行の単価と、その見積の区分ごとの合計から按分の内訳を求める |
-| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8 |
+| Requirements | 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9 |
 
 **Responsibilities & Constraints**
 - 単価は、換算の単価 → 単価 → 金額÷数量 の順に決める（8.1）
@@ -543,6 +544,11 @@ interface SimilarPriceCandidate {
   - `BASE_NOT_POSITIVE`：単価は決まり、按分の基準が 0 以下（8.6）。按分は 0 で、`allocatable: false`。反映できるかは 8.7 で決める
   - `ALLOCATED`：単価が決まり、基準が 0 より大きい。`allocatable: true`。反映できるかは 8.7 で決める
 - `allocatable` は 8.6 の印、`applicable` は 8.7 の印として残す。どちらも false になる理由は `allocationStatus` で見分ける
+- 整数に丸める前の 4 つの値を、整数の値とは別の欄 `unrounded` で返す（8.9）。公的な積算の丸めを自ら行う呼び出し元（ArchiBench。inakanou/ArchiBench#9）が、ArchiTrack の整数の丸めの前の値を使うため
+  - 値は decimal.js の有効桁 64 で求めた値を、`ROUND_HALF_UP` で小数点以下 `UNROUNDED_DECIMAL_PLACES`（10）桁までに丸めた十進の文字とする。末尾の 0 と小数点は付けず（`100.00` は `"100"`）、指数の表記を使わず、-0 は `"0"` にする
+  - `unrounded.appliedUnitPrice` は、丸める前の単価・諸経費の按分・値引きの按分の和（有効桁 64）を 10 桁に丸める。10 桁に丸めた 3 つの値の和ではない
+  - 基準が 0 以下の行は、`unrounded` の按分も `"0"` とする（8.6）。単価を決められない行は `unrounded: null`（8.8）
+  - 桁を 10 とする理由：入力の桁は小数点以下 4 桁まで（DECIMAL(15,4)。金額と単価は DECIMAL(15,2)）だが、金額÷数量と率（÷基準）は割り切れないことがあるため、どこかで切る。10 桁なら誤差は 5×10^-11 円以下で、呼び出し元の 1 円や 0.01 円の丸めの結果が変わりうるのは、真の値が四捨五入の境目からその幅の内にあるときだけである（境目にちょうど乗る値は小数点以下 10 桁以内で表せるため変わらない）。単価の整数部は最大 17 桁（金額の整数部 13 桁÷数量 0.0001）なので、単価の有効桁は 27 桁までで ArchiBench の受ける 28 桁に収まる。按分は率を掛けるため、諸経費や値引きが基準の 10 倍を超える見積では 28 桁を超えうるが、文字で返すため ArchiTrack の側では桁を落とさない。有効桁で切る方式は、大きな単価ほど小数の桁が減り、桁の意味が値ごとに変わるため使わない
 
 **Contracts**: Service [x]
 
@@ -559,6 +565,7 @@ type AllocationBreakdown =
       appliedUnitPrice: string;
       allocatable: boolean;       // 基準が 0 より大きい（8.6）
       applicable: boolean;        // 丸めた反映する単価が 0 以上（8.7）
+      unrounded: UnroundedAllocation; // 整数に丸める前の値（8.9）
     }
   | {
       allocationStatus: 'UNIT_PRICE_UNDETERMINED'; // 8.8
@@ -568,7 +575,18 @@ type AllocationBreakdown =
       appliedUnitPrice: null;
       allocatable: false;
       applicable: false;
+      unrounded: null;            // 8.9
     };
+
+/** 小数点以下 UNROUNDED_DECIMAL_PLACES（10）桁までの十進の文字（末尾の 0 を除く）。8.9 */
+interface UnroundedAllocation {
+  unitPrice: string;
+  overheadAllocation: string;
+  discountAllocation: string;
+  appliedUnitPrice: string;   // 丸める前の 3 つの値の和を 10 桁に丸める
+}
+
+const UNROUNDED_DECIMAL_PLACES = 10;
 
 function computeAllocation(line: AllocationLine, totals: CategoryTotals): AllocationBreakdown;
 ```
@@ -721,7 +739,7 @@ model ReceivedQuotationLineItem {
 
 - **Unit Tests**
   - LedgerCardParser：必須の項目の欠け、読めない JSON、切り詰め、細目と 6 項目の足し方、参考の理由（1 円の違い・合計の不一致・200 文字の切り詰め）
-  - LedgerAllocation：諸経費・値引きの按分、基準が 0、反映する単価が負、換算の単価、金額÷数量、負の値の丸め、単価を決められない行の値なしと按分の状態
+  - LedgerAllocation：諸経費・値引きの按分、基準が 0、反映する単価が負、換算の単価、金額÷数量、負の値の丸め、単価を決められない行の値なしと按分の状態、整数に丸める前の値（10000÷3 などの 10 桁の文字、11 桁目の四捨五入、末尾の 0 と指数の表記の無いこと、-0、和を丸めること）
   - SimilarPriceService の並べ方と表示制御（範囲外の「他案件」と ID の秘匿、範囲外の参考の理由の文の秘匿）
   - LedgerQueryService の削除済みの案件の印と除く絞り込み、LedgerEditService の名前の作り直し、LedgerExportService の件数の上限（既定の値が本書の値と同じこと）
 - **Integration Tests**
@@ -738,7 +756,7 @@ model ReceivedQuotationLineItem {
   - 台帳の Excel を書き出す
   - 一覧の「削除済みの案件を除く」の絞り込みが、一覧の問い合わせに条件を付ける
   - 一般ユーザーには導線が無く、画面の内容も出ない
-  - 似た単価の API の候補が、分類キーの一致を先に並べ、範囲外の案件を「他案件」とし、範囲外の候補の参考の理由の文を返さず、単価を決められない行の金額を値なしで返す
+  - 似た単価の API の候補が、分類キーの一致を先に並べ、範囲外の案件を「他案件」とし、範囲外の候補の参考の理由の文を返さず、単価を決められない行の金額を値なしで返し、整数に丸める前の値を返す
 
 ## Security Considerations
 - 台帳全体はシステム管理者だけが扱う（既定のロール）。書き出しは出力の記録に残す

@@ -16,8 +16,11 @@
  *   `applicable` を false で返す（8.8。タスク6.1）
  * - 按分の状態（`allocationStatus`）は、単価を決められない → `UNIT_PRICE_UNDETERMINED`、基準が 0 以下 →
  *   `BASE_NOT_POSITIVE`、それ以外 → `ALLOCATED` の順に決める
+ * - 整数に丸める前の 4 つの値も、`unrounded` に小数点以下 `UNROUNDED_DECIMAL_PLACES`（10）桁までの十進の文字
+ *   （ROUND_HALF_UP。末尾の 0 を除き、指数の表記を使わない。-0 は "0"）で返す。単価を決められない行は null
+ *   （8.9。タスク6.7）
  *
- * Requirements (unit-price-ledger): 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8
+ * Requirements (unit-price-ledger): 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9
  *
  * @module services/unit-price-ledger/ledger-allocation
  */
@@ -60,6 +63,26 @@ export type CategoryTotals = Partial<Record<ReceivedQuotationLineCategory, Alloc
  */
 export type AllocationStatus = 'ALLOCATED' | 'BASE_NOT_POSITIVE' | 'UNIT_PRICE_UNDETERMINED';
 
+/**
+ * 整数に丸める前の値の、小数点以下の桁の上限（8.9）。
+ * 入力の桁は小数点以下 4 桁まで（DECIMAL(15,4)）だが、金額÷数量と率（÷基準）は割り切れないことがあるため、
+ * どこかで切る。10 桁なら誤差は 5×10^-11 以下で、呼び出し元の 1 円や 0.01 の丸めの結果が変わりうるのは、
+ * 真の値が四捨五入の境目からその幅の内にあるときだけ（境目にちょうど乗る値は 10 桁以内で表せる）。
+ * 単価の整数部は最大 17 桁（金額 13 桁÷数量 0.0001）で、有効桁は 27 桁まで（ArchiBench の受ける 28 桁以内）
+ */
+export const UNROUNDED_DECIMAL_PLACES = 10;
+
+/**
+ * 整数に丸める前の按分の内訳（8.9）。小数点以下 `UNROUNDED_DECIMAL_PLACES` 桁までの十進の文字
+ */
+export interface UnroundedAllocation {
+  unitPrice: string;
+  overheadAllocation: string;
+  discountAllocation: string;
+  /** 丸める前の単価・諸経費の按分・値引きの按分の和（桁を切る前の値の和） */
+  appliedUnitPrice: string;
+}
+
 /** 単価が決まった行の按分の内訳。金額は整数の文字 */
 export interface DeterminedAllocationBreakdown {
   allocationStatus: Exclude<AllocationStatus, 'UNIT_PRICE_UNDETERMINED'>;
@@ -71,6 +94,8 @@ export interface DeterminedAllocationBreakdown {
   allocatable: boolean;
   /** 反映する単価が 0 以上で、実行金額に反映できるか（8.7） */
   applicable: boolean;
+  /** 整数に丸める前の 4 つの値（8.9） */
+  unrounded: UnroundedAllocation;
 }
 
 /** 単価を決められない行の按分の内訳（8.8）。4 つの金額は値なし */
@@ -82,6 +107,8 @@ export interface UndeterminedAllocationBreakdown {
   appliedUnitPrice: null;
   allocatable: false;
   applicable: false;
+  /** 丸める前の値も値なし（8.9） */
+  unrounded: null;
 }
 
 /**
@@ -98,6 +125,7 @@ const UNDETERMINED_ALLOCATION: UndeterminedAllocationBreakdown = {
   appliedUnitPrice: null,
   allocatable: false,
   applicable: false,
+  unrounded: null,
 };
 
 /** 諸経費の率の分子に入れる区分（8.3） */
@@ -123,6 +151,15 @@ const sumCategories = (
 const roundToIntegerString = (value: AllocationDecimal): string => {
   const rounded = value.toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
   return rounded.isZero() ? '0' : rounded.toFixed(0);
+};
+
+/**
+ * 小数点以下 `UNROUNDED_DECIMAL_PLACES` 桁までに丸めて文字にする（8.9。ROUND_HALF_UP）。
+ * 末尾の 0 を除き、指数の表記を使わない。-0 は "0" にする
+ */
+const toUnroundedString = (value: AllocationDecimal): string => {
+  const rounded = value.toDecimalPlaces(UNROUNDED_DECIMAL_PLACES, Decimal.ROUND_HALF_UP);
+  return rounded.isZero() ? '0' : rounded.toFixed();
 };
 
 /**
@@ -170,9 +207,8 @@ export function computeAllocation(
     ? unitPrice.mul(toDecimal(totals.DISCOUNT) ?? 0).div(base)
     : zero;
 
-  const appliedUnitPrice = roundToIntegerString(
-    unitPrice.plus(overheadAllocation).plus(discountAllocation)
-  );
+  const unroundedAppliedUnitPrice = unitPrice.plus(overheadAllocation).plus(discountAllocation);
+  const appliedUnitPrice = roundToIntegerString(unroundedAppliedUnitPrice);
 
   return {
     allocationStatus: allocatable ? 'ALLOCATED' : 'BASE_NOT_POSITIVE',
@@ -182,5 +218,11 @@ export function computeAllocation(
     appliedUnitPrice,
     allocatable,
     applicable: !new AllocationDecimal(appliedUnitPrice).lessThan(0),
+    unrounded: {
+      unitPrice: toUnroundedString(unitPrice),
+      overheadAllocation: toUnroundedString(overheadAllocation),
+      discountAllocation: toUnroundedString(discountAllocation),
+      appliedUnitPrice: toUnroundedString(unroundedAppliedUnitPrice),
+    },
   };
 }
