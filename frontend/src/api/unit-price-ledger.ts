@@ -54,6 +54,8 @@ export interface LedgerFilter {
   needsReview?: boolean;
   /** 分類キーの無い行がある（直接工事・産廃で分類キーが空） */
   missingClassificationKey?: boolean;
+  /** 削除済みの案件を除く（論理削除された案件の受領見積書を除く。4.9） */
+  excludeDeletedProjects?: boolean;
 }
 
 /** 一覧の問い合わせ（絞り込みとページ。1 ページ 50 件） */
@@ -71,6 +73,8 @@ export interface LedgerQuotationSummary {
   estimateRequestId: string | null;
   /** 案件があれば案件の名前、無ければ台帳の案件名 */
   projectName: string | null;
+  /** 案件が論理削除されている（4.8。案件の無い見積は false） */
+  projectDeleted: boolean;
   constructionKind: ConstructionKind | null;
   totalAmount: number | null;
   adoption: QuotationAdoption;
@@ -101,6 +105,8 @@ export interface LedgerQuotationDetail {
   estimateRequestId: string | null;
   projectId: string | null;
   projectName: string | null;
+  /** 案件が論理削除されている（4.8。案件の無い見積は false） */
+  projectDeleted: boolean;
   name: string;
   vendorName: string;
   tradingPartnerId: string | null;

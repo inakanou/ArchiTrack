@@ -2,6 +2,7 @@
  * @fileoverview 台帳の一覧の表の単体テスト（unit-price-ledger タスク4.2）
  *
  * @requirement unit-price-ledger/REQ-4.1 業者名・見積日・案件名・合計・採否・読取の確認・参考の行の有無
+ * @requirement unit-price-ledger/REQ-4.8 論理削除された案件の見積は、案件名の隣に「削除済みの案件」と出す
  */
 
 import { describe, it, expect } from 'vitest';
@@ -19,6 +20,7 @@ function summary(overrides: Partial<LedgerQuotationSummary> = {}): LedgerQuotati
     projectId: null,
     estimateRequestId: null,
     projectName: '倉庫新築',
+    projectDeleted: false,
     constructionKind: 'NEW_CONSTRUCTION',
     totalAmount: 0,
     adoption: 'UNKNOWN',
@@ -87,5 +89,18 @@ describe('LedgerQuotationTable', () => {
     ]);
 
     expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual(['A社', 'B社', 'C社']);
+  });
+
+  it('論理削除された案件の見積は、案件名の隣に「削除済みの案件」と出し、ほかの見積には出さない', () => {
+    renderTable([
+      summary({ id: 'a', vendorName: 'A社', projectName: '旧事務所改修', projectDeleted: true }),
+      summary({ id: 'b', vendorName: 'B社', projectName: '倉庫新築', projectDeleted: false }),
+    ]);
+
+    const [deletedRow, liveRow] = screen.getAllByRole('row').slice(1);
+    const deletedCell = within(deletedRow!).getAllByRole('cell')[2]!;
+    expect(deletedCell).toHaveTextContent('旧事務所改修');
+    expect(within(deletedCell).getByText('削除済みの案件')).toBeInTheDocument();
+    expect(within(liveRow!).getAllByRole('cell')[2]).toHaveTextContent(/^倉庫新築$/);
   });
 });

@@ -15,6 +15,9 @@
  * - 修正（5.1）：業者名・見積日・見積の情報・案件名・原本のパスと明細行の全体。送らない見積の情報・案件名・
  *   原本のパスは変えず、null は消す。業者名・取引先は受領見積書の案件の文脈と同じ規則で決め直す（44.5〜44.8）。
  *   明細行は全量を置き換え、金額が無く数量と単価がある行だけ数量×単価を求める（45.12）
+ * - 名前の作り直し（5.8）：保存後の業者名か見積日（UTC の日付）が今と違うときは、受領見積書の名前を取り込みと
+ *   同じ形（`buildLedgerQuotationName`。業者名と見積日を「_」でつなぎ、名前の上限までで切り詰める）で作り直す。
+ *   名前の前後は監査ログの name に入る
  * - 読取の確認（5.4・46.6〜46.8）：保存前が確認済みで明細行が変わるときは未確認に戻し、確認者と日時を消す。
  *   未確認から確認済みにしたときは確認者を操作した利用者、日時を今とする
  * - 楽観的排他制御（5.6）：更新の日時の一致で判定する。読んだ時の比較に加え、本体の書き込みを
@@ -24,7 +27,7 @@
  *   トランザクションで書き、metadata の source は `unit_price_ledger`。協力業者の金額（工事価格・確定金額・
  *   明細行の中身）と原本のパスは入れず、工事価格・確定金額は変わったかどうかだけを入れる
  *
- * Requirements (unit-price-ledger): 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
+ * Requirements (unit-price-ledger): 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8
  *
  * @module services/unit-price-ledger/ledger-edit.service
  */
@@ -53,6 +56,7 @@ import {
   type LedgerQuotationUpdateInput,
 } from '../../schemas/unit-price-ledger.schema.js';
 import type { ReadingStatus } from '../received-quotation.service.js';
+import { buildLedgerQuotationName } from './ledger-card-parser.js';
 import {
   LEDGER_BASE_WHERE,
   LedgerQueryService,
@@ -100,6 +104,26 @@ const LINE_DECIMAL_SCALES = {
 /** Decimal・数・null を小数の桁で揃えた数にする（比較用） */
 const toScaled = (value: unknown, scale: number): number | null =>
   value === null || value === undefined ? null : Number(Number(value).toFixed(scale));
+
+/** 見積日（DB の日付）を YYYY-MM-DD にする（取り込みのカードの見積日と同じ UTC の日付） */
+const toDateText = (value: Date): string => value.toISOString().slice(0, 10);
+
+/**
+ * 業者名か見積日が変わるときだけ、受領見積書の名前を取り込みと同じ形で作り直す（5.8）
+ *
+ * @returns 書き換える名前。変えないときは空のオブジェクト
+ */
+const regenerateName = (
+  current: { vendorName: string; submittedAt: Date },
+  vendorName: string,
+  submittedAt: Date
+): { name?: string } => {
+  const submittedDate = toDateText(submittedAt);
+  if (vendorName === current.vendorName && submittedDate === toDateText(current.submittedAt)) {
+    return {};
+  }
+  return { name: buildLedgerQuotationName(vendorName, submittedDate) };
+};
 
 /** Decimal・数・null を数にする（記録用） */
 const toNumberOrNull = (value: unknown): number | null =>
@@ -393,10 +417,12 @@ export class LedgerEditService {
         );
 
       const vendor = await this.resolveVendor(tx, current, input);
+      const submittedAt = new Date(input.submittedAt);
       const data: Prisma.ReceivedQuotationUncheckedUpdateManyInput = {
         ...this.pickLedgerColumns(input),
-        submittedAt: new Date(input.submittedAt),
+        submittedAt,
         ...(vendor ?? {}),
+        ...regenerateName(current, vendor?.vendorName ?? current.vendorName, submittedAt),
         ...decideReadingConfirmation(
           current.readingStatus,
           input.readingStatus,

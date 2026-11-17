@@ -16,7 +16,8 @@
  *
  * 誤りの応答（design.md の Error Handling）:
  * - 409 `LEDGER_CONFLICT`（排他の不一致）・409 `LEDGER_PROJECT_QUOTATION_READ_ONLY`（案件の受領見積書の修正・削除）
- * - 400 `LEDGER_EXPORT_EMPTY`（書き出しの結果が 0 件）・500 `EXPORT_RECORD_FAILED`（出力の記録の失敗）
+ * - 400 `LEDGER_EXPORT_EMPTY`（書き出しの結果が 0 件）・400 `LEDGER_EXPORT_TOO_MANY`（書き出しの見積の数が上限を
+ *   超える。Requirement 6.6）・500 `EXPORT_RECORD_FAILED`（出力の記録の失敗）
  * - 404（見積が無い・論理削除済み）。いずれもサービスの誤りをエラーハンドラーの Problem Details で返す
  *
  * 似た単価の候補の単位と数量は、DB で空を許すため `string | null` のまま返す
@@ -190,11 +191,15 @@ const requestContext = (req: Request): RequestContext => ({
  *         schema: { type: boolean }
  *         description: 直接工事・産廃で分類キーの無い明細行を持つ見積だけ
  *       - in: query
+ *         name: excludeDeletedProjects
+ *         schema: { type: boolean }
+ *         description: true のとき、論理削除された案件の受領見積書を除く（Requirement 4.9）
+ *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1, default: 1 }
  *     responses:
  *       200:
- *         description: 一覧（data は見積の要約の配列、pagination は page・limit・total・totalPages）
+ *         description: 一覧（data は見積の要約の配列、pagination は page・limit・total・totalPages）。要約の projectDeleted は、案件が論理削除されていれば true（Requirement 4.8）
  *       400:
  *         description: 問い合わせの検証の失敗
  *       401:
@@ -235,7 +240,7 @@ router.get(
  *         description: 受領見積書の ID
  *     responses:
  *       200:
- *         description: 詳細（updatedAt を修正・印の更新・削除の排他に使う）
+ *         description: 詳細（updatedAt を修正・印の更新・削除の排他に使う。projectDeleted は案件が論理削除されていれば true）
  *       400:
  *         description: ID の形式の誤り
  *       401:
@@ -246,7 +251,7 @@ router.get(
  *         description: 見積が無い、または論理削除済み
  *   put:
  *     summary: 案件の無い見積の修正
- *     description: 業者名・見積日・見積の情報・案件名・原本のパス・明細行の全体を修正する。案件の受領見積書は修正できない。台帳の管理の権限（unit_price_ledger:manage）が要る
+ *     description: 業者名・見積日・見積の情報・案件名・原本のパス・明細行の全体を修正する。業者名か見積日が変わるときは、受領見積書の名前を取り込みと同じ形（業者名_見積日）で作り直す（Requirement 5.8）。案件の受領見積書は修正できない。台帳の管理の権限（unit_price_ledger:manage）が要る
  *     tags:
  *       - Unit Price Ledger
  *     security:
@@ -534,6 +539,7 @@ router.post(
  *               constructionKind: { type: string, enum: [RENOVATION, NEW_CONSTRUCTION] }
  *               needsReview: { type: boolean }
  *               missingClassificationKey: { type: boolean }
+ *               excludeDeletedProjects: { type: boolean }
  *     responses:
  *       200:
  *         description: Excel のファイル（ファイル名は「単価台帳_YYYYMMDD.xlsx」）
@@ -541,7 +547,7 @@ router.post(
  *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
  *             schema: { type: string, format: binary }
  *       400:
- *         description: 検証の失敗、または結果が 0 件（code は LEDGER_EXPORT_EMPTY）
+ *         description: 検証の失敗、結果が 0 件（code は LEDGER_EXPORT_EMPTY）、または見積の数が上限（3,000 件）を超える（code は LEDGER_EXPORT_TOO_MANY。記録もファイルも作らない）
  *       401:
  *         description: 認証エラー
  *       403:

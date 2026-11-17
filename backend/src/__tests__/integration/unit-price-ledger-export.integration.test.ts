@@ -13,6 +13,9 @@
  * - 6.4：記録に失敗したらファイルを作らず、500 `EXPORT_RECORD_FAILED` と
  *   「書き出しを記録できなかったため、出力を中止しました」で拒む
  * - 6.5：結果が 0 件の要求は 400 で拒み、記録もファイルも作らない
+ * - 6.6：結果の見積の数が上限を超える要求は 400 `LEDGER_EXPORT_TOO_MANY` で拒み、記録もファイルも作らない
+ *   （上限は依存で小さくして確かめる。既定の値は単体試験が design.md の値と照らす）
+ * - 4.8・4.9：論理削除された案件の受領見積書も書き出し、「削除済みの案件を除く」で一覧と同じく除く
  *
  * 共有の試験 DB には他の試験の受領見積書も残りうるため、試験ごとの印（PREFIX）を文字の絞り込みに入れて
  * 対象を試験の見積に限る。
@@ -29,6 +32,7 @@ import { AuditLogService } from '../../services/audit-log.service.js';
 import { ExportAuditService } from '../../services/export-audit.service.js';
 import {
   LedgerExportService,
+  buildLedgerExportTooManyMessage,
   writeLedgerWorkbook,
   type LedgerExportServiceDependencies,
 } from '../../services/unit-price-ledger/ledger-export.service.js';
@@ -601,6 +605,111 @@ describe('台帳の Excel の書き出し（統合・実 DB）', () => {
         message: '書き出しを記録できなかったため、出力を中止しました',
       });
       expect(writeWorkbook).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('件数の上限（6.6）', () => {
+    /**
+     * @requirement unit-price-ledger/REQ-6.6
+     */
+    it('絞り込みの結果の見積が上限を超える要求は 400 LEDGER_EXPORT_TOO_MANY で拒み、記録もファイルも作らない', async () => {
+      const { service, record, writeWorkbook } = buildService({ maxQuotations: 2 });
+      const before = await exportLogsOf(userId);
+
+      const error = await service.export(filterOf(), userId, CTX).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        statusCode: 400,
+        code: 'LEDGER_EXPORT_TOO_MANY',
+        message: buildLedgerExportTooManyMessage(2),
+        details: { count: 3, maxQuotations: 2 },
+      });
+      expect(record).not.toHaveBeenCalled();
+      expect(writeWorkbook).not.toHaveBeenCalled();
+      expect(await exportLogsOf(userId)).toHaveLength(before.length);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-6.6
+     */
+    it('上限ちょうどの件数は記録してから書き出す', async () => {
+      const { service, record, writeWorkbook } = buildService({ maxQuotations: 3 });
+
+      const result = await service.export(filterOf(), userId, CTX);
+
+      expect(result.quotationCount).toBe(3);
+      expect(record).toHaveBeenCalledTimes(1);
+      expect(writeWorkbook).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('論理削除された案件の受領見積書（4.8・4.9）', () => {
+    /** この群の見積の印（PREFIX を含まない。ほかの群の件数を変えない） */
+    const DP_PREFIX = `${MARK}-dp${RUN}`;
+    let deletedProjectId: string;
+
+    beforeAll(async () => {
+      deletedProjectId = (
+        await prisma.project.create({
+          data: {
+            name: `${DP_PREFIX}-削除した案件`,
+            salesPersonId: userId,
+            createdById: userId,
+            deletedAt: new Date(),
+          },
+          select: { id: true },
+        })
+      ).id;
+      await createQuotation(
+        {
+          projectId: deletedProjectId,
+          vendorName: `${DP_PREFIX}-業者P`,
+          name: `${DP_PREFIX}-業者P見積`,
+          submittedAt: new Date('2026-07-03'),
+        },
+        [{ name: '削除した案件の行', amount: 100, category: 'DIRECT' }]
+      );
+      await createQuotation(
+        {
+          vendorName: `${DP_PREFIX}-業者R`,
+          name: `${DP_PREFIX}-業者R見積`,
+          submittedAt: new Date('2026-07-01'),
+          ledgerProjectName: `${DP_PREFIX}-台帳の案件`,
+        },
+        [{ name: '台帳の行', amount: 300, category: 'DIRECT' }]
+      );
+    });
+
+    afterAll(async () => {
+      await prisma.receivedQuotation.deleteMany({
+        where: { vendorName: { startsWith: DP_PREFIX } },
+      });
+      await prisma.project.deleteMany({ where: { id: deletedProjectId } });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.8
+     * @requirement unit-price-ledger/REQ-4.9
+     */
+    it('論理削除された案件の見積も書き出し、「削除済みの案件を除く」と一覧と同じく除く', async () => {
+      const { service } = buildService();
+
+      const all = await service.export(filterOf({ keyword: DP_PREFIX }), userId, CTX);
+      const excluded = await service.export(
+        filterOf({ keyword: DP_PREFIX, excludeDeletedProjects: true }),
+        userId,
+        CTX
+      );
+
+      const vendorsOf = (buffer: Buffer) =>
+        readWorkbook(buffer)
+          .sheets['見積']!.slice(1)
+          .map((row) => row[0]);
+      expect(all.quotationCount).toBe(2);
+      expect(vendorsOf(all.buffer)).toEqual([`${DP_PREFIX}-業者P`, `${DP_PREFIX}-業者R`]);
+      expect(excluded.quotationCount).toBe(1);
+      expect(vendorsOf(excluded.buffer)).toEqual([`${DP_PREFIX}-業者R`]);
     });
   });
 

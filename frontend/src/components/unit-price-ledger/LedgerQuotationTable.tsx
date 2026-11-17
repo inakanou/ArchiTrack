@@ -6,12 +6,13 @@
  *
  * Requirements (unit-price-ledger):
  * - 4.1: 業者名・見積日・案件名・見積の合計（別途を除く）・採否・読取の確認・参考の行の有無を一覧に出す
+ * - 4.8: 論理削除された案件の見積は、案件名の隣に「削除済みの案件」の印を出す
  */
 
 import { Link } from 'react-router-dom';
 import type { LedgerQuotationSummary } from '../../api/unit-price-ledger';
 import { formatDate } from '../../utils/formatters';
-import { ADOPTION_LABELS, READING_STATUS_LABELS } from './ledger-labels';
+import { ADOPTION_LABELS, DELETED_PROJECT_LABEL, READING_STATUS_LABELS } from './ledger-labels';
 
 export interface LedgerQuotationTableProps {
   /** 一覧の見積（1 ページ分） */
@@ -61,7 +62,14 @@ export default function LedgerQuotationTable({ quotations }: LedgerQuotationTabl
                 </Link>
               </td>
               <td className="px-4 py-3 whitespace-nowrap">{formatDate(quotation.submittedAt)}</td>
-              <td className="px-4 py-3">{quotation.projectName ?? EMPTY_CELL}</td>
+              <td className="px-4 py-3">
+                {quotation.projectName ?? EMPTY_CELL}
+                {quotation.projectDeleted && (
+                  <span className="ml-2 inline-block whitespace-nowrap rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                    {DELETED_PROJECT_LABEL}
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
                 {formatAmount(quotation.totalAmount)}
               </td>

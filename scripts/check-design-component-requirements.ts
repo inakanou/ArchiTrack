@@ -442,9 +442,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     mode: 'ratchet',
     maxContradictions: 0,
     // 2026-11-16 の unit-price-ledger の設計の作成時の実測
+    // 2026-11-17 の unit-price-ledger のタスク 6（要件 4.8・4.9・5.8・6.6）で、詳細節の章を持たなかった
+    // LedgerSearchFilter・LedgerQuotationTable の 2 部品に章を足した実測へ上げた（13 → 15）。矛盾は 0 件のまま
     minPairs: 15,
     minTableDeclarations: 15,
-    minDetailDeclarations: 13,
+    minDetailDeclarations: 15,
     reason: '新設の spec。設計の作成時点で矛盾 0 件。ラチェットで 0 を維持する',
   },
   'user-authentication': {

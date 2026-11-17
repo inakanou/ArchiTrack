@@ -25,7 +25,9 @@ import {
 } from '../../../../errors/unitPriceLedgerError.js';
 import {
   LINE_ITEM_VALIDATION_MESSAGES,
+  RECEIVED_QUOTATION_FIELD_LIMITS,
   RECEIVED_QUOTATION_VALIDATION_MESSAGES,
+  createReceivedQuotationSchema,
   type LineItemInput,
 } from '../../../../schemas/received-quotation.schema.js';
 import {
@@ -677,6 +679,115 @@ describe('LedgerEditService', () => {
 
         expect(tx.tradingPartner.findUnique).not.toHaveBeenCalled();
         expect(claimedData()).toMatchObject({ vendorName: '山田工務店', tradingPartnerId: null });
+      });
+    });
+
+    describe('受領見積書の名前の作り直し（5.8）', () => {
+      /** 今と同じ見積日（quotationRow の submittedAt） */
+      const SAME_DATE = '2026-03-01T00:00:00.000Z';
+
+      beforeEach(() => {
+        tx.receivedQuotation.findUniqueOrThrow.mockResolvedValue(quotationRow());
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('業者名を変えると、取り込みと同じ「業者_見積日」の形で名前を作り直す', async () => {
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ vendorName: ' 鈴木建設 ', submittedAt: SAME_DATE }),
+          ACTOR_ID
+        );
+
+        expect(claimedData()).toMatchObject({
+          vendorName: '鈴木建設',
+          name: '鈴木建設_2026-03-01',
+        });
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('見積日だけを変えても、今の業者名と新しい見積日で名前を作り直す', async () => {
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ submittedAt: '2026-03-02T00:00:00.000Z' }),
+          ACTOR_ID
+        );
+
+        expect(claimedData()).toMatchObject({ name: '山田工務店_2026-03-02' });
+        expect(claimedData()).not.toHaveProperty('vendorName');
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('業者名も見積日も変えないときは、名前を変えない（ほかの欄だけの修正）', async () => {
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ submittedAt: SAME_DATE, quoteNumber: 'Q-777' }),
+          ACTOR_ID
+        );
+
+        expect(claimedData()).not.toHaveProperty('name');
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('取引先を選んで業者名が取引先の名前になったときは、その名前で作り直す', async () => {
+        tx.tradingPartner.findUnique.mockResolvedValue({
+          id: 'tp-9',
+          name: '佐藤設備',
+          deletedAt: null,
+          types: [{ type: 'SUBCONTRACTOR' }],
+        });
+
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ tradingPartnerId: 'tp-9', submittedAt: SAME_DATE }),
+          ACTOR_ID
+        );
+
+        expect(claimedData()).toMatchObject({ name: '佐藤設備_2026-03-01' });
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('名前が受領見積書の名前の上限を超えるときは、上限までで切り詰める', async () => {
+        const vendorName = '長'.repeat(RECEIVED_QUOTATION_FIELD_LIMITS.vendorName);
+
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ vendorName, submittedAt: SAME_DATE }),
+          ACTOR_ID
+        );
+
+        const name = claimedData().name as string;
+        const nameMax = createReceivedQuotationSchema.shape.name.maxLength!;
+        expect(name).toHaveLength(nameMax);
+        expect(`${vendorName}_2026-03-01`.startsWith(name)).toBe(true);
+      });
+
+      /**
+       * @requirement unit-price-ledger/REQ-5.8
+       */
+      it('作り直した名前の前後を監査ログに入れる', async () => {
+        tx.receivedQuotation.findUniqueOrThrow.mockResolvedValue(
+          quotationRow({ vendorName: '鈴木建設', name: '鈴木建設_2026-03-01' })
+        );
+
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ vendorName: '鈴木建設', submittedAt: SAME_DATE }),
+          ACTOR_ID
+        );
+
+        const log = auditInput();
+        expect(log.before).toMatchObject({ name: '台帳の見積', vendorName: '山田工務店' });
+        expect(log.after).toMatchObject({ name: '鈴木建設_2026-03-01', vendorName: '鈴木建設' });
       });
     });
 

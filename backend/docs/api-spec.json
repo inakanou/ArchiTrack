@@ -1395,6 +1395,14 @@
           },
           {
             "in": "query",
+            "name": "excludeDeletedProjects",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true のとき、論理削除された案件の受領見積書を除く（Requirement 4.9）"
+          },
+          {
+            "in": "query",
             "name": "page",
             "schema": {
               "type": "integer",
@@ -1405,7 +1413,7 @@
         ],
         "responses": {
           "200": {
-            "description": "一覧（data は見積の要約の配列、pagination は page・limit・total・totalPages）"
+            "description": "一覧（data は見積の要約の配列、pagination は page・limit・total・totalPages）。要約の projectDeleted は、案件が論理削除されていれば true（Requirement 4.8）"
           },
           "400": {
             "description": "問い合わせの検証の失敗"
@@ -1445,7 +1453,7 @@
         ],
         "responses": {
           "200": {
-            "description": "詳細（updatedAt を修正・印の更新・削除の排他に使う）"
+            "description": "詳細（updatedAt を修正・印の更新・削除の排他に使う。projectDeleted は案件が論理削除されていれば true）"
           },
           "400": {
             "description": "ID の形式の誤り"
@@ -1463,7 +1471,7 @@
       },
       "put": {
         "summary": "案件の無い見積の修正",
-        "description": "業者名・見積日・見積の情報・案件名・原本のパス・明細行の全体を修正する。案件の受領見積書は修正できない。台帳の管理の権限（unit_price_ledger:manage）が要る",
+        "description": "業者名・見積日・見積の情報・案件名・原本のパス・明細行の全体を修正する。業者名か見積日が変わるときは、受領見積書の名前を取り込みと同じ形（業者名_見積日）で作り直す（Requirement 5.8）。案件の受領見積書は修正できない。台帳の管理の権限（unit_price_ledger:manage）が要る",
         "tags": [
           "Unit Price Ledger"
         ],
@@ -1823,6 +1831,9 @@
                   },
                   "missingClassificationKey": {
                     "type": "boolean"
+                  },
+                  "excludeDeletedProjects": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -1842,7 +1853,7 @@
             }
           },
           "400": {
-            "description": "検証の失敗、または結果が 0 件（code は LEDGER_EXPORT_EMPTY）"
+            "description": "検証の失敗、結果が 0 件（code は LEDGER_EXPORT_EMPTY）、または見積の数が上限（3,000 件）を超える（code は LEDGER_EXPORT_TOO_MANY。記録もファイルも作らない）"
           },
           "401": {
             "description": "認証エラー"

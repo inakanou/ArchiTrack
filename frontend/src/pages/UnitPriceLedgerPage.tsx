@@ -19,13 +19,16 @@
  * - 6.1: その時点の絞り込みの結果を Excel に書き出す
  * - 6.4: 出力の記録に失敗したら、ファイルを保存せずに「書き出しを記録できなかったため、出力を中止しました」と出す
  * - 6.5: 0 件のとき書き出しをできないようにする
+ * - 6.6: 見積の数が上限を超えて書き出しを拒まれたら（400 `LEDGER_EXPORT_TOO_MANY`）、サーバーの文言
+ *   （絞り込みを狭める案内）を出す
+ * - 4.9: 「削除済みの案件を除く」の絞り込みも URL の検索の値に持ち、書き出しにも同じ条件を送る
  * - 10.1・10.4: 台帳の管理の権限を持つ利用者だけに内容を出す
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { usePermission } from '../hooks/usePermission';
-import { getApiErrorCode } from '../api/client';
+import { ApiError, getApiErrorCode } from '../api/client';
 import {
   UNIT_PRICE_LEDGER_MANAGE_PERMISSION,
   buildLedgerExportFileName,
@@ -70,6 +73,9 @@ const EXPORT_FAILED_MESSAGE = '書き出しに失敗しました。時間をお�
 /** 出力の記録の失敗のエラーコード（backend の LedgerExportService） */
 const EXPORT_RECORD_FAILED_CODE = 'EXPORT_RECORD_FAILED';
 
+/** 見積の数が上限を超えたときのエラーコード（backend の LedgerExportService。6.6） */
+const EXPORT_TOO_MANY_CODE = 'LEDGER_EXPORT_TOO_MANY';
+
 const BUTTON_CLASS =
   'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -112,6 +118,8 @@ function parseFilter(params: URLSearchParams): LedgerFilter {
     needsReview: pickFlag(params.get('needsReview')) === true ? true : undefined,
     missingClassificationKey:
       pickFlag(params.get('missingClassificationKey')) === true ? true : undefined,
+    excludeDeletedProjects:
+      pickFlag(params.get('excludeDeletedProjects')) === true ? true : undefined,
   };
   const filter: LedgerFilter = {};
   for (const [key, value] of Object.entries(candidate) as Array<
@@ -136,6 +144,19 @@ function buildSearchParams(filter: LedgerFilter, page: number): URLSearchParams 
   }
   if (page > 1) params.set('page', String(page));
   return params;
+}
+
+/**
+ * 書き出しの失敗を画面の文言にする。記録の失敗は 6.4 の文言、上限の超過はサーバーの文言（6.6）、
+ * ほかは書き出しに失敗した旨
+ */
+function toExportErrorMessage(error: unknown): string {
+  const code = getApiErrorCode(error);
+  if (code === EXPORT_RECORD_FAILED_CODE) return EXPORT_RECORD_FAILED_MESSAGE;
+  if (code === EXPORT_TOO_MANY_CODE && error instanceof ApiError && error.message !== '') {
+    return error.message;
+  }
+  return EXPORT_FAILED_MESSAGE;
 }
 
 // ============================================================================
@@ -222,11 +243,7 @@ function LedgerListContent(): ReactElement {
       const blob = await unitPriceLedgerApi.exportLedger({ ...filter });
       saveBlob(blob, buildLedgerExportFileName(new Date()));
     } catch (err) {
-      setExportError(
-        getApiErrorCode(err) === EXPORT_RECORD_FAILED_CODE
-          ? EXPORT_RECORD_FAILED_MESSAGE
-          : EXPORT_FAILED_MESSAGE
-      );
+      setExportError(toExportErrorMessage(err));
     } finally {
       setExporting(false);
     }

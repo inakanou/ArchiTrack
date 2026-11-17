@@ -28,3 +28,6 @@ export const CONSTRUCTION_KIND_LABELS: Readonly<Record<ConstructionKind, string>
   RENOVATION: '改修',
   NEW_CONSTRUCTION: '新営',
 };
+
+/** 論理削除された案件の見積の印（unit-price-ledger 4.8。一覧と詳細で案件名の隣に出す） */
+export const DELETED_PROJECT_LABEL = '削除済みの案件';

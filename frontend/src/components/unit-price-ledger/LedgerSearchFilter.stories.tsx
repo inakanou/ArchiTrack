@@ -48,6 +48,7 @@ export const WithFilter: Story = {
       constructionKind: 'RENOVATION',
       needsReview: true,
       missingClassificationKey: true,
+      excludeDeletedProjects: true,
     },
   },
 };

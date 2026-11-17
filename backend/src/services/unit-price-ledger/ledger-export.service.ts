@@ -11,9 +11,12 @@
  *   記録に失敗したらファイルを作らず、500 `EXPORT_RECORD_FAILED` で拒む（6.3・6.4。schedules の経路の
  *   recordExportBeforeGeneration と同じ順）
  * - 結果が 0 件の要求は、記録もファイルも作らずに 400 で拒む（6.5）
+ * - 読む前に一覧と同じ条件で見積を数え、上限（{@link LEDGER_EXPORT_MAX_QUOTATIONS}。design.md の
+ *   LedgerExportService に記した実測で決めた件数）を超えたら、見積を読まず、記録もファイルも作らずに
+ *   400 `LEDGER_EXPORT_TOO_MANY` で拒む（6.6。全件をメモリに読んで作るため）
  * - 文字の欄は SheetJS の文字のセルとして書くため、「=」などで始まる値も式にならない
  *
- * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 6.1, 6.2, 6.3, 6.4, 6.5
+ * Requirements (unit-price-ledger): 1.1, 1.2, 1.3, 1.4, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
  *
  * @module services/unit-price-ledger/ledger-export.service
  */
@@ -35,6 +38,25 @@ export const LEDGER_EXPORT_RECORD_FAILED_MESSAGE =
 
 /** 0 件の書き出しを拒む文言（requirements.md 4.7 の 0 件の表示と同じ） */
 export const LEDGER_EXPORT_EMPTY_MESSAGE = '条件に合う見積はありません';
+
+/**
+ * 1 回の書き出しの見積の数の上限（6.6）。値は design.md の LedgerExportService に記した実測
+ * （research.md の書き出しの件数とメモリの実測）で決めた
+ */
+export const LEDGER_EXPORT_MAX_QUOTATIONS = 3000;
+
+/**
+ * 上限を超える書き出しを拒む文言（6.6。絞り込みを狭めるように伝える）
+ *
+ * @param maxQuotations - 1 回の書き出しの見積の数の上限
+ */
+export const buildLedgerExportTooManyMessage = (maxQuotations: number): string =>
+  `書き出す見積が多すぎます。一度に書き出せるのは ${maxQuotations.toLocaleString('ja-JP')} 件までです。絞り込みを狭めてから、もう一度書き出してください`;
+
+/** 既定の上限での、上限を超える書き出しを拒む文言 */
+export const LEDGER_EXPORT_TOO_MANY_MESSAGE = buildLedgerExportTooManyMessage(
+  LEDGER_EXPORT_MAX_QUOTATIONS
+);
 
 /** シートの名前（6.1） */
 export const LEDGER_EXPORT_SHEET_NAMES = {
@@ -130,6 +152,8 @@ export interface LedgerExportServiceDependencies {
   writeWorkbook?: (sheets: LedgerExportSheet[]) => Buffer;
   /** ファイル名の日付に使う今の時刻 */
   now?: () => Date;
+  /** 1 回の書き出しの見積の数の上限（既定は {@link LEDGER_EXPORT_MAX_QUOTATIONS}。試験で小さくする） */
+  maxQuotations?: number;
 }
 
 /**
@@ -171,12 +195,14 @@ export class LedgerExportService {
   private readonly exportAuditService: Pick<ExportAuditService, 'record'>;
   private readonly writeWorkbook: (sheets: LedgerExportSheet[]) => Buffer;
   private readonly now: () => Date;
+  private readonly maxQuotations: number;
 
   constructor(deps: LedgerExportServiceDependencies) {
     this.prisma = deps.prisma;
     this.exportAuditService = deps.exportAuditService;
     this.writeWorkbook = deps.writeWorkbook ?? writeLedgerWorkbook;
     this.now = deps.now ?? (() => new Date());
+    this.maxQuotations = deps.maxQuotations ?? LEDGER_EXPORT_MAX_QUOTATIONS;
   }
 
   /**
@@ -186,6 +212,7 @@ export class LedgerExportService {
    * @param actorId - 書き出す利用者
    * @param ctx - 要求の送信元（出力の記録に書く）
    * @throws BadRequestError（400 `LEDGER_EXPORT_EMPTY`）結果が 0 件のとき
+   * @throws BadRequestError（400 `LEDGER_EXPORT_TOO_MANY`）結果の見積の数が上限を超えるとき
    * @throws InternalServerError（500 `EXPORT_RECORD_FAILED`）出力の記録に失敗したとき
    */
   async export(
@@ -193,9 +220,22 @@ export class LedgerExportService {
     actorId: string,
     ctx: RequestContext
   ): Promise<LedgerExportResult> {
+    const where = buildLedgerWhere(filter);
+
+    // 全件をメモリに読む前に数え、0 件と上限の超過を拒む（6.5・6.6。記録もファイルも作らない）
+    const count = await this.prisma.receivedQuotation.count({ where });
+    if (count === 0) {
+      throw new BadRequestError(LEDGER_EXPORT_EMPTY_MESSAGE, 'LEDGER_EXPORT_EMPTY');
+    }
+    if (count > this.maxQuotations) {
+      throw this.tooManyError(count);
+    }
+
     const quotations = await this.prisma.receivedQuotation.findMany({
-      where: buildLedgerWhere(filter),
+      where,
       orderBy: LEDGER_ORDER_BY,
+      // 数えた後に増えた分まで読まないよう、上限を 1 件超える分までに限って読む
+      take: this.maxQuotations + 1,
       select: {
         id: true,
         vendorName: true,
@@ -227,6 +267,10 @@ export class LedgerExportService {
       },
     });
 
+    // 数えた後に消された見積で 0 件になったときも拒む
+    if (quotations.length > this.maxQuotations) {
+      throw this.tooManyError(quotations.length);
+    }
     if (quotations.length === 0) {
       throw new BadRequestError(LEDGER_EXPORT_EMPTY_MESSAGE, 'LEDGER_EXPORT_EMPTY');
     }
@@ -313,5 +357,14 @@ export class LedgerExportService {
       fileName: `単価台帳_${toJstDateStamp(this.now())}.xlsx`,
       quotationCount: quotations.length,
     };
+  }
+
+  /** 上限の超過の誤り（6.6）。count は数えた、または読んだ見積の数 */
+  private tooManyError(count: number): BadRequestError {
+    return new BadRequestError(
+      buildLedgerExportTooManyMessage(this.maxQuotations),
+      'LEDGER_EXPORT_TOO_MANY',
+      { count, maxQuotations: this.maxQuotations }
+    );
   }
 }

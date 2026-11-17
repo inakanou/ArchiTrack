@@ -12,6 +12,7 @@ function summary(overrides: Partial<LedgerQuotationSummary>): LedgerQuotationSum
     projectId: 'p-1',
     estimateRequestId: 'er-1',
     projectName: '庁舎改修工事',
+    projectDeleted: false,
     constructionKind: 'RENOVATION',
     totalAmount: 1234000,
     adoption: 'ADOPTED',
@@ -89,5 +90,15 @@ export const Default: Story = {
 export const SingleRow: Story = {
   args: {
     quotations: [summary({ id: 'q-1' })],
+  },
+};
+
+/** 論理削除された案件の見積（案件名の隣に「削除済みの案件」の印を出す。unit-price-ledger 4.8） */
+export const DeletedProject: Story = {
+  args: {
+    quotations: [
+      summary({ id: 'q-1', projectName: '旧庁舎改修工事', projectDeleted: true }),
+      summary({ id: 'q-2', vendorName: '佐藤塗装', projectName: '倉庫新築' }),
+    ],
   },
 };

@@ -246,6 +246,18 @@ describe('buildLedgerWhere', () => {
   });
 
   /**
+   * @requirement unit-price-ledger/REQ-4.9
+   */
+  it('削除済みの案件を除くは、案件が無いか、案件が論理削除されていない見積に限り、指定しなければ除かない', () => {
+    expect(filterConditions({ excludeDeletedProjects: true })).toEqual([
+      { OR: [{ projectId: null }, { project: { is: { deletedAt: null } } }] },
+    ]);
+    // 除かない指定と、指定しないときは条件を足さない（論理削除された案件の見積も台帳に出る。4.8）
+    expect(filterConditions({ excludeDeletedProjects: false })).toEqual([]);
+    expect(filterConditions({})).toEqual([]);
+  });
+
+  /**
    * @requirement unit-price-ledger/REQ-4.2
    * @requirement unit-price-ledger/REQ-4.3
    * @requirement unit-price-ledger/REQ-4.4
@@ -393,6 +405,32 @@ describe('LedgerQueryService', () => {
       // 集計に現れない（金額を持つ別途以外の行が無い）見積は null
       expect(third).toMatchObject({ id: 'q-3', projectName: null, totalAmount: null });
       expect(result.pagination.totalPages).toBe(1);
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.8
+     */
+    it('案件の論理削除の日時を引き、論理削除された案件の見積だけに削除済みの印を付ける', async () => {
+      prisma.receivedQuotation.findMany.mockResolvedValue([
+        listRow({
+          id: 'q-1',
+          project: { name: '削除した案件', deletedAt: new Date('2026-05-01T00:00:00.000Z') },
+        }),
+        listRow({ id: 'q-2', project: { name: '生きている案件', deletedAt: null } }),
+        listRow({ id: 'q-3', projectId: null, project: null, ledgerProjectName: '台帳の案件' }),
+      ]);
+      prisma.receivedQuotation.count.mockResolvedValue(3);
+      prisma.receivedQuotationLineItem.groupBy.mockResolvedValue([]);
+
+      const result = await service.list({ page: 1 });
+
+      const args = prisma.receivedQuotation.findMany.mock.calls[0]?.[0];
+      expect(args.select.project).toEqual({ select: { name: true, deletedAt: true } });
+      expect(result.data.map((row) => [row.id, row.projectName, row.projectDeleted])).toEqual([
+        ['q-1', '削除した案件', true],
+        ['q-2', '生きている案件', false],
+        ['q-3', '台帳の案件', false],
+      ]);
     });
   });
 
@@ -550,6 +588,32 @@ describe('LedgerQueryService', () => {
         basis: '1式=2',
       });
       expect(result?.lineItems[4]?.conversion).toBeNull();
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-4.8
+     */
+    it('論理削除された案件の見積も詳細を返し、削除済みの印を付ける（生きている案件と案件の無い見積は付けない）', async () => {
+      prisma.receivedQuotation.findFirst.mockResolvedValueOnce(
+        detailRow({
+          projectId: 'p-1',
+          project: { name: '削除した案件', deletedAt: new Date('2026-05-01T00:00:00.000Z') },
+        })
+      );
+      prisma.receivedQuotation.findFirst.mockResolvedValueOnce(
+        detailRow({ projectId: 'p-2', project: { name: '生きている案件', deletedAt: null } })
+      );
+      prisma.receivedQuotation.findFirst.mockResolvedValueOnce(detailRow());
+
+      const deleted = await service.findById('q-1');
+      const live = await service.findById('q-2');
+      const ledgerOnly = await service.findById('q-3');
+
+      const args = prisma.receivedQuotation.findFirst.mock.calls[0]?.[0];
+      expect(args.include.project).toEqual({ select: { name: true, deletedAt: true } });
+      expect(deleted).toMatchObject({ projectName: '削除した案件', projectDeleted: true });
+      expect(live).toMatchObject({ projectName: '生きている案件', projectDeleted: false });
+      expect(ledgerOnly).toMatchObject({ projectName: '台帳の案件', projectDeleted: false });
     });
   });
 });
