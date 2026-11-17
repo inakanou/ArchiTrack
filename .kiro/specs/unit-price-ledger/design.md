@@ -45,10 +45,10 @@
 - 権限・閲覧範囲・出力の記録の仕組みそのもの（user-authentication）
 
 ### Allowed Dependencies
-- estimate-request：受領見積書と明細行のモデル、検証の定義（`backend/src/schemas/received-quotation.schema.ts` の `lineItemSchema`・`receivedQuotationLedgerFieldsShape`）、監査ログの種類（`RECEIVED_QUOTATION_*`）、画面の部品（`LineItemEditor`・`LedgerInfoSection`）
+- estimate-request：受領見積書と明細行のモデル、検証の定義（`backend/src/schemas/received-quotation.schema.ts` の `lineItemSchema`・`receivedQuotationLedgerFieldsShape`）、監査ログの種類（`RECEIVED_QUOTATION_*`）、画面の部品（`LineItemEditor`・`LedgerInfoSection`）、受領見積書の保存と共有する保存の規則（`backend/src/services/received-quotation-rules.ts`。明細行の金額の補い・保存の形・比較の鍵、読取の確認の遷移、監査ログの台帳の項目、取引先の照合と決め直し）、画面の明細行の変換と保存の前の検証（`frontend/src/components/estimate-requests/received-quotation-line-items.ts`）と採否・読取の確認・改修／新営の文字（`frontend/src/components/estimate-requests/ledger-info-form.ts`）。共通の部品はタスク 6.6 で estimate-request の側から出した
 - user-authentication：`requirePermission`、`ProjectScopeService.buildProjectScopeWhere`、`ExportAuditService.record`、`usePermission`
 - trading-partner-management：協力業者の取引先（照合だけ。取引先を作らない）
-- 依存の向き：types → schemas → services → routes → frontend の API → 画面。台帳の部品は estimate-request の部品を呼ばない（モデルと定義だけを使う）
+- 依存の向き：types → schemas → services → routes → frontend の API → 画面。台帳の部品は estimate-request のサービス（`ReceivedQuotationService`）と受領見積書のフォームを呼ばない（モデルと定義、上の共通の部品、画面の部品だけを使う）
 
 ### Revalidation Triggers
 - 受領見積書・明細行のモデルの欄の追加・削除・上限の変更（取り込みの対応づけと検証が変わる）
@@ -142,6 +142,7 @@ backend/
 │   ├── ledger-export.service.ts    # 3 つのシートの Excel
 │   ├── similar-price.service.ts    # 似た単価の検索、並べ方、閲覧範囲による表示制御
 │   └── ledger-allocation.ts        # 按分の計算（純粋な関数）
+├── src/services/received-quotation-rules.ts  # 受領見積書の保存と共有する保存の規則（タスク 6.6）
 ├── src/schemas/unit-price-ledger.schema.ts   # 要求の検証（一覧の絞り込み・修正・印の更新・似た単価の問い合わせ）
 ├── src/routes/unit-price-ledger.routes.ts    # /api/unit-price-ledger の経路と権限
 └── src/errors/unitPriceLedgerError.ts        # 台帳の誤り（取り込みの上限超過・案件の受領見積書の削除の拒否）
@@ -149,6 +150,8 @@ frontend/
 ├── src/api/unit-price-ledger.ts               # unitPriceLedgerApi
 ├── src/pages/UnitPriceLedgerPage.tsx          # 一覧・絞り込み・書き出し・取り込みの入口
 ├── src/pages/LedgerQuotationDetailPage.tsx    # 詳細と修正
+├── src/components/estimate-requests/received-quotation-line-items.ts
+│       # 受領見積書のフォームと共有する明細行の変換と保存の前の検証（タスク 6.6）
 └── src/components/unit-price-ledger/
     ├── LedgerSearchFilter.tsx       # 絞り込みの欄
     ├── LedgerQuotationTable.tsx     # 一覧の表
@@ -171,6 +174,9 @@ e2e/specs/unit-price-ledger/         # 取り込み・一覧・修正・書き�
 - `backend/src/schemas/export-audit.schema.ts` — 案件の無い種類の注記に台帳の Excel を足す（検証の仕組みは変えない）
 - `backend/src/routes/audit-log.routes.ts` — 出力の記録の種類の OpenAPI の列挙に `unit_price_ledger_xlsx` を足す
 - `frontend/src/api/client.ts` — ファイルを返す POST の口 `postBlob` を足す（台帳の書き出しが使う。`getBlob` と同じ流れ）
+- `backend/src/services/received-quotation.service.ts` — 保存の規則を `received-quotation-rules.ts` へ出して使う（タスク 6.6。振る舞いは変えない。確認済みの送り直しで状態の列を書くことと、業者名が空のときの拒否は受領見積書の側に残す）
+- `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx` — 明細行の変換と保存の前の検証を `received-quotation-line-items.ts` へ出して使う（タスク 6.6。振る舞いは変えない）
+- `frontend/src/components/estimate-requests/ledger-info-form.ts`・`frontend/src/components/estimate-requests/LedgerInfoSection.tsx` — 採否・読取の確認・改修／新営の文字を `ledger-info-form.ts` に置き、台帳の情報の欄の選択肢と台帳の画面（`ledger-labels.ts` が同じ定義を出し直す）が使う（タスク 6.6。文字は変えない）
 
 ## System Flows
 

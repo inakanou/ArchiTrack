@@ -1416,8 +1416,17 @@ export function findFeaturelessCoverageHeaders(
  * 帰属は origin/develop（`0999f2f7`）の作業ツリーと本ブランチの作業ツリーで
  * {@link findFeaturelessCoverageHeaders} をファイルごとに数えて測り分けた（2026-11-10 にそれぞれの
  * リポジトリルートで実測。ヘッダー 1982 → 1990（82.5 の前）→ 1981 件、938 → 940 → 937 ファイル）。
+ *
+ * unit-price-ledger のタスク 6.6 が 1 だけ下げた（1981 → 1980）。利用者の判断（2026-11-17）で、受領見積書の
+ * サービスと単価台帳のサービスが書き写し合っていた保存の規則を `backend/src/services/received-quotation-rules.ts`
+ * へ出し、`backend/src/services/received-quotation.service.ts` の明細行の金額の補いのメソッドを取り除いた。
+ * 同メソッドの JSDoc が機能名を欠く `Requirements: 11.12 - …` を 1 件持っていた（識別子を行内に並べる形のため
+ * 眠る名乗りは 0 件）。共通の部品は同じ番号を `Requirements (estimate-request):` の下に名乗る。帰属は
+ * `7fada8de` の版と作業ツリーとで {@link findFeaturelessCoverageHeaders} の対象の行を突き合わせて測った
+ * （2026-11-17 にリポジトリルートから `npm run check:req-coverage` を実行して実測。ヘッダー 1981 → 1980 件、
+ * 937 ファイルのまま、眠る名乗り 5023 件のまま）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 1981;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1980;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）

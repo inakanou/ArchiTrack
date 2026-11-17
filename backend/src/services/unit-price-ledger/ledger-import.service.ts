@@ -15,6 +15,8 @@
  *   カードの ID の一意の部分索引に違反したとき（P2002）も、取り込み済みとして飛ばす（2.14）
  * - 参考の印の有無では取り込みを止めない（3.6）
  * - 監査ログには、協力業者の金額（工事価格・確定金額・明細行の中身）と原本のパスを入れない
+ * - 取引先の照合と監査ログの台帳の項目は、受領見積書の保存と同じ部品（`received-quotation-rules.ts`。
+ *   タスク6.6）を使う
  * - 取り込みの件数（登録・飛ばし・失敗）をログに残す。カードの中身（ID・業者・行など）はログに出さない
  *
  * Requirements (unit-price-ledger): 2.1, 2.3, 2.10, 2.11, 2.12, 2.13, 2.14, 2.15, 2.16, 3.6
@@ -29,6 +31,7 @@ import {
   type ReceivedQuotationAuditMetadata,
 } from '../../types/audit-log.types.js';
 import logger from '../../utils/logger.js';
+import { findSoleSubcontractorIdByName, ledgerAuditFields } from '../received-quotation-rules.js';
 import {
   parseUpload,
   type LedgerCardParseOutcome,
@@ -293,17 +296,7 @@ export class LedgerImportService {
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
             lineItemCount: input.lineItems.length,
-            vendorName: quotation.vendorName,
-            quoteNumber: quotation.quoteNumber,
-            overallConditions: quotation.overallConditions,
-            siteLocation: quotation.siteLocation,
-            constructionKind: quotation.constructionKind,
-            useType: quotation.useType,
-            workConditions: quotation.workConditions,
-            distanceKm: quotation.distanceKm === null ? null : quotation.distanceKm.toNumber(),
-            adoption: quotation.adoption,
-            readingStatus: quotation.readingStatus,
-            quoteDiscriminator: quotation.quoteDiscriminator,
+            ...ledgerAuditFields(quotation),
             ledgerCardId: quotation.ledgerCardId,
             ledgerProjectName: quotation.ledgerProjectName,
           },
@@ -328,11 +321,6 @@ export class LedgerImportService {
     if (name.length === 0) {
       return null;
     }
-    const matches = await tx.tradingPartner.findMany({
-      where: { name, deletedAt: null, types: { some: { type: 'SUBCONTRACTOR' } } },
-      select: { id: true },
-      take: 2,
-    });
-    return matches.length === 1 ? matches[0]!.id : null;
+    return findSoleSubcontractorIdByName(tx, name);
   }
 }

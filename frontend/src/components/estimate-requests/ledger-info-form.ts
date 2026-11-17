@@ -15,6 +15,27 @@ import type {
   ReceivedQuotationLedgerInput,
 } from '../../api/received-quotations';
 
+/**
+ * 採否の文字（46.3）。台帳の情報の欄の選択肢と、単価台帳の画面の表示が使う（unit-price-ledger タスク6.6）
+ */
+export const ADOPTION_LABELS: Readonly<Record<QuotationAdoption, string>> = {
+  ADOPTED: '採用',
+  REJECTED: '不採用',
+  UNKNOWN: '不明',
+};
+
+/** 読取の確認の文字（46.6）。使い手は {@link ADOPTION_LABELS} と同じ */
+export const READING_STATUS_LABELS: Readonly<Record<ReadingStatus, string>> = {
+  UNCONFIRMED: '未確認',
+  CONFIRMED: '確認済み',
+};
+
+/** 改修／新営の文字（46.2）。使い手は {@link ADOPTION_LABELS} と同じ */
+export const CONSTRUCTION_KIND_LABELS: Readonly<Record<ConstructionKind, string>> = {
+  RENOVATION: '改修',
+  NEW_CONSTRUCTION: '新営',
+};
+
 /** 整数円の上限（DB の `Decimal(15,0)`。サーバーの検証と同じ） */
 const MAX_YEN_AMOUNT = 999_999_999_999_999;
 /** 距離の上限（DB の `Decimal(6,1)`。サーバーの検証と同じ） */

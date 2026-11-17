@@ -15,6 +15,8 @@
  * - 修正（5.1）：業者名・見積日・見積の情報・案件名・原本のパスと明細行の全体。送らない見積の情報・案件名・
  *   原本のパスは変えず、null は消す。業者名・取引先は受領見積書の案件の文脈と同じ規則で決め直す（44.5〜44.8）。
  *   明細行は全量を置き換え、金額が無く数量と単価がある行だけ数量×単価を求める（45.12）
+ * - 明細行の金額の補い・保存の形・比較の鍵、読取の確認の遷移、監査ログの台帳の項目、業者名と取引先の決め直しは、
+ *   受領見積書の保存と同じ部品（`received-quotation-rules.ts`。タスク6.6）を使う
  * - 名前の作り直し（5.8）：保存後の業者名か見積日（UTC の日付）が今と違うときは、受領見積書の名前を取り込みと
  *   同じ形（`buildLedgerQuotationName`。業者名と見積日を「_」でつなぎ、名前の上限までで切り詰める）で作り直す。
  *   名前の前後は監査ログの name に入る
@@ -45,17 +47,25 @@ import {
   LedgerProjectQuotationReadOnlyError,
   type LedgerReadOnlyOperation,
 } from '../../errors/unitPriceLedgerError.js';
-import {
-  LINE_ITEM_VALIDATION_MESSAGES,
-  RECEIVED_QUOTATION_VALIDATION_MESSAGES,
-  type LineItemInput,
-} from '../../schemas/received-quotation.schema.js';
+import { LINE_ITEM_VALIDATION_MESSAGES } from '../../schemas/received-quotation.schema.js';
 import {
   UNIT_PRICE_LEDGER_VALIDATION_MESSAGES,
   type LedgerMarksUpdateInput,
   type LedgerQuotationUpdateInput,
 } from '../../schemas/unit-price-ledger.schema.js';
-import type { ReadingStatus } from '../received-quotation.service.js';
+import {
+  decideReadingConfirmation,
+  decideVendorUpdate,
+  fillLineItemAmounts,
+  haveLineItemsChanged,
+  ledgerAuditFields,
+  resolveVendor,
+  toLineItemRow,
+  toScaled,
+  type LedgerAuditSource,
+  type ReadingConfirmationOptions,
+  type VendorAssignment,
+} from '../received-quotation-rules.js';
 import { buildLedgerQuotationName } from './ledger-card-parser.js';
 import {
   LEDGER_BASE_WHERE,
@@ -92,19 +102,6 @@ const LEDGER_COLUMN_KEYS = [
   'ledgerSourcePath',
 ] as const satisfies ReadonlyArray<keyof LedgerQuotationUpdateInput>;
 
-/** 金額・数量の列の小数の桁（DB の Decimal の scale）。明細行の比較の前に揃える */
-const LINE_DECIMAL_SCALES = {
-  quantity: 4,
-  unitPrice: 2,
-  amount: 2,
-  conversionQuantity: 4,
-  conversionUnitPrice: 2,
-} as const;
-
-/** Decimal・数・null を小数の桁で揃えた数にする（比較用） */
-const toScaled = (value: unknown, scale: number): number | null =>
-  value === null || value === undefined ? null : Number(Number(value).toFixed(scale));
-
 /** 見積日（DB の日付）を YYYY-MM-DD にする（取り込みのカードの見積日と同じ UTC の日付） */
 const toDateText = (value: Date): string => value.toISOString().slice(0, 10);
 
@@ -125,110 +122,17 @@ const regenerateName = (
   return { name: buildLedgerQuotationName(vendorName, submittedDate) };
 };
 
-/** Decimal・数・null を数にする（記録用） */
-const toNumberOrNull = (value: unknown): number | null =>
-  value === null || value === undefined ? null : Number(value);
-
-/** 明細行の保存の形（DB の列） */
-interface LineItemRow {
-  sortOrder: number;
-  customCategory: string | null;
-  workType: string | null;
-  name: string;
-  specification: string | null;
-  unit: string | null;
-  quantity: number | null;
-  unitPrice: number | null;
-  amount: number | null;
-  remarks: string | null;
-  category: LineItemInput['category'];
-  condition: string | null;
-  conversionQuantity: number | null;
-  conversionUnit: string | null;
-  conversionUnitPrice: number | null;
-  conversionBasis: string | null;
-  classificationKey: string | null;
-  quantityRowKey: string | null;
-  isReference: boolean;
-  referenceReason: string | null;
-}
-
 /**
- * 明細行の入力を保存の形にする。金額が無く数量と単価が両方あるときだけ、数量×単価を求める
- * （受領見積書の保存と同じ `Math.round`。45.12）。換算は 4 列に分ける
+ * 台帳の読取の確認（確認済みの送り直しでは列を書かない。共通にする前のとおりで、確認者と日時は保つ）
  */
-const toLineItemRow = (item: LineItemInput): LineItemRow => {
-  const quantity = item.quantity ?? null;
-  const unitPrice = item.unitPrice ?? null;
-  const amount =
-    item.amount ??
-    (quantity !== null && unitPrice !== null ? Math.round(quantity * unitPrice) : null);
-  return {
-    sortOrder: item.sortOrder,
-    customCategory: item.customCategory ?? null,
-    workType: item.workType ?? null,
-    name: item.name,
-    specification: item.specification ?? null,
-    unit: item.unit ?? null,
-    quantity,
-    unitPrice,
-    amount,
-    remarks: item.remarks ?? null,
-    category: item.category,
-    condition: item.condition ?? null,
-    conversionQuantity: item.conversion?.quantity ?? null,
-    conversionUnit: item.conversion?.unit ?? null,
-    conversionUnitPrice: item.conversion?.unitPrice ?? null,
-    conversionBasis: item.conversion?.basis ?? null,
-    classificationKey: item.classificationKey ?? null,
-    quantityRowKey: item.quantityRowKey ?? null,
-    isReference: item.isReference,
-    referenceReason: item.referenceReason ?? null,
-  };
-};
-
-/** 明細行の比較の鍵（全列。金額・数量は DB の小数の桁で揃える。46.8 の「明細行の変更」の判定） */
-const lineItemSignature = (row: Record<keyof LineItemRow, unknown>): string =>
-  JSON.stringify([
-    row.sortOrder,
-    row.customCategory ?? null,
-    row.workType ?? null,
-    row.name,
-    row.specification ?? null,
-    row.unit ?? null,
-    toScaled(row.quantity, LINE_DECIMAL_SCALES.quantity),
-    toScaled(row.unitPrice, LINE_DECIMAL_SCALES.unitPrice),
-    toScaled(row.amount, LINE_DECIMAL_SCALES.amount),
-    row.remarks ?? null,
-    row.category ?? 'DIRECT',
-    row.condition ?? null,
-    toScaled(row.conversionQuantity, LINE_DECIMAL_SCALES.conversionQuantity),
-    row.conversionUnit ?? null,
-    toScaled(row.conversionUnitPrice, LINE_DECIMAL_SCALES.conversionUnitPrice),
-    row.conversionBasis ?? null,
-    row.classificationKey ?? null,
-    row.quantityRowKey ?? null,
-    row.isReference ?? false,
-    row.referenceReason ?? null,
-  ]);
+const READING_CONFIRMATION_OPTIONS: ReadingConfirmationOptions = { reconfirm: 'omit' };
 
 /** 受領見積書の行のうち、監査ログと判定に使う欄 */
-interface QuotationAuditSource {
+interface QuotationAuditSource extends LedgerAuditSource {
   estimateRequestId: string | null;
   name: string;
   submittedAt: Date;
   fileName: string | null;
-  vendorName: string;
-  quoteNumber: string | null;
-  overallConditions: string | null;
-  siteLocation: string | null;
-  constructionKind: string | null;
-  useType: string | null;
-  workConditions: string | null;
-  distanceKm: unknown;
-  adoption: string;
-  readingStatus: string;
-  quoteDiscriminator: string;
   ledgerCardId: string | null;
   ledgerProjectName: string | null;
 }
@@ -246,17 +150,7 @@ const auditFields = (
   submittedAt: quotation.submittedAt.toISOString(),
   fileName: quotation.fileName,
   lineItemCount,
-  vendorName: quotation.vendorName,
-  quoteNumber: quotation.quoteNumber,
-  overallConditions: quotation.overallConditions,
-  siteLocation: quotation.siteLocation,
-  constructionKind: quotation.constructionKind,
-  useType: quotation.useType,
-  workConditions: quotation.workConditions,
-  distanceKm: toNumberOrNull(quotation.distanceKm),
-  adoption: quotation.adoption,
-  readingStatus: quotation.readingStatus,
-  quoteDiscriminator: quotation.quoteDiscriminator,
+  ...ledgerAuditFields(quotation),
   ledgerCardId: quotation.ledgerCardId,
   ledgerProjectName: quotation.ledgerProjectName,
 });
@@ -330,46 +224,6 @@ const diffLineItemMarks = (
 };
 
 /**
- * 読取の確認の遷移を決める（受領見積書の保存と同じ規則。46.6〜46.8）
- *
- * 1. 保存前が確認済みで明細行が変わる → 未確認に戻し、確認者と日時を消す（確認済みを送っていても戻す）
- * 2. 確認済みを送り、保存前が未確認 → 確認済み、確認者は操作した利用者、日時は今（5.4）
- * 3. それ以外は入力のとおり（未確認を送れば確認者と日時を消す。確認済みを送り直しても確認者と日時は保つ。
- *    送らなければ変えない）
- */
-const decideReadingConfirmation = (
-  previousStatus: ReadingStatus,
-  requested: ReadingStatus | undefined,
-  lineItemsChanged: boolean,
-  actorId: string
-): Pick<
-  Prisma.ReceivedQuotationUncheckedUpdateManyInput,
-  'readingStatus' | 'readingConfirmedById' | 'readingConfirmedAt'
-> => {
-  const unconfirmed = {
-    readingStatus: 'UNCONFIRMED' as const,
-    readingConfirmedById: null,
-    readingConfirmedAt: null,
-  };
-  if (previousStatus === 'CONFIRMED' && lineItemsChanged) {
-    return unconfirmed;
-  }
-  if (requested === 'CONFIRMED') {
-    return previousStatus === 'CONFIRMED'
-      ? {}
-      : {
-          readingStatus: 'CONFIRMED',
-          readingConfirmedById: actorId,
-          readingConfirmedAt: new Date(),
-        };
-  }
-  if (requested === 'UNCONFIRMED') {
-    return unconfirmed;
-  }
-  return {};
-};
-
-/**
  * 台帳の画面からの修正・削除のサービス
  */
 export class LedgerEditService {
@@ -401,7 +255,10 @@ export class LedgerEditService {
     actorId: string
   ): Promise<LedgerQuotationDetail> {
     const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
-    const lineRows = input.lineItems.map(toLineItemRow).sort((a, b) => a.sortOrder - b.sortOrder);
+    // 金額が無く数量と単価がある行だけ数量×単価を求め（45.12）、保存の形にして表示順に並べる
+    const lineRows = fillLineItemAmounts(input.lineItems)
+      .map(toLineItemRow)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
 
     return await this.prisma.$transaction(async (tx) => {
       const current = await this.findEditable(tx, id, 'update', expectedUpdatedAt);
@@ -410,11 +267,7 @@ export class LedgerEditService {
         where: { receivedQuotationId: id },
         orderBy: { sortOrder: 'asc' },
       });
-      const lineItemsChanged =
-        beforeLines.length !== lineRows.length ||
-        beforeLines.some(
-          (line, index) => lineItemSignature(line) !== lineItemSignature(lineRows[index]!)
-        );
+      const lineItemsChanged = haveLineItemsChanged(beforeLines, lineRows);
 
       const vendor = await this.resolveVendor(tx, current, input);
       const submittedAt = new Date(input.submittedAt);
@@ -427,7 +280,8 @@ export class LedgerEditService {
           current.readingStatus,
           input.readingStatus,
           lineItemsChanged,
-          actorId
+          actorId,
+          READING_CONFIRMATION_OPTIONS
         ),
       };
 
@@ -556,7 +410,13 @@ export class LedgerEditService {
 
       // 明細行だけを変えるときも、受領見積書の更新の日時を進めて版を取る（5.6）
       await this.claimVersion(tx, id, current.projectId, expectedUpdatedAt, {
-        ...decideReadingConfirmation(current.readingStatus, input.readingStatus, false, actorId),
+        ...decideReadingConfirmation(
+          current.readingStatus,
+          input.readingStatus,
+          false,
+          actorId,
+          READING_CONFIRMATION_OPTIONS
+        ),
         updatedAt: new Date(),
       });
 
@@ -672,44 +532,10 @@ export class LedgerEditService {
    */
   private async resolveVendor(
     tx: Prisma.TransactionClient,
-    current: { vendorName: string; tradingPartnerId: string | null },
+    current: VendorAssignment,
     input: LedgerQuotationUpdateInput
-  ): Promise<{ vendorName: string; tradingPartnerId: string | null } | null> {
-    const vendorName = input.vendorName.trim();
-    const sameName = vendorName === current.vendorName;
-    const samePartner =
-      input.tradingPartnerId === undefined ||
-      (input.tradingPartnerId !== null && input.tradingPartnerId === current.tradingPartnerId);
-    if (sameName && samePartner) {
-      return null;
-    }
-
-    const partnerChoice =
-      input.tradingPartnerId !== undefined && input.tradingPartnerId !== current.tradingPartnerId
-        ? input.tradingPartnerId
-        : null;
-    if (partnerChoice !== null) {
-      const partner = await tx.tradingPartner.findUnique({
-        where: { id: partnerChoice },
-        select: { id: true, name: true, deletedAt: true, types: { select: { type: true } } },
-      });
-      const isLiveSubcontractor =
-        partner !== null &&
-        partner.deletedAt === null &&
-        partner.types.some((t) => t.type === 'SUBCONTRACTOR');
-      if (!isLiveSubcontractor) {
-        throw new ValidationError(
-          RECEIVED_QUOTATION_VALIDATION_MESSAGES.TRADING_PARTNER_NOT_SUBCONTRACTOR
-        );
-      }
-      return { vendorName: partner.name, tradingPartnerId: partner.id };
-    }
-
-    const matches = await tx.tradingPartner.findMany({
-      where: { name: vendorName, deletedAt: null, types: { some: { type: 'SUBCONTRACTOR' } } },
-      select: { id: true },
-      take: 2,
-    });
-    return { vendorName, tradingPartnerId: matches.length === 1 ? matches[0]!.id : null };
+  ): Promise<VendorAssignment | null> {
+    const choice = decideVendorUpdate(current, input);
+    return choice === null ? null : resolveVendor(tx, choice.vendorName, choice.tradingPartnerId);
   }
 }

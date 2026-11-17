@@ -4,10 +4,9 @@
  * 台帳の詳細（`LedgerQuotationDetail`）から修正の欄の値を作り、保存の入力（`LedgerQuotationUpdateInput`）へ直す。
  * 明細行は `LineItemEditor` の値の形、台帳の情報は `LedgerInfoSection` の値の形を使う。
  *
- * 明細行の変換と検証（区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由）は、受領見積書のフォーム
- * （ReceivedQuotationForm の convertToLineItemFormData・convertToLineItemInput・validateLineItemsForSave）と
- * 同じ規則にそろえた。あちらは部品の外へ出されていないため、同じ処理をここに書いた（estimate-request の側を
- * 変えないため）。
+ * 明細行の変換と検証（区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由）は、受領見積書のフォームと
+ * 同じ部品（`components/estimate-requests/received-quotation-line-items.ts` の convertToLineItemFormData・
+ * convertToLineItemInput・validateLineItemsForSave）を使う（タスク6.6。以前は同じ処理をここに書き写していた）。
  *
  * Requirements (unit-price-ledger):
  * - 5.1: 業者名・見積日・見積の情報・案件名・原本のパスと、明細行の全体を修正する
@@ -18,24 +17,19 @@ import type {
   LedgerQuotationDetail,
   LedgerQuotationUpdateInput,
 } from '../../api/unit-price-ledger';
-import type { LineItemConversion, LineItemInput } from '../../api/received-quotations';
+import { sortBySortOrder, type LineItemFormData } from '../estimate-requests/LineItemEditor';
 import {
-  calculateAmount,
-  createEmptyLineItem,
-  ensureSortOrders,
-  getLineItemLedgerFields,
-  sortBySortOrder,
-  type LineItemFormData,
-  type LineItemLedgerFormData,
-} from '../estimate-requests/LineItemEditor';
-import { formatQuantity, formatUnitPrice } from '../estimate-requests/number-format';
+  convertToLineItemFormData,
+  convertToLineItemInput,
+  getSubmittedLineItems,
+  validateLineItemsForSave,
+} from '../estimate-requests/received-quotation-line-items';
 import {
   createLedgerInfoFormData,
   toLedgerInfoInput,
   validateLedgerInfo,
   type LedgerInfoFormData,
 } from '../estimate-requests/ledger-info-form';
-import { LINE_ITEM_SAVE_VALIDATION_MESSAGES } from '../estimate-requests/received-quotation-form-messages';
 import { formatDate } from '../../utils/formatters';
 
 // ============================================================================
@@ -87,126 +81,6 @@ export interface LedgerQuotationValidation {
 }
 
 // ============================================================================
-// 明細行
-// ============================================================================
-
-/** 数の欄の文字を数にする（空・数でない文字は null） */
-function parseNumberText(text: string): number | null {
-  const trimmed = text.trim();
-  if (trimmed === '') return null;
-  const value = parseFloat(trimmed);
-  return Number.isNaN(value) ? null : value;
-}
-
-/** 換算の欄のうち入力されたものの数（0〜4。単価は数として読めるときだけ数える） */
-function countConversionParts(ledger: LineItemLedgerFormData): number {
-  return [
-    ledger.conversionQuantity.trim() !== '',
-    ledger.conversionUnit.trim() !== '',
-    parseNumberText(ledger.conversionUnitPrice) !== null,
-    ledger.conversionBasis.trim() !== '',
-  ].filter(Boolean).length;
-}
-
-/** 換算の欄を保存の入力にする。4 つが揃うときだけ値を持ち、そうでなければ null */
-function toConversionInput(ledger: LineItemLedgerFormData): LineItemConversion | null {
-  const quantity = parseNumberText(ledger.conversionQuantity);
-  const unitPrice = parseNumberText(ledger.conversionUnitPrice);
-  if (countConversionParts(ledger) !== 4 || quantity === null || unitPrice === null) return null;
-  return { quantity, unit: ledger.conversionUnit, unitPrice, basis: ledger.conversionBasis };
-}
-
-const toNullableText = (text: string): string | null => (text === '' ? null : text);
-
-/** 保存で送る明細行（名称の空の行は送らない） */
-function getSubmittedLineItems(items: LineItemFormData[]): LineItemFormData[] {
-  return items.filter((item) => item.name.trim() !== '');
-}
-
-/** 詳細の明細行を LineItemEditor の値にする（並び順で並べる。行が無ければ空の 1 行） */
-function toLineItemFormData(items: LedgerQuotationDetail['lineItems']): LineItemFormData[] {
-  if (items.length === 0) return [createEmptyLineItem(0)];
-  const intermediate = items.map((item) => ({
-    id: item.id,
-    sortOrder: item.sortOrder,
-    customCategory: item.customCategory ?? '',
-    workType: item.workType ?? '',
-    name: item.name,
-    specification: item.specification ?? '',
-    unit: item.unit ?? '',
-    quantity: formatQuantity(item.quantity !== null ? String(item.quantity) : ''),
-    unitPrice: formatUnitPrice(item.unitPrice !== null ? String(item.unitPrice) : ''),
-    amount: item.amount,
-    remarks: item.remarks ?? '',
-    category: item.category,
-    condition: item.condition ?? '',
-    conversionQuantity: item.conversion ? String(item.conversion.quantity) : '',
-    conversionUnit: item.conversion?.unit ?? '',
-    conversionUnitPrice: item.conversion ? formatUnitPrice(String(item.conversion.unitPrice)) : '',
-    conversionBasis: item.conversion?.basis ?? '',
-    classificationKey: item.classificationKey ?? '',
-    quantityRowKey: item.quantityRowKey ?? '',
-    isReference: item.isReference,
-    referenceReason: item.referenceReason ?? '',
-  }));
-  return sortBySortOrder(ensureSortOrders(intermediate));
-}
-
-/** LineItemEditor の値を保存の入力にする（名称の空の行を除き、並びの順に 0 から番号を振る） */
-function toLineItemInputs(items: LineItemFormData[]): LineItemInput[] {
-  return getSubmittedLineItems(sortBySortOrder(items)).map((item, index) => {
-    const ledger = getLineItemLedgerFields(item);
-    return {
-      name: item.name.trim(),
-      customCategory: item.customCategory.trim() || undefined,
-      workType: item.workType.trim() || undefined,
-      specification: item.specification.trim() || undefined,
-      unit: item.unit.trim() || undefined,
-      quantity: item.quantity ? parseFloat(item.quantity) : undefined,
-      unitPrice: item.unitPrice ? parseFloat(item.unitPrice) : undefined,
-      amount: item.amount ?? undefined,
-      remarks: item.remarks.trim() || undefined,
-      sortOrder: index,
-      category: ledger.category,
-      condition: toNullableText(ledger.condition),
-      conversion: toConversionInput(ledger),
-      classificationKey: toNullableText(ledger.classificationKey),
-      quantityRowKey: toNullableText(ledger.quantityRowKey),
-      isReference: ledger.isReference,
-      referenceReason: ledger.referenceReason.trim() === '' ? null : ledger.referenceReason,
-    };
-  });
-}
-
-/** 明細行を backend の明細行の検証（値引きの金額・換算の 4 つの欄・参考の理由）と同じ規則で確かめる */
-function validateLineItems(items: LineItemFormData[]): Record<string, string[]> {
-  const result: Record<string, string[]> = {};
-  const messages = LINE_ITEM_SAVE_VALIDATION_MESSAGES;
-  for (const item of getSubmittedLineItems(items)) {
-    const ledger = getLineItemLedgerFields(item);
-    const rowErrors: string[] = [];
-    if (ledger.category === 'DISCOUNT') {
-      const effectiveAmount = item.amount ?? calculateAmount(item.quantity, item.unitPrice);
-      if (effectiveAmount !== null && effectiveAmount > 0) {
-        rowErrors.push(messages.DISCOUNT_AMOUNT_POSITIVE);
-      }
-    }
-    const conversionParts = countConversionParts(ledger);
-    if (conversionParts > 0) {
-      const quantity = parseNumberText(ledger.conversionQuantity);
-      if (conversionParts < 4 || quantity === null || quantity <= 0) {
-        rowErrors.push(messages.CONVERSION_INCOMPLETE);
-      }
-    }
-    if (!ledger.isReference && ledger.referenceReason.trim() !== '') {
-      rowErrors.push(messages.REFERENCE_REASON_WITHOUT_REFERENCE);
-    }
-    if (rowErrors.length > 0) result[item.id] = rowErrors;
-  }
-  return result;
-}
-
-// ============================================================================
 // 見積全体
 // ============================================================================
 
@@ -220,7 +94,7 @@ export function createLedgerQuotationFormData(
     ledgerProjectName: detail.ledgerProjectName ?? '',
     ledgerSourcePath: detail.ledgerSourcePath ?? '',
     ledgerInfo: createLedgerInfoFormData(detail),
-    lineItems: toLineItemFormData(detail.lineItems),
+    lineItems: convertToLineItemFormData(detail.lineItems),
   };
 }
 
@@ -244,7 +118,7 @@ export function validateLedgerQuotationForm(
   }
   return {
     fieldErrors,
-    lineItemErrors: validateLineItems(data.lineItems),
+    lineItemErrors: validateLineItemsForSave(data.lineItems),
     hasLedgerInfoErrors: Object.keys(validateLedgerInfo(data.ledgerInfo)).length > 0,
   };
 }
@@ -279,7 +153,8 @@ export function toLedgerQuotationUpdateInput(
     ledgerProjectName: data.ledgerProjectName.trim() === '' ? null : data.ledgerProjectName,
     ledgerSourcePath: data.ledgerSourcePath.trim() === '' ? null : data.ledgerSourcePath,
     ...toLedgerInfoInput(data.ledgerInfo),
-    lineItems: toLineItemInputs(data.lineItems),
+    // 並びの順に並べてから、名称の空の行を除き 0 から番号を振る
+    lineItems: convertToLineItemInput(sortBySortOrder(data.lineItems)),
     expectedUpdatedAt: detail.updatedAt.toISOString(),
   };
 }
