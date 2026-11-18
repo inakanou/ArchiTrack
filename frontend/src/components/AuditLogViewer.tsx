@@ -61,6 +61,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
       LOGIN_FAILED: 'ログイン失敗',
       LOGOUT: 'ログアウト',
       PASSWORD_CHANGED: 'パスワード変更',
+      TWO_FACTOR_SETUP_STARTED: '2FA設定開始',
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
       ...INVITATION_AUDIT_ACTION_LABELS,

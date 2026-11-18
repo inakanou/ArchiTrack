@@ -264,14 +264,14 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * 要件2.6: パスワード複雑性の検証（大文字・小文字・数字・記号を各1文字以上）
-   * WHEN 必要な文字種を含まないパスワードを入力する
-   * THEN エラーメッセージが表示される
+   * 要件2.6: パスワード複雑性の検証（大文字・小文字・数字・記号のうち3種類以上）
+   * WHEN 3種類に満たない文字種のパスワードを入力する
+   * THEN 足りない文字種を示すエラーメッセージが表示される（backend と同じ文言）
    * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
   test('大文字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（小文字+数字）: 大文字なし、記号なし
-    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    // 要件2.6 は3種類以上を要求するため、2種類のみでエラーになる
     await page.locator('input#password').fill('xyzuniqtest12');
     await page.locator('input#passwordConfirm').fill('xyzuniqtest12');
     await page.getByLabel(/表示名/i).fill('Test User');
@@ -279,6 +279,7 @@ test.describe('新規登録機能', () => {
     await page.getByRole('button', { name: /登録/i }).click();
 
     await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
   });
 
   /**
@@ -286,7 +287,7 @@ test.describe('新規登録機能', () => {
    */
   test('小文字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（大文字+数字）: 小文字なし、記号なし
-    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    // 要件2.6 は3種類以上を要求するため、2種類のみでエラーになる
     await page.locator('input#password').fill('XYZUNIQTEST12');
     await page.locator('input#passwordConfirm').fill('XYZUNIQTEST12');
     await page.getByLabel(/表示名/i).fill('Test User');
@@ -294,6 +295,7 @@ test.describe('新規登録機能', () => {
     await page.getByRole('button', { name: /登録/i }).click();
 
     await expect(page.getByText(/パスワードは小文字を1文字以上含む必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
   });
 
   /**
@@ -301,7 +303,7 @@ test.describe('新規登録機能', () => {
    */
   test('数字を含まないパスワードではエラーが表示される', async ({ page }) => {
     // 2種類のみ（小文字+大文字）: 数字なし、記号なし
-    // バックエンドは3種類以上を要求するため、2種類のみでエラーになる
+    // 要件2.6 は3種類以上を要求するため、2種類のみでエラーになる
     await page.locator('input#password').fill('XyzUniqTestAbc');
     await page.locator('input#passwordConfirm').fill('XyzUniqTestAbc');
     await page.getByLabel(/表示名/i).fill('Test User');
@@ -309,20 +311,29 @@ test.describe('新規登録機能', () => {
     await page.getByRole('button', { name: /登録/i }).click();
 
     await expect(page.getByText(/パスワードは数字を1文字以上含む必要があります/i)).toBeVisible();
+    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
   });
 
   /**
+   * 要件2.6: 3種類以上の文字種を含めば、記号が無くても登録を拒まない
+   * （要件と backend に無い「4種類全て」の規則を画面だけが課さないことを確かめる）
    * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
-  test('記号を含まないパスワードではエラーが表示される', async ({ page }) => {
-    // 大文字・小文字・数字あり、記号なし（12文字以上）
+  test('記号を含まなくても3種類の文字種を含むパスワードで登録できる', async ({ page }) => {
+    // 大文字・小文字・数字の3種類、記号なし（12文字以上）
     await page.locator('input#password').fill('XyzUniqTest123');
     await page.locator('input#passwordConfirm').fill('XyzUniqTest123');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
 
-    await expect(page.getByText(/パスワードは記号を1文字以上含む必要があります/i)).toBeVisible();
+    // 登録が受け付けられ、2FA 設定の画面へ進む（要件34.5）
+    await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+    const registered = await getPrismaClient().user.findUnique({
+      where: { email: 'newuser@example.com' },
+      select: { id: true },
+    });
+    expect(registered).not.toBeNull();
   });
 
   /**
@@ -348,22 +359,48 @@ test.describe('新規登録機能', () => {
   });
 
   /**
-   * 要件2.8: 連続した同一文字の禁止（3文字以上）
-   * WHEN 3文字以上連続した同一文字を含むパスワードを入力する
-   * THEN エラーメッセージが表示される
-   * @requirement user-authentication/REQ-2.8 @requirement user-authentication/REQ-12.5
+   * 要件2.5・2.6: 長さと文字種の要件を満たせば、同じ文字が3つ以上続いても登録を拒まない
+   * （要件と backend に無い「同じ文字の連続の禁止」を画面だけが課さないことを確かめる）
+   * @requirement user-authentication/REQ-2.6 @requirement user-authentication/REQ-12.5
    */
-  test('連続した同一文字を含むパスワードではエラーが表示される', async ({ page }) => {
-    // ユニークなパスワード: 'sss'が連続、12文字以上
+  test('同じ文字が3つ以上続いても要件を満たすパスワードで登録できる', async ({ page }) => {
+    // ユニークなパスワード: 'sss'が連続、4種類、12文字以上
     await page.locator('input#password').fill('XyzPassss12!@');
     await page.locator('input#passwordConfirm').fill('XyzPassss12!@');
     await page.getByLabel(/表示名/i).fill('Test User');
     await page.getByRole('checkbox').check();
     await page.getByRole('button', { name: /登録/i }).click();
 
-    await expect(
-      page.getByText(/パスワードに3文字以上の連続した同一文字を含めることはできません/i)
-    ).toBeVisible();
+    // 登録が受け付けられ、2FA 設定の画面へ進む（要件34.5）
+    await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+    const registered = await getPrismaClient().user.findUnique({
+      where: { email: 'newuser@example.com' },
+      select: { id: true },
+    });
+    expect(registered).not.toBeNull();
+  });
+
+  /**
+   * 要件2.8: パスワードにユーザーの表示名が含まれる場合は登録を拒否する
+   * WHEN 表示名（空白を除く）を含むパスワードで登録する
+   * THEN 登録は拒否され、ユーザー情報を含められない旨のエラーメッセージが表示される
+   * @requirement user-authentication/REQ-2.8 @requirement user-authentication/REQ-12.5
+   */
+  test('表示名を含むパスワードでは登録が拒否される', async ({ page }) => {
+    // 長さ・文字種の要件は満たし、表示名 'Test User' の空白を除いた 'testuser' を大文字小文字違いで含む
+    await page.locator('input#password').fill('Xy!9TestUser2026');
+    await page.locator('input#passwordConfirm').fill('Xy!9TestUser2026');
+    await page.getByLabel(/表示名/i).fill('Test User');
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: /登録/i }).click();
+
+    await expect(page.getByText(/パスワードにユーザー情報を含めることはできません/)).toBeVisible();
+    await expect(page).toHaveURL(/\/register/);
+    const registered = await getPrismaClient().user.findUnique({
+      where: { email: 'newuser@example.com' },
+      select: { id: true },
+    });
+    expect(registered).toBeNull();
   });
 
   /**

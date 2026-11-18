@@ -25,7 +25,7 @@
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import type { APIRequestContext, BrowserContext, Page, Response } from '@playwright/test';
+import type { APIRequestContext, BrowserContext, Page, Response, Route } from '@playwright/test';
 import { API_BASE_URL, FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
 import {
@@ -361,18 +361,24 @@ test.describe('トークンの取り扱い（要件33）', () => {
     const forwarded = new Promise<number>((resolve) => {
       reportForwarded = resolve;
     });
-    await page.route(
-      `**${REFRESH_PATH}`,
-      async (route) => {
-        rotationStartedAt = Date.now();
-        const response = await refreshWithCookie(forwarder);
-        rotationEndedAt = Date.now();
-        reportForwarded(response.status());
-        await released;
-        await route.abort('aborted').catch(() => undefined);
-      },
-      { times: 1 }
-    );
+    // 止めるのは最初のリフレッシュだけで、後の要求はそのまま通す。`{ times: 1 }` で登録すると、
+    // 止めた要求を放した時点で横取りの登録が外れ、ブラウザの横取りの設定がちょうど次の画面の
+    // リフレッシュの送信と重なって更新されるため、登録はテストの終わりまで残し、手続きの中で振り分ける
+    let held = false;
+    const holdFirstRefresh = async (route: Route) => {
+      if (held) {
+        await route.continue();
+        return;
+      }
+      held = true;
+      rotationStartedAt = Date.now();
+      const response = await refreshWithCookie(forwarder);
+      rotationEndedAt = Date.now();
+      reportForwarded(response.status());
+      await released;
+      await route.abort('aborted').catch(() => undefined);
+    };
+    await page.route(`**${REFRESH_PATH}`, holdFirstRefresh);
 
     await page.reload({ waitUntil: 'commit' });
     // サーバーは置き換えを終えている（ブラウザの Cookie は置き換え前のまま）
@@ -400,6 +406,8 @@ test.describe('トークンの取り扱い（要件33）', () => {
     const current = (await refreshCookieOfBrowser(context)).value;
     expect(current).not.toBe(first);
     expect(current).not.toBe(lost);
+
+    await page.unroute(`**${REFRESH_PATH}`, holdFirstRefresh);
   });
 
   /**

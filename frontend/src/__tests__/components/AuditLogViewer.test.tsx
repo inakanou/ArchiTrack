@@ -359,6 +359,25 @@ describe('AuditLogViewer', () => {
     expect(screen.queryByText('USER_DELETED')).not.toBeInTheDocument();
   });
 
+  it('2FA の設定の開始の記録を表示名で表示する（要件22.2）', () => {
+    const logs: AuditLog[] = [
+      {
+        id: 'two-factor-setup-started',
+        actorId: 'user-1',
+        actorEmail: 'user@example.com',
+        action: 'TWO_FACTOR_SETUP_STARTED',
+        targetType: 'User',
+        targetId: 'user-1',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(<AuditLogViewer logs={logs} loading={false} />);
+
+    expect(screen.getByText('2FA設定開始')).toBeInTheDocument();
+    expect(screen.queryByText('TWO_FACTOR_SETUP_STARTED')).not.toBeInTheDocument();
+  });
+
   it('プロジェクトの完全削除の記録を表示名で表示する（project-management 要件46.6）', () => {
     const logs: AuditLog[] = [
       {

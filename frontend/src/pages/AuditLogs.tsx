@@ -43,8 +43,12 @@ export function AuditLogs() {
 
   /**
    * 監査ログ一覧を取得
+   *
+   * 絞り込み・ページの変更で要求が重なったとき、後から届いた前の要求の応答（成功・失敗とも）で
+   * 一覧・読み込み中・エラーの表示を上書きしない。`isStale` は、この要求より後に要求を始めたか
+   * 画面を離れたら true を返す
    */
-  const fetchLogs = async () => {
+  const fetchLogs = async (isStale: () => boolean) => {
     setLoading(true);
     setError('');
 
@@ -64,16 +68,28 @@ export function AuditLogs() {
       }
 
       const data = await apiClient.get<AuditLog[]>(`/api/v1/audit-logs?${params.toString()}`);
+      if (isStale()) {
+        return;
+      }
       setLogs(data || []);
     } catch {
+      if (isStale()) {
+        return;
+      }
       setError('監査ログを取得できませんでした');
     } finally {
-      setLoading(false);
+      if (!isStale()) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchLogs();
+    let stale = false;
+    fetchLogs(() => stale);
+    return () => {
+      stale = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, actionFilter, startDate, endDate]);
 
@@ -132,6 +148,7 @@ export function AuditLogs() {
       LOGIN_FAILED: 'ログイン失敗',
       LOGOUT: 'ログアウト',
       PASSWORD_CHANGED: 'パスワード変更',
+      TWO_FACTOR_SETUP_STARTED: '2FA設定開始',
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
       ...INVITATION_AUDIT_ACTION_LABELS,
@@ -223,6 +240,7 @@ export function AuditLogs() {
             }}
           >
             <option value="">全て</option>
+            <option value="TWO_FACTOR_SETUP_STARTED">2FA設定開始</option>
             <option value="TWO_FACTOR_ENABLED">2FA有効化</option>
             <option value="TWO_FACTOR_DISABLED">2FA無効化</option>
             <option value="ROLE_CREATED">ロール作成</option>

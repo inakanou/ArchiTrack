@@ -239,7 +239,7 @@ describe('Profile - 2FA機能', () => {
       });
     });
 
-    it('大文字を含まないパスワードでエラーを表示する', async () => {
+    it('文字種が3種類に満たない（大文字と記号を含まない）パスワードで足りない文字種を全て示す（要件2.6）', async () => {
       const user = userEvent.setup();
       render(<Profile />);
 
@@ -248,17 +248,20 @@ describe('Profile - 2FA機能', () => {
       const confirmPasswordField = screen.getByLabelText('新しいパスワード（確認）');
       const changePasswordButton = screen.getByRole('button', { name: /パスワードを変更/i });
 
-      // 12文字以上だが大文字なし
+      // 12文字以上だが大文字も記号も無い（文字種は小文字・数字の2種類。要件2.6 は3種類以上）
       await user.type(currentPasswordField, 'CurrentPass1!');
-      await user.type(newPasswordField, 'lowercaseonly1!'); // 大文字なし
-      await user.type(confirmPasswordField, 'lowercaseonly1!');
+      await user.type(newPasswordField, 'lowercaseonly12');
+      await user.type(confirmPasswordField, 'lowercaseonly12');
       await user.click(changePasswordButton);
 
       await waitFor(() => {
-        // エラーメッセージが表示される
+        // backend と同じく、足りない文字種を全て示す
         const errorMessage = screen.getByRole('alert');
-        expect(errorMessage).toHaveTextContent(/大文字/);
+        expect(errorMessage).toHaveTextContent(
+          'パスワードは大文字を1文字以上含む必要があります; パスワードは記号を1文字以上含む必要があります'
+        );
       });
+      expect(screen.queryByRole('button', { name: /はい、変更する/ })).not.toBeInTheDocument();
     });
 
     it('パスワードが一致しない場合にエラーを表示する', async () => {
@@ -292,7 +295,18 @@ describe('Profile - 2FA機能', () => {
       });
     });
 
-    it('連続した同一文字を含むパスワードでエラーを表示する', async () => {
+    /**
+     * パスワードの規則は要件2.5・2.6 と backend（PasswordService.validatePasswordStrength）に合わせる。
+     * 大文字・小文字・数字・記号のうち3種類以上を含めばよく、同じ文字の連続も禁じない
+     *
+     * @requirement user-authentication/REQ-2.5 @requirement user-authentication/REQ-2.6
+     */
+    it.each([
+      ['同じ文字が3つ以上続く', 'Newwwwpass123!@'],
+      ['大文字を含まない3種類（小文字・数字・記号）', 'lowercaseonly1!'],
+      ['記号を含まない3種類（大文字・小文字・数字）', 'Lowercaseonly12'],
+      ['backend が記号と数える文字（~）を含む3種類', 'lowercaseonly1~'],
+    ])('%s の新しいパスワードは画面で拒まず、確認ダイアログを表示する', async (_, newPassword) => {
       const user = userEvent.setup();
       render(<Profile />);
 
@@ -302,13 +316,12 @@ describe('Profile - 2FA機能', () => {
       const changePasswordButton = screen.getByRole('button', { name: /パスワードを変更/i });
 
       await user.type(currentPasswordField, 'CurrentPass1!');
-      await user.type(newPasswordField, 'Newwwwpass123!@'); // 'www' - 3文字以上の連続
-      await user.type(confirmPasswordField, 'Newwwwpass123!@');
+      await user.type(newPasswordField, newPassword);
+      await user.type(confirmPasswordField, newPassword);
       await user.click(changePasswordButton);
 
-      await waitFor(() => {
-        expect(screen.getByText(/連続した同一文字/i)).toBeInTheDocument();
-      });
+      expect(await screen.findByRole('button', { name: /はい、変更する/ })).toBeInTheDocument();
+      expect(screen.queryByText(/必要があります|連続した同一文字/)).not.toBeInTheDocument();
     });
   });
 
