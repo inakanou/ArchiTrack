@@ -3,13 +3,15 @@
  *
  * 候補の行の単価（換算の単価 → 単価 → 金額÷数量）、按分の基準（直接工事＋産廃）、
  * 諸経費と値引きの率、内訳、丸め（ROUND_HALF_UP：0 から遠い側）、按分できない印・反映できない印、
- * 按分の状態（allocationStatus）と、単価を決められない行の値なしの内訳（タスク6.1）を確かめる。
+ * 按分の状態（allocationStatus）と、単価を決められない行の値なしの内訳（タスク6.1）、
+ * 整数に丸める前の値（小数点以下 10 桁まで。タスク6.7）を確かめる。
  */
 import { describe, it, expect } from 'vitest';
 import Decimal from 'decimal.js';
 import { Prisma } from '../../../../generated/prisma/client.js';
 import {
   computeAllocation,
+  UNROUNDED_DECIMAL_PLACES,
   type AllocationLine,
   type CategoryTotals,
 } from '../../../../services/unit-price-ledger/ledger-allocation.js';
@@ -54,6 +56,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '1327',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '1234',
+          overheadAllocation: '154.25',
+          discountAllocation: '-61.7',
+          appliedUnitPrice: '1326.55',
+        },
       });
     });
 
@@ -89,6 +97,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '2200',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '2000',
+          overheadAllocation: '200',
+          discountAllocation: '0',
+          appliedUnitPrice: '2200',
+        },
       });
     });
 
@@ -147,6 +161,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '1500',
         allocatable: false,
         applicable: true,
+        unrounded: {
+          unitPrice: '1500',
+          overheadAllocation: '0',
+          discountAllocation: '0',
+          appliedUnitPrice: '1500',
+        },
       });
     });
 
@@ -198,6 +218,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '-500',
         allocatable: true,
         applicable: false,
+        unrounded: {
+          unitPrice: '1000',
+          overheadAllocation: '0',
+          discountAllocation: '-1500',
+          appliedUnitPrice: '-500',
+        },
       });
     });
 
@@ -266,6 +292,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '538',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '500',
+          overheadAllocation: '62.5',
+          discountAllocation: '-25',
+          appliedUnitPrice: '537.5',
+        },
       });
     });
 
@@ -302,6 +334,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '3583',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '3333.3333333333',
+          overheadAllocation: '416.6666666667',
+          discountAllocation: '-166.6666666667',
+          appliedUnitPrice: '3583.3333333333',
+        },
       });
     });
 
@@ -330,6 +368,7 @@ describe('computeAllocation', () => {
         appliedUnitPrice: null,
         allocatable: false,
         applicable: false,
+        unrounded: null,
       };
 
       // 数量が空・数量が 0・金額が空・すべて空
@@ -367,6 +406,12 @@ describe('computeAllocation', () => {
         appliedUnitPrice: '0',
         allocatable: true,
         applicable: true,
+        unrounded: {
+          unitPrice: '0',
+          overheadAllocation: '0',
+          discountAllocation: '0',
+          appliedUnitPrice: '0',
+        },
       });
       // 換算の単価が 0 の行も換算の単価を使う（単価へ移らない）
       expect(
@@ -430,6 +475,134 @@ describe('computeAllocation', () => {
       expect(result.unitPrice).toBe('-501');
       expect(result.appliedUnitPrice).toBe('-501');
       expect(result.applicable).toBe(false);
+    });
+  });
+
+  describe('整数に丸める前の値（8.9）', () => {
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('丸める前の単価・諸経費の按分・値引きの按分・反映する単価を、小数点以下 10 桁までの十進の文字で整数の値とは別の欄に返す', () => {
+      // 単価 = 10000 / 3 = 3333.33333333333…（11 桁目は 3 で切り捨て）
+      // 諸経費の按分 = 3333.333… × 0.125 = 416.66666666666…（11 桁目は 6 で切り上げ）
+      // 値引きの按分 = 3333.333… × -0.05 = -166.66666666666…（0 から遠い側へ）
+      // 反映する単価 = 3333.333… × 1.075 = 3583.33333333333…
+      const result = computeAllocation(line({ amount: '10000', quantity: '3' }), standardTotals);
+
+      expect(result.unrounded).toEqual({
+        unitPrice: '3333.3333333333',
+        overheadAllocation: '416.6666666667',
+        discountAllocation: '-166.6666666667',
+        appliedUnitPrice: '3583.3333333333',
+      });
+      // 整数の値はそのまま返す（8.5）
+      expect(result).toMatchObject({
+        unitPrice: '3333',
+        overheadAllocation: '417',
+        discountAllocation: '-167',
+        appliedUnitPrice: '3583',
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('桁は UNROUNDED_DECIMAL_PLACES（10）で、末尾の 0 と小数点を付けない', () => {
+      expect(UNROUNDED_DECIMAL_PLACES).toBe(10);
+
+      const result = computeAllocation(line({ unitPrice: '1234.50' }), standardTotals);
+
+      // 諸経費の按分 = 1234.5 × 0.125 = 154.3125、値引きの按分 = 1234.5 × -0.05 = -61.725
+      expect(result.unrounded).toEqual({
+        unitPrice: '1234.5',
+        overheadAllocation: '154.3125',
+        discountAllocation: '-61.725',
+        appliedUnitPrice: '1327.0875',
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('11 桁目がちょうど 5 なら 0 から遠い側に丸める', () => {
+      expect(
+        computeAllocation(line({ unitPrice: '0.00000000005' }), { DIRECT: '1' }).unrounded
+      ).toEqual({
+        unitPrice: '0.0000000001',
+        overheadAllocation: '0',
+        discountAllocation: '0',
+        appliedUnitPrice: '0.0000000001',
+      });
+      expect(
+        computeAllocation(line({ unitPrice: '-0.00000000005' }), { DIRECT: '1' }).unrounded
+      ).toMatchObject({ unitPrice: '-0.0000000001', appliedUnitPrice: '-0.0000000001' });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('反映する単価は、丸める前の 3 つの値の和を丸める（丸めた 3 つの値の和ではない）', () => {
+      // 単価 0.00000000004、諸経費の率 1、値引きの率 0 → 和 0.00000000008 → 0.0000000001
+      const result = computeAllocation(line({ unitPrice: '0.00000000004' }), {
+        DIRECT: '1',
+        OVERHEAD: '1',
+      });
+
+      expect(result.unrounded).toEqual({
+        unitPrice: '0',
+        overheadAllocation: '0',
+        discountAllocation: '0',
+        appliedUnitPrice: '0.0000000001',
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('指数の表記を使わず、0 に丸まる負の値は "-0" ではなく "0" で返す', () => {
+      // 値引きの率 = -1 / 100000000000 = -1e-11、値引きの按分 = 1 × -1e-11 → 0
+      const tiny = computeAllocation(line({ unitPrice: '1' }), {
+        DIRECT: '100000000000',
+        DISCOUNT: '-1',
+      });
+      expect(tiny.unrounded?.discountAllocation).toBe('0');
+      expect(tiny.unrounded?.appliedUnitPrice).toBe('1');
+
+      // DB の桁の上限に近い大きな値と、小数点以下 10 桁目だけの値
+      const large = computeAllocation(line({ unitPrice: '9999999999999.99' }), {
+        DIRECT: '10000000000000',
+        DISCOUNT: '-1',
+      });
+      expect(large.unrounded).toEqual({
+        unitPrice: '9999999999999.99',
+        overheadAllocation: '0',
+        // -0.999999999999999 → -1、9999999999998.990000000000001 → 9999999999998.99
+        discountAllocation: '-1',
+        appliedUnitPrice: '9999999999998.99',
+      });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.8
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('単価を決められない行は、丸める前の値の欄を値なし（null）で返す', () => {
+      expect(
+        computeAllocation(line({ amount: '1000', quantity: '0' }), standardTotals)
+      ).toMatchObject({ allocationStatus: 'UNIT_PRICE_UNDETERMINED', unrounded: null });
+    });
+
+    /**
+     * @requirement unit-price-ledger/REQ-8.6
+     * @requirement unit-price-ledger/REQ-8.9
+     */
+    it('按分の基準が 0 以下なら、丸める前の按分も "0" で返す', () => {
+      expect(computeAllocation(line({ amount: '10000', quantity: '3' }), {}).unrounded).toEqual({
+        unitPrice: '3333.3333333333',
+        overheadAllocation: '0',
+        discountAllocation: '0',
+        appliedUnitPrice: '3333.3333333333',
+      });
     });
   });
 });

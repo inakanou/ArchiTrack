@@ -648,6 +648,7 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
      * @requirement unit-price-ledger/REQ-7.7
      * @requirement unit-price-ledger/REQ-7.10
      * @requirement unit-price-ledger/REQ-8.4
+     * @requirement unit-price-ledger/REQ-8.9
      */
     it('業者名・見積日・明細行の内容・採否・読取の確認・按分の内訳・案件の識別の元を返す', async () => {
       const matches = await search({ name: '天井下地', unit: UNIT_A });
@@ -675,6 +676,13 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
           appliedUnitPrice: '105',
           allocatable: true,
           applicable: true,
+          // 丸める前の値（8.9）。DB の 100.00 などの末尾の 0 は付けない
+          unrounded: {
+            unitPrice: '100',
+            overheadAllocation: '10',
+            discountAllocation: '-5',
+            appliedUnitPrice: '105',
+          },
         },
         source: {
           receivedQuotationId: quotationIds.get('projectless'),
@@ -737,6 +745,7 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
 
     /**
      * @requirement unit-price-ledger/REQ-8.8
+     * @requirement unit-price-ledger/REQ-8.9
      */
     it('単価・金額・数量の無い行は、按分の内訳の 4 つの金額を値なしで返し、単価を決められない状態を返す', async () => {
       const matches = await search({ name: '天井下地', unit: UNIT_A, classificationKey: KEY });
@@ -751,6 +760,7 @@ describe('似た単価の検索と並べ方（統合・実 DB の pg_trgm）', (
           appliedUnitPrice: null,
           allocatable: false,
           applicable: false,
+          unrounded: null,
         });
       }
       // 同じ見積の単価の決まる行は、按分の状態を ALLOCATED で返す

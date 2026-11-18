@@ -584,7 +584,7 @@ router.post(
  * /api/unit-price-ledger/similar-prices:
  *   post:
  *     summary: 似た過去の単価の検索
- *     description: 分類キーの一致を先に、名称の一致・近さで似た明細行を最大 20 件返す。閲覧範囲の外の案件は案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパス・参考の理由の文を返さない（参考の印は返す）。単価を決められない行は、按分の内訳の 4 つの金額を null、allocationStatus を UNIT_PRICE_UNDETERMINED で返す。見積の編集の権限（estimate:update）が要る
+ *     description: 分類キーの一致を先に、名称の一致・近さで似た明細行を最大 20 件返す。閲覧範囲の外の案件は案件名を「他案件」とし、案件の ID・受領見積書の ID・原本のパス・参考の理由の文を返さない（参考の印は返す）。単価を決められない行は、按分の内訳の 4 つの金額を null、allocationStatus を UNIT_PRICE_UNDETERMINED で返す。按分の内訳の unrounded に、整数に丸める前の 4 つの値を小数点以下 10 桁までの十進の文字（ROUND_HALF_UP、末尾の 0 を除く、指数の表記なし）で返す（単価を決められない行は null）。見積の編集の権限（estimate:update）が要る
  *     tags:
  *       - Unit Price Ledger
  *     security:
@@ -636,7 +636,7 @@ router.post(
  *                       referenceReason: { type: string, nullable: true, description: 範囲外の案件の候補は null（参考の印は isReference で返す） }
  *                       allocation:
  *                         type: object
- *                         required: [allocationStatus, unitPrice, overheadAllocation, discountAllocation, appliedUnitPrice, allocatable, applicable]
+ *                         required: [allocationStatus, unitPrice, overheadAllocation, discountAllocation, appliedUnitPrice, allocatable, applicable, unrounded]
  *                         properties:
  *                           allocationStatus:
  *                             type: string
@@ -648,6 +648,16 @@ router.post(
  *                           appliedUnitPrice: { type: string, nullable: true, description: 単価を決められない行は null }
  *                           allocatable: { type: boolean, description: 按分の基準が 0 より大きい（単価を決められない行は false） }
  *                           applicable: { type: boolean, description: 反映する単価が 0 以上（単価を決められない行は false） }
+ *                           unrounded:
+ *                             type: object
+ *                             nullable: true
+ *                             description: 整数に丸める前の 4 つの値。小数点以下 10 桁までの十進の文字（ROUND_HALF_UP、末尾の 0 を除く、指数の表記なし、-0 は "0"）。反映する単価は丸める前の 3 つの値の和を 10 桁に丸める。単価を決められない行は null
+ *                             required: [unitPrice, overheadAllocation, discountAllocation, appliedUnitPrice]
+ *                             properties:
+ *                               unitPrice: { type: string, example: '3333.3333333333' }
+ *                               overheadAllocation: { type: string, example: '416.6666666667' }
+ *                               discountAllocation: { type: string, example: '-166.6666666667' }
+ *                               appliedUnitPrice: { type: string, example: '3583.3333333333' }
  *       400:
  *         description: 検証の失敗（名称が空、上限の超過）
  *       401:
