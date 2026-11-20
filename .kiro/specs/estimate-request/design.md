@@ -7912,3 +7912,308 @@ backend/
 
 ### Migration Strategy
 - 変更は無い
+
+## Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11: 読取の確認の経路・原本の指紋の応答・区分「端数調整」（2026-11-21 の追補）
+
+### Overview
+
+**Purpose**: roadmap の「2026-11-17 の決定（ArchiBench#9）」の 2〜4 を受領見積書に入れる。確認済みの受領見積書に読取の確認の経路（画面・台帳の取り込み・ArchiBench）を残して画面に出し（46.12〜46.21）、受領見積書の応答に原本の指紋 `fileSha256` を、二重登録の 409 に既存の受領見積書の ID を足し（48.9〜48.11）、明細行の区分に「端数調整」を足す（45.1・45.6 の改訂、45.14〜45.16）。claude-connector の要件の前に、受領見積書が受ける値と保存の規則を決めておくための追補である。
+
+**Users**: 見積担当者（どこで確かめた読み取りかを画面で見分ける。端数調整の行を登録する）。後続の利用者は claude-connector（確認済みでの登録、指紋の突き合わせ、409 の既存の ID）と unit-price-ledger（取り込みの経路、端数調整の除外）。
+
+**Impact（既存前提。2026-11-21 の調べもの〔読むだけ。HEAD `1cb01c50`〕）**:
+
+1. 読取の確認の遷移は共有の規則 `decideReadingConfirmation` が決め、受領見積書の保存（作成・更新）と台帳の修正（unit-price-ledger の画面）が同じ関数の戻り値をそのまま保存の列へ広げている。確認済みにした時刻は関数の中の今の時刻で、呼び出し元が日時を渡す口は無い。所在は次のファイル
+   backend/src/services/received-quotation-rules.ts
+   backend/src/services/received-quotation.service.ts
+   backend/src/services/unit-price-ledger/ledger-edit.service.ts
+2. 台帳の取り込みは共有の規則を通らず、確認済みのカードの `readingStatus`・`readingConfirmedById`・`readingConfirmedAt` を自分で組み立てて書いている。所在は次のファイル
+   backend/src/services/unit-price-ledger/ledger-import.service.ts
+3. 受領見積書の応答の形 `ReceivedQuotationInfo` は `fileSha256` を持たない（列は 48.1 で保存済み）。409 `DUPLICATE_ORIGINAL` の `existing` は名前・業者名・提出日だけで、判定の照会も ID を読んでいない
+4. 区分の一覧は backend の `LINE_ITEM_CATEGORIES` と frontend の `LINE_ITEM_CATEGORIES` の 2 か所にあり、画面の区分の選択と小計は一覧を巡回して描く。値引きの検証（45.4）は区分が値引きの行だけを見る。合計は別途だけを除く。似た単価の検索は区分を直接工事・産廃に絞り、按分の基準（直接工事・産廃）と諸経費の分子（諸経費・交通費・法定福利費）は区分を名指しで数えるため、新しい区分はどちらにも入らない。区分の全部を鍵に持つ表は、画面の表示名と台帳の Excel の書き出しの表示名の 2 つである。所在は次のファイル
+   backend/src/schemas/received-quotation.schema.ts
+   frontend/src/api/received-quotations.ts
+   frontend/src/components/estimate-requests/LineItemEditor.tsx
+   backend/src/services/unit-price-ledger/ledger-export.service.ts
+5. 一覧の読取の確認の札 `ReceivedQuotationLedgerIndicators` は状態だけを出し、確認者と日時は出していない。一覧の応答は確認者（`readingConfirmedBy`）と日時（`readingConfirmedAt`）を既に持つ
+6. claude-connector は brief だけで、登録の入口はまだ無い。本追補はサービスの入力までを作り、入口は claude-connector が作る
+
+### Goals
+- 確認済みの受領見積書が、どこで確かめたかを 1 つの列で持ち、未確認へ戻ると消える
+- 画面の経路からは経路を画面以外にできない
+- claude-connector が、型の上で経路を取り違えずに確認済みで登録できるサービスの入力を持つ
+- 受領見積書の応答が `fileSha256` と経路を返し、409 が既存の受領見積書の ID を返す
+- 区分「端数調整」を登録・表示・小計できる
+
+### Non-Goals
+- claude-connector の登録の入口・権限・回数制限・送られる形の検証（claude-connector）
+- 似た単価の検索の対象と按分の基準から端数調整を外すことの要件化、見積カードの取り込みで「端数調整」を読むこと（unit-price-ledger の追補）
+- 台帳の画面（一覧・詳細）で経路を出すこと（unit-price-ledger の追補）
+- 見積書への転記での端数調整の行の扱い（estimate-creation の拡張）。本追補は転記と NET 金額の自動入力の振る舞いを変えない
+- 既存の確認済みの受領見積書の経路を推し量って埋めること（46.20）
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 受領見積書の列 `readingConfirmationRoute` と enum、未確認は経路を持たない CHECK、区分の enum の値 `ROUNDING`
+- 共有の規則 `decideReadingConfirmation` の経路の書き込み（確認済みにする・未確認へ戻す・送り直し）と、監査ログの台帳の項目への経路の追加
+- 受領見積書の作成の入力の「登録の入口」（画面か ArchiBench か）と、ArchiBench の確認の日時の検証
+- 受領見積書の応答（作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧）の `fileSha256`・`readingConfirmationRoute`、409 `DUPLICATE_ORIGINAL` の `existing.id`
+- 受領見積書の登録・編集フォームと一覧での経路の表示、区分「端数調整」の選択と小計
+
+#### Out of Boundary
+- ArchiBench から送られる形（`received-quote`）の受け取りと、接続した利用者の解決（claude-connector・user-authentication の拡張）。本追補のサービスは、解決済みの利用者の ID と確認の日時を受け取るだけである
+- 台帳の取り込みが何を確認済みとみるか（unit-price-ledger）。本追補は、取り込みが確認済みで書くときの経路の値だけを足す
+- 端数調整の行を似た単価・按分でどう扱うかの規則（unit-price-ledger の追補）。今の実装は区分を名指しで数えるため、端数調整は検索の対象にも按分の基準にも諸経費の分子にも入らない。本追補はこの振る舞いを変えず、主張もしない
+- 台帳の画面の表示（unit-price-ledger）。共有の部品へ足す入力は省略できる形にし、渡さない呼び出し元の表示を変えない
+
+#### Allowed Dependencies
+- `ReceivedQuotationService` → `ReceivedQuotationRules`（経路の決め方・監査の項目）、Prisma
+- 追補が unit-price-ledger のファイルへ入れてよい変更は次の 3 つに限る。(1) 取り込みが確認済みで書くときに経路を台帳の取り込みにする（46.14）、(2) 監査の項目の元に経路の列を読み足す（共有の関数の型が求めるとき）、(3) Excel の書き出しの区分の表示名に端数調整を足す（区分の全部を鍵に持つ表のため、足さないと型が通らない）
+- 画面 → `ledger-info-form`（経路の表示名と確認の要約の文字）
+- 依存の向きは「Requirements 43-50」の章のとおり（型・スキーマ → サービス → 経路 → API クライアント → 部品 → ページ）
+
+#### Revalidation Triggers
+- enum `ReceivedQuotationReadingRoute` の値の名前、応答の欄の名前 `readingConfirmationRoute`・`fileSha256`、409 の `existing.id`（claude-connector の要件と ArchiBench の写し `received-quote` が読む。変えたら ArchiBench#9 に知らせる）
+- 区分の値 `ROUNDING`（unit-price-ledger の追補の検索・按分・見積カードの読み書き、estimate-creation の拡張の転記が読む）
+- 作成の入力の `origin` の形（claude-connector の登録の操作が組み立てる）
+- 共有の規則 `decideReadingConfirmation` の戻り値の列（台帳の修正が保存の列へ広げている）
+
+### File Structure Plan
+
+#### Directory Structure
+```
+backend/
+├── prisma/
+│   ├── schema.prisma                                   # readingConfirmationRoute、enum ReceivedQuotationReadingRoute、区分の ROUNDING（変更）
+│   └── migrations/20261121000000_received_quotation_reading_route_and_rounding/migration.sql  # enum・列・CHECK・区分の値
+├── src/
+│   ├── schemas/received-quotation.schema.ts            # LINE_ITEM_CATEGORIES に ROUNDING、経路の値の一覧（変更）
+│   ├── services/received-quotation-rules.ts            # 経路の決め方、監査の項目に経路（変更）
+│   ├── services/received-quotation.service.ts          # 作成の origin、確認の日時の検証、応答の欄、409 の既存の ID（変更）
+│   ├── errors/receivedQuotationError.ts                # ReadingConfirmedAtInvalidError、DuplicateOriginalExisting.id（変更）
+│   ├── routes/received-quotation.routes.ts             # 409 の本文に existing.id、origin は画面、OpenAPI の注記（変更）
+│   ├── routes/project-quotations.routes.ts             # origin は画面、OpenAPI の注記（変更）
+│   ├── services/unit-price-ledger/ledger-import.service.ts   # 確認済みの取り込みの経路（変更。46.14）
+│   ├── services/unit-price-ledger/ledger-edit.service.ts     # 監査の項目の元に経路を読む（変更。型が求めるとき）
+│   └── services/unit-price-ledger/ledger-export.service.ts   # 区分の表示名に端数調整（変更）
+frontend/src/
+├── api/received-quotations.ts                          # 区分 ROUNDING、応答の fileSha256・readingConfirmationRoute、409 の existing.id（変更）
+├── components/estimate-requests/ledger-info-form.ts    # 経路の表示名、確認の要約の文字（変更）
+├── components/estimate-requests/LedgerInfoSection.tsx  # 確認の要約に経路（変更）
+├── components/estimate-requests/ReceivedQuotationLedgerIndicators.tsx  # 確認済みの札の横に確認者・日時・経路（変更）
+├── components/estimate-requests/LineItemEditor.tsx     # 区分の表示名に端数調整（変更）
+├── components/estimate-requests/ReceivedQuotationForm.tsx     # 経路を台帳の情報の欄へ渡す（変更）
+├── components/estimate-requests/ReceivedQuotationList.tsx     # 確認者・日時・経路を札へ渡す（変更）
+├── pages/ProjectReceivedQuotationListPage.tsx          # 確認者・日時・経路を札へ渡す（変更）
+└── test-support/received-quotation-fixtures.ts         # 応答の新しい欄（変更）
+e2e/specs/estimate-requests/received-quotation-ledger.spec.ts   # 経路・指紋・409 の ID・端数調整の流れ（変更）
+```
+
+#### Modified Files
+- 見積依頼の配下の登録の経路（backend/src/routes/estimate-requests.routes.ts か、登録を持つ既存の経路のファイル）— 作成の入力に `origin: { kind: 'screen' }` を渡す。該当のファイルは実装のタスクが呼び出し元を型の誤りから特定する（`origin` は必須の欄のため、渡していない呼び出し元は型が通らない）
+- 受領見積書の応答の形を組み立てる試験の部品・Storybook の記述 — 新しい必須の欄（`fileSha256`・`readingConfirmationRoute`）を足す
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 45.1, 45.6 | 区分に端数調整を足し、小計に出す（改訂） | ReceivedQuotationSchema, ReceivedQuotationValidation, LineItemEditor | 登録・更新の経路 | - |
+| 45.14 | 端数調整の金額は正・負・0 を受ける | ReceivedQuotationValidation, LineItemEditor, ReceivedQuotationForm | 登録・更新の経路 | - |
+| 45.15 | 端数調整を合計に含める | ReceivedQuotationService, LineItemEditor | - | - |
+| 45.16 | 一括取り込み・一括転記の行を端数調整にしない | LineItemEditor, ReceivedQuotationForm | - | - |
+| 46.12 | 確認済みは経路を持ち、未確認は持たない | ReceivedQuotationSchema, ReceivedQuotationRules | migration の CHECK | 読取の確認の経路の決め方 |
+| 46.13, 46.17 | 画面の確認は経路を画面にし、画面の要求で経路の指定を受け付けない | ReceivedQuotationRoutes, ProjectQuotationsRoutes, ReceivedQuotationService, ReceivedQuotationRules | 登録・更新の経路 | 読取の確認の経路の決め方 |
+| 46.14 | 台帳の取り込みの確認済みは経路を台帳の取り込みにする | LedgerImportRoute | - | - |
+| 46.15, 46.16 | ArchiBench の確認済みの登録と、確認の日時の検証 | ReceivedQuotationService, ReceivedQuotationRules | `create` の `origin`、400 `READING_CONFIRMED_AT_INVALID` | 読取の確認の経路の決め方 |
+| 46.18 | 未確認へ戻すと経路も消す | ReceivedQuotationRules | - | 読取の確認の経路の決め方 |
+| 46.19, 46.20 | フォームと一覧に経路を確認者・日時とともに出し、追補の前の確認済みは「経路の記録なし」 | LedgerInfoSection, ReceivedQuotationLedgerIndicators, ReadingRouteLabels, ReceivedQuotationForm, ReceivedQuotationList, ProjectReceivedQuotationListPage | 応答の `readingConfirmationRoute` | - |
+| 46.21 | 経路の変更を監査ログの前後に含める | ReceivedQuotationRules | - | - |
+| 48.9 | 応答に `fileSha256` を含める | ReceivedQuotationService | 作成・更新・詳細・一覧の応答 | - |
+| 48.10 | 409 に既存の受領見積書の ID を含める | ReceivedQuotationService, ReceivedQuotationRoutes | 409 `DUPLICATE_ORIGINAL` の `existing.id` | - |
+| 48.11 | 返す値を閲覧できる受領見積書に限る | ReceivedQuotationRoutes, ProjectQuotationsRoutes, ReceivedQuotationService | 既存の権限と案件の範囲の判定 | - |
+
+### Components and Interfaces
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
+|---|---|---|---|---|---|
+| ReceivedQuotationSchema | Data | 経路の列と enum、CHECK、区分の値 | 45.1, 46.12 | Prisma (P0) | State |
+| ReceivedQuotationValidation | Backend / Schema | 区分の一覧に端数調整。端数調整に符号の検証を掛けない | 45.1, 45.14 | zod (P0) | Service |
+| ReceivedQuotationRules | Backend / Service | 経路の決め方と監査の項目 | 46.12, 46.13, 46.15, 46.17, 46.18, 46.21 | - | Service |
+| ReceivedQuotationService | Backend / Service | 作成の入口の区別、確認の日時の検証、応答の欄、409 の既存の ID | 45.15, 46.13, 46.15, 46.16, 46.17, 48.9, 48.10, 48.11 | ReceivedQuotationRules (P0), Prisma (P0) | Service |
+| ReceivedQuotationRoutes | Backend / Route | 画面の入口として呼び、409 の本文に ID を入れる | 46.13, 46.17, 48.10, 48.11 | ReceivedQuotationService (P0) | API |
+| ProjectQuotationsRoutes | Backend / Route | 画面の入口として呼ぶ | 46.13, 46.17, 48.11 | ReceivedQuotationService (P0) | API |
+| LedgerImportRoute | Backend / Service（unit-price-ledger のファイル） | 確認済みの取り込みに経路を書く | 46.14 | Prisma (P0) | State |
+| ReadingRouteLabels | Frontend / Util | 経路の表示名と、確認者・日時・経路の要約の文字 | 46.19, 46.20 | - | Service |
+| LedgerInfoSection | Frontend / Component | 台帳の情報の欄の確認の要約に経路を出す | 46.19, 46.20 | ReadingRouteLabels (P0) | State |
+| ReceivedQuotationLedgerIndicators | Frontend / Component | 一覧の確認済みの札の横に確認者・日時・経路を出す | 46.19, 46.20 | ReadingRouteLabels (P0) | State |
+| ReceivedQuotationForm | Frontend / Component | 経路を台帳の情報の欄へ渡す。一括取り込み・一括転記の行の区分 | 45.14, 45.16, 46.19 | LedgerInfoSection (P0) | State |
+| ReceivedQuotationList | Frontend / Component | 見積依頼の詳細の一覧で確認の要約を札へ渡す | 46.19, 46.20 | ReceivedQuotationLedgerIndicators (P0) | State |
+| ProjectReceivedQuotationListPage | Frontend / Page | 案件の一覧で確認の要約を札へ渡す | 46.19, 46.20 | ReceivedQuotationLedgerIndicators (P0) | State |
+| LineItemEditor | Frontend / Component | 区分の選択と小計に端数調整。金額の直接入力は従来どおり | 45.1, 45.6, 45.14, 45.15, 45.16 | - | State |
+
+- `ReceivedQuotationRules` は backend/src/services/received-quotation-rules.ts、`LedgerImportRoute` は backend/src/services/unit-price-ledger/ledger-import.service.ts の確認済みの書き込み、`ReadingRouteLabels` は frontend/src/components/estimate-requests/ledger-info-form.ts に足す関数と表を指す（新しいファイルは作らない）
+
+#### ReceivedQuotationRules と ReceivedQuotationService
+
+| Field | Detail |
+|---|---|
+| Intent | 経路を、読取の確認の状態・確認者・日時と同じ 1 か所で決める |
+| Requirements | 46.12, 46.13, 46.15, 46.16, 46.17, 46.18, 46.21, 48.9, 48.10 |
+
+##### Service Interface
+```typescript
+type ReadingConfirmationRoute = 'SCREEN' | 'LEDGER_IMPORT' | 'ARCHIBENCH';
+
+/** 読取の確認で書き込む列（変えない列は持たない） */
+interface ReadingConfirmationWrite {
+  readingStatus?: ReadingStatus;
+  readingConfirmedById?: string | null;
+  readingConfirmedAt?: Date | null;
+  readingConfirmationRoute?: ReadingConfirmationRoute | null;
+}
+
+interface ReadingConfirmationOptions {
+  reconfirm: 'writeStatus' | 'omit';
+  /** 新しく確認済みにするときの経路と日時。省くと経路は画面、日時は今 */
+  newConfirmation?: { readonly route: ReadingConfirmationRoute; readonly confirmedAt: Date };
+}
+
+/** 受領見積書の作成の入口（46.13・46.15・46.17）。経路の検証スキーマには置かず、呼び出し元のコードが決める */
+type QuotationOrigin =
+  | { readonly kind: 'screen' }
+  | { readonly kind: 'archibench'; readonly readingConfirmedAt: Date | null };
+
+interface CreateReceivedQuotationInput /* 既存の欄に足す */ {
+  readonly origin: QuotationOrigin;
+}
+
+interface ReceivedQuotationInfo /* 既存の欄に足す */ {
+  fileSha256: string | null;                               // 48.9。ファイルの無いものは null
+  readingConfirmationRoute: ReadingConfirmationRoute | null; // 46.12。未確認と追補の前の確認済みは null
+}
+
+interface DuplicateOriginalExisting {
+  id: string;            // 48.10
+  name: string;
+  vendorName: string;
+  submittedAt: string;
+}
+
+/** 400 `READING_CONFIRMED_AT_INVALID`（46.16） */
+class ReadingConfirmedAtInvalidError extends ApiError {}
+```
+- 事前条件: `origin.kind === 'archibench'` を渡す呼び出し元は、利用者（`actorId`）を OAuth のトークンから解決済みである（claude-connector）。画面の経路は常に `{ kind: 'screen' }` を渡す
+- 事後条件: 保存された行は「確認済みでなければ経路は null」を満たす（規則と DB の CHECK の両方で守る）。`ReadingConfirmedAtInvalidError` ではデータもストレージも変えない
+- 不変条件: `update` は入口の区別を持たない。更新で新しく確認済みにすれば経路は画面になる（更新の入口は画面だけである）
+
+### System Flows
+
+**読取の確認の経路の決め方（保存のたび）**
+
+```mermaid
+flowchart TD
+    A[保存（作成・更新・台帳の修正）] --> B{保存前が確認済みで内容が変わる}
+    B -->|はい| C[未確認・確認者と日時と経路を消す]
+    B -->|いいえ| D{確認済みが送られた}
+    D -->|保存前も確認済み| E[確認者・日時・経路を保つ]
+    D -->|保存前は未確認| F{入口}
+    F -->|画面・台帳の修正| G[確認済み・操作した利用者・今・経路は画面]
+    F -->|ArchiBench| H{確認の日時があり、受け付けた時刻以前}
+    H -->|はい| I[確認済み・接続した利用者・送られた日時・経路は ArchiBench]
+    H -->|いいえ| J[400 READING_CONFIRMED_AT_INVALID・登録しない]
+    D -->|未確認が送られた| C
+    D -->|送られない| K[変えない]
+```
+
+### Data Models
+
+#### Physical Data Model（`schema.prisma` の変更。新設の migration `20261121000000_received_quotation_reading_route_and_rounding`）
+
+**ReceivedQuotation**
+
+| 列 | 型 | 既定 | 備考 |
+|---|---|---|---|
+| readingConfirmationRoute | `ReceivedQuotationReadingRoute`? | null | `SCREEN`・`LEDGER_IMPORT`・`ARCHIBENCH`。表示は画面・台帳の取り込み・ArchiBench。列は `reading_confirmation_route`（46.12） |
+
+- CHECK（migration の SQL）: `reading_status = 'CONFIRMED' OR reading_confirmation_route IS NULL`（未確認は経路を持たない。46.12）。確認済みで経路が null の行は許す（追補の前の確認済み。46.20）
+- 埋め戻しは行わない。追補の前の確認済みの行は null のままにする（46.20）
+
+**ReceivedQuotationLineItem**
+
+| 列 | 型 | 既定 | 備考 |
+|---|---|---|---|
+| category | `ReceivedQuotationLineCategory` | `DIRECT` | 値 `ROUNDING` を足す。表示は端数調整（45.1）。既存の 7 つの値と既定は変えない |
+
+- 区分の値は `ALTER TYPE ... ADD VALUE` で足す。足した値を同じ migration の中で使わない（PostgreSQL は、同じトランザクションの中で足した enum の値を使えない）
+
+### 決定
+
+**D13 経路は確認の 4 つ目の列として、共有の規則が決める**: 経路は `decideReadingConfirmation` の戻り値に入れ、状態・確認者・日時と同じ分岐で決める。未確認へ戻す分岐（内容の変化と、未確認の送信）は経路を null にする（46.18）。新しく確認済みにする分岐は `options.newConfirmation` の経路と日時を書き、省かれたら経路は画面・日時は今とする（46.13）。確認済みの送り直しは経路に触れない（追補の前の確認済みの null もそのまま保つ。46.20）。呼び出し元は戻り値を保存の列へ広げているため、受領見積書の更新も台帳の修正も、呼び出しを変えずに経路の記録と消去が入る。経路を呼び出し元ごとに書くと、未確認へ戻す 3 か所のどれかで消し忘れて CHECK に当たるため採らない
+
+**D14 台帳の修正の画面で確認済みにしたときの経路は画面とする**: 要件の経路は画面・台帳の取り込み・ArchiBench の 3 つで、台帳の修正（unit-price-ledger の画面で人が確かめて確認済みにする）は「台帳の取り込み」（取り込みの処理がカードの記録から確認済みで登録する。46.14）に当たらない。人が画面で確かめたものとして画面にする。共有の規則の既定がそのまま当たるため、台帳の修正の側に経路の指定は置かない
+
+**D15 作成の入口を必須の欄にする**: `CreateReceivedQuotationInput.origin` を必須にし、画面の 2 つの登録の経路（見積依頼の配下・案件の配下）は `{ kind: 'screen' }` を、claude-connector の登録は `{ kind: 'archibench', readingConfirmedAt }` を渡す。必須にするのは、後から足す入口が確認済みを黙って画面として記録しないようにするためである（渡し忘れは型が通らない）。`origin` は経路の検証スキーマ（zod）に欄を置かない。画面の要求の本文に経路や `origin` に当たる欄が入っていても、既存の検証が知らない欄を落とすため、サービスへ届かない（46.17）。試験は、画面の経路へ経路の欄を添えて確認済みを送り、保存された経路が画面であることを主張する
+
+**D16 ArchiBench の確認の日時**: `origin.kind === 'archibench'` で確認済みが送られたとき、サービスは保存の前に `readingConfirmedAt` を確かめる。null（欠け）か、サービスが作成を受け付けた時刻（作成の処理の最初に 1 回だけ取る今の時刻）より後なら `ReadingConfirmedAtInvalidError`（400、`code: 'READING_CONFIRMED_AT_INVALID'`、文言「確認の日時が正しくありません（欠けているか、受け付けた時刻より後です）」）を投げ、二重登録の判定・レコードの作成・ファイルの送信のどれも行わない（46.16）。通れば `newConfirmation: { route: 'ARCHIBENCH', confirmedAt: origin.readingConfirmedAt }` を規則へ渡す（46.15。確認者は `actorId`）。`archibench` で確認済みが送られないときは未確認で保存し、`readingConfirmedAt` は読まない（46.12）。時計のずれの猶予は置かない（要件が「受け付けた時刻より後」を拒むと定めている。猶予が要るかは claude-connector の要件で、送る側の時刻の決め方と合わせて決める）
+
+**D17 台帳の取り込みの経路**: 取り込みは共有の規則を通らずに確認の列を組み立てているため、確認済みの組み立てに `readingConfirmationRoute: 'LEDGER_IMPORT'`、未確認の組み立てに null を足す（46.14）。取り込みを共有の規則へ寄せる作り替えは行わない（取り込みの確認の日時はカードの記録か取り込みの時刻で、規則の「今」と決め方が違う。変えるのは unit-price-ledger の判断）
+
+**D18 応答の欄**: `ReceivedQuotationInfo` に `fileSha256` と `readingConfirmationRoute` を足し、応答の形を組み立てる 1 つの関数（`toReceivedQuotationInfo` に当たる既存の変換）で入れる。作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧（既定と `include=all` の両方）が同じ変換を通るため、どの応答にも入る（48.9）。`fileSha256` は保存済みの列の値（sha256 の 16 進の小文字 64 文字）をそのまま返し、ファイルの無いものは null とする。案件の配下の一覧が別の形（`ProjectQuotationSummary`）で組み立てている場合は、その形にも 2 つの欄を足す。返す範囲は既存の権限（`estimate_request:read`）と案件の範囲の判定のままで、範囲外は 404 になり本文に値を持たない（48.11）。新しい判定は足さない
+
+**D19 409 の既存の ID**: 二重登録の判定の照会に `id` を読み足し、`DuplicateOriginalExisting` と 409 の本文の `existing` に `id` を入れる（48.10）。既存として示す受領見積書の選び方（同じ組のうち最も早く作られたもの）と、照会を同じ案件に限ること（48.7）は変えない。画面は ID を表示しない（従来どおり名前・業者名・提出日を出す）。frontend の `parseDuplicateExisting` は `id` を読み、文字でなければ形の壊れとして null にする
+
+**D20 区分「端数調整」**: enum の値は `ROUNDING` とし、backend と frontend の `LINE_ITEM_CATEGORIES` の末尾（別途の後）に足す。画面の区分の選択と小計は一覧を巡回するため、表示名の表に「端数調整」を足せば選択肢と 8 つ目の小計が出る（45.1・45.6）。値引きの検証（45.4）は区分が値引きの行だけを見るため、端数調整の金額は正・負・0 のどれも通る（45.14。検証は足さず、通ることを試験で主張する）。合計は別途だけを除くため、端数調整は合計に入る（45.15。NET 金額の自動入力も同じ合計を使う）。一括取り込みと一括転記の行は既定の直接工事のまま（45.16。振る舞いは変えず、端数調整にならないことを試験で主張する）。台帳の Excel の書き出しの表示名にも「端数調整」を足す（型が求める）。見積カードの取り込みの対応表（文字 → 区分）には足さない（unit-price-ledger の追補が持つ）
+
+**D21 画面の表示**: 経路の表示名は `READING_CONFIRMATION_ROUTE_LABELS`（画面・台帳の取り込み・ArchiBench）とし、確認の要約の文字は 1 つの関数 `formatReadingConfirmationSummary({ confirmedByName, confirmedAt, route })` が作る。フォームの台帳の情報の欄と一覧の札の両方がこの関数を使う（46.19）。
+- 経路があるとき: 「確認者: {名前}　確認日時: {日時}　経路: {表示名}」
+- 経路が null のとき（追補の前の確認済み）: 「確認者: {名前}　確認日時: {日時}　経路の記録なし」（46.20）
+- 経路を渡さない呼び出し元（`route` が undefined。台帳の画面）: 従来どおり「確認者: {名前}　確認日時: {日時}」。台帳の画面の表示を本追補で変えないためである
+- `LedgerInfoSection` は入力 `readingConfirmationRoute?: ReadingConfirmationRoute | null` を足す。保存前に確認済みへ変えたときの「保存すると確認者と日時を記録します」は変えない
+- `ReceivedQuotationLedgerIndicators` は省略できる入力 `readingConfirmation?: { confirmedByName: string | null; confirmedAt: Date | null; route: ReadingConfirmationRoute | null }` を足し、読取の確認が確認済みで入力があるとき、「読取: 確認済み」の札の横に要約の文字を出す（札の文字は変えない）。未確認のとき・入力が無いときは出さない
+- 名前を引けないとき（確認者の利用者が消えた）は従来どおり「—」とする
+
+**D22 監査ログ**: `ledgerAuditFields` の項目に `readingConfirmationRoute` を足す（46.21）。作成の after、更新の before と after、論理削除の before に入る（D10 の置き方のまま）。台帳の修正の監査も同じ関数を使うため、同じ項目が入る
+
+**採らなかった案**: 経路を確認者と日時から推し量る（列を足さない）——画面と ArchiBench を見分けられないため採らない。経路を画面の要求の欄として受けて検証で拒む——拒む検証を足すより、欄を持たないほうが取り違えの余地が無いため採らない。ArchiBench の登録用にサービスの別のメソッドを作る——保存の規則（業者名・金額・二重登録・監査）を二重に通す道ができるため採らない。追補の前の確認済みを画面で埋める——台帳の取り込みで確かめたものが混ざっていて見分けられないため採らない（要件 46.20）。端数調整を値引きに含める——正の調整を持てないため採らない（要件 45 の改訂の記録）
+
+### Error Handling
+
+| 失敗 | 応答 | 画面 | 根拠 |
+|---|---|---|---|
+| ArchiBench の確認済みの登録で確認の日時が欠ける・受け付けた時刻より後 | 400 `READING_CONFIRMED_AT_INVALID`（登録しない） | 画面からは起きない（入口は claude-connector） | 46.16 |
+| 同じ案件に同じ指紋・同じ区別 | 409 `DUPLICATE_ORIGINAL`、`existing` に `id`・名前・業者名・提出日 | 従来どおり名前・業者名・提出日 | 48.3, 48.10 |
+| 画面の要求に経路の欄がある | 欄を落として保存（経路は画面） | - | 46.17 |
+| 未確認なのに経路を持つ書き込み（実装の誤り） | DB の CHECK で失敗（500） | - | 46.12 |
+
+### Testing Strategy
+
+- **単体（backend）**: 規則の単体で、経路の 5 通り（新しく確認済み＝既定は画面、`newConfirmation` の経路と日時、送り直しは経路に触れない、内容の変化で null、未確認の送信で null）と、監査の項目に経路が入ることを主張する。サービスの単体で、画面の入口の確認済みが画面になること、`archibench` の入口の確認済みが確認者＝`actorId`・日時＝送られた値・経路＝ArchiBench になること、日時の欠けと未来が `ReadingConfirmedAtInvalidError` になり何も書かないこと、`archibench` で未確認なら経路が null であること、応答の `fileSha256`（ファイルあり・無し）と `readingConfirmationRoute`、`DuplicateOriginalError` の `existing.id` を主張する。検証の単体で、区分 `ROUNDING` が通り、端数調整の行の金額が正・負・0 のどれも通ることを主張する。経路の単体で、409 の本文の `existing.id` と、画面の要求に経路の欄を添えても画面になることを主張する。台帳の取り込みの単体で、確認済みのカードの経路が台帳の取り込み、未確認のカードの経路が null であることを主張する。所在は次のファイル
+  backend/src/__tests__/unit/services/received-quotation.service.test.ts
+  backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
+- **統合（backend）**: 実際の DB で、migration の CHECK（未確認に経路を書くと失敗する、確認済みで経路 null は通る）、区分 `ROUNDING` の保存と合計、`archibench` の入口の確認済みの登録と日時の誤り（サービスを直接呼ぶ。入口の経路はまだ無い）、台帳の取り込みの経路、作成・更新・詳細・2 つの一覧の応答の `fileSha256` と経路、409 の `existing.id` が同じ案件の受領見積書であること、範囲外の利用者の要求が 404 で本文に指紋も ID も持たないこと（48.11）を主張する。所在は次のファイル
+  backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+- **単体（frontend）**: `formatReadingConfirmationSummary` の 3 通り（経路あり・null・渡さない）、`LedgerInfoSection` と `ReceivedQuotationLedgerIndicators` の表示（確認済みで経路あり・「経路の記録なし」・未確認では出さない・入力を渡さないと従来の表示）、`LineItemEditor` の区分の選択肢と 8 つの小計・合計に端数調整が入ること・端数調整の行の正と負の金額、一括取り込みと一括転記の行が直接工事であること、`parseDuplicateExisting` の `id` を主張する。既存の LedgerInfoSection.test.tsx・LineItemEditor.test.tsx・ReceivedQuotationForm.test.tsx に足す
+- **E2E**（e2e/specs/estimate-requests/received-quotation-ledger.spec.ts に足す）:
+  1. 受領見積書を画面で確認済みにして保存し、フォームの台帳の情報の欄と一覧に「経路: 画面」が確認者・日時とともに出ること。明細行を変えて保存すると未確認に戻り、経路の表示が消えること（46.12・46.13・46.18・46.19）
+  2. 保存の要求に経路の欄を足して送っても（`page.route` で本文へ足す）、保存後の表示が「経路: 画面」であること（46.17）
+  3. DB で確認済み・経路 null にした受領見積書（e2e/fixtures/database.ts の Prisma で用意する）が、フォームと一覧で「経路の記録なし」と出ること（46.20）
+  4. 監査ログの画面で、確認済みにした更新の記録の前後に経路が入っていること（46.21）
+  5. ファイルを添えた登録の応答と、その後の一覧の応答の `fileSha256` が、試験が求めたファイルの sha256 と同じであること。ファイルの無い登録では null であること（48.9）
+  6. 同じファイルの二度目の登録の 409 の本文の `existing.id` が、一度目の受領見積書の ID であること（48.10）
+  7. 区分で端数調整を選び、正の金額の行と負の金額の行を保存でき、端数調整の小計と合計（別途を除く）に入ること。項目選択からの一括転記の行の区分が直接工事であること（45.1・45.6・45.14〜45.16）
+- **E2E で確かめないもの**: 46.14（台帳の取り込みの経路。取り込んだ受領見積書は案件を持たず、本機能の画面に出ない）、46.15・46.16（ArchiBench の入口は claude-connector がまだ持たない）、48.11（範囲外の応答に値が無いこと。統合で確かめる）。統合の被覆の印が本番のコードに到達する被覆として数えられるものは除外の台帳へ登録せず、数えられないものだけを代替の検証つきで登録する（タスク120.3 の先例）。46.15・46.16 の画面からの結線は、claude-connector の要件が自分の E2E で持つ
+- 関門: 受入基準の逐語（「経路の記録なし」）は実装に入れて `check:criterion-literals` を通す。被覆の印と除外を足したら `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで流す
+- 挙動の変更（経路の記録、応答の欄、409 の ID、区分）は RED → GREEN で進める。前提が足りないときに試験を飛ばす作りにしない（足りなければ失敗させる）
+
+### Security Considerations
+- 経路は呼び出し元のコードだけが決め、要求の本文から受けない。画面の利用者が「ArchiBench で確かめた」と偽る道を持たせないためである（46.17）
+- ArchiBench の確認者は、接続した利用者（トークンから解決した利用者）で、送られた本文の利用者を信じない（入口は claude-connector。本追補のサービスは `actorId` だけを確認者に使う）
+- `fileSha256` と 409 の `existing.id` は、同じ案件を閲覧できる利用者にだけ返る。判定を同じ案件に限る 48.7 と、案件の範囲の判定の順（範囲外は 404 が先）を変えない（48.11）
+- 監査ログの方針（金額・明細行の中身を入れない）は変えない。経路は社外秘の値ではない
+
+### Migration Strategy
+1. migration を流す（enum の新設、列の追加、CHECK、区分の値の追加）。既存の行は経路 null・区分は変わらない。本番は `MIGRATE_ON_DEPLOY=true` の配備で流れる
+2. 埋め戻しのスクリプトは無い
+3. 戻すとき: 列と CHECK は落とせる。enum の値 `ROUNDING` は PostgreSQL では落とせないため、使う行が無ければ残したままにする
+4. 形（応答の欄・409 の `existing.id`・経路の値・区分の値）が develop に入ったら、ArchiBench#9 に知らせて写し（`received-quote`）の見直しを頼む（roadmap の Constraints）

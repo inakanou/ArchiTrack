@@ -2809,3 +2809,84 @@
 
 - 122.1: 作成の経路の処理で `ItemizedStatementNotFoundError` を `NotFoundError` として共通のエラーハンドラーへ渡した。改修の前に、経路の単体（符号の主張）と結合（同じプロジェクトの論理削除された内訳書を指す作成）が `ITEMIZED_STATEMENT_NOT_FOUND` を受けて赤になることを確かめ、改修の後に緑になった。経路の単体の試験の app のエラーハンドラーは `ApiError` を扱わず 500 にしていたため、本番の `errorHandler` と同じく `ApiError` を Problem Details で返す分岐を足した。9.7 の結合は今の実装（編集の要求の検査が宛先・内訳書を読み捨てる）で初めから緑である
 - 122.2: 9.3 の E2E を、名前の入力が編集でき、宛先と内訳書が値と「宛先は変更できません」「内訳書は変更できません」で表示され、フォームの入力の欄が名前の 1 つだけで選択の欄を持たないことを主張する形に改めた。`estimate-request-e2e.spec.ts` と `estimate-creation-project-scope.spec.ts` を再試行なしで流して 95 件が緑
+
+## タスク123: 読取の確認の経路・原本の指紋の応答・区分「端数調整」（バックエンド。利用者の判断で起票、2026-11-21）
+
+**経緯**: roadmap の「2026-11-17 の決定（ArchiBench#9）」の 2〜4 について、利用者の判断（2026-11-21「承認して実装まで一括」。要件・設計・タスクは一括承認）で Requirement 45.1・45.6 を改め、45.14〜45.16・46.12〜46.21・48.9〜48.11 を加えた。design.md の章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11: 読取の確認の経路・原本の指紋の応答・区分「端数調整」（2026-11-21 の追補）」の Data Models・D13〜D20・D22・Testing Strategy のバックエンドを行う
+
+- [ ] 123.1 受領見積書に読取の確認の経路の列を、明細行の区分に端数調整の値を足す
+  - design.md の同章の Data Models のとおり、`schema.prisma` に enum `ReceivedQuotationReadingRoute`（`SCREEN`・`LEDGER_IMPORT`・`ARCHIBENCH`）と列 `readingConfirmationRoute`（null 可）を足し、区分の enum に `ROUNDING` を足す。migration `20261121000000_received_quotation_reading_route_and_rounding` を作り、CHECK（未確認は経路を持たない）を SQL で足す。区分の値は `ALTER TYPE ... ADD VALUE` で足し、同じ migration の中で使わない。埋め戻しは行わない
+  - backend の区分の一覧（`LINE_ITEM_CATEGORIES`）の末尾に `ROUNDING` を足し、経路の値の一覧を置く。台帳の Excel の書き出しの区分の表示名に「端数調整」を足す（区分の全部を鍵に持つ表のため、足さないと型が通らない。D20）。見積カードの取り込みの対応表には足さない
+  - 検証の単体に、区分 `ROUNDING` が通り、端数調整の行の金額が正・負・0 のどれも通る主張を足す（45.14。検証そのものは足さない）。サービスの単体に、端数調整の行が合計に入り別途の行が入らない主張を足す（45.15）
+  - 統合（`backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts`）に、未確認の行へ経路を書くと CHECK で失敗し、確認済みで経路 null の行は通る主張と、区分 `ROUNDING` の明細行（正の金額と負の金額）を保存して読み戻せ、応答の合計に端数調整の行が入り別途の行が入らない主張を足す（45.15）。改修の前に赤になることを先に示す
+  - migration が流れ、型検査が通り、端数調整の明細行を API で保存できる状態になる
+  - _Requirements: 45.1, 45.14, 45.15, 46.12_
+  - _Boundary: ReceivedQuotationSchema, ReceivedQuotationValidation, ReceivedQuotationService_
+
+- [ ] 123.2 読取の確認の経路を共有の規則で決め、作成の入口の区別と ArchiBench の確認の日時の検証を入れる
+  - design.md の同章の D13・D15・D16・D22 と Service Interface のとおり、`decideReadingConfirmation` の戻り値に経路を足す（新しく確認済み＝`newConfirmation` の経路と日時、省けば画面と今。送り直しは経路に触れない。未確認へ戻す分岐は null）。監査の台帳の項目（`ledgerAuditFields`）に経路を足す
+  - 作成の入力に必須の `origin`（画面か ArchiBench か）を足し、画面の登録の経路（見積依頼の配下・案件の配下）は画面を渡す。渡していない呼び出し元は型の誤りから特定して直す。`origin` は経路の検証スキーマに欄を置かない
+  - ArchiBench の入口で確認済みが送られたとき、確認の日時が欠けるか受け付けた時刻より後なら `ReadingConfirmedAtInvalidError`（400 `READING_CONFIRMED_AT_INVALID`）を投げ、二重登録の判定・レコードの作成・ファイルの送信を行わない。通れば確認者を操作した利用者、日時を送られた値、経路を ArchiBench にする。ArchiBench の入口で確認済みが送られなければ未確認・経路 null で保存する
+  - 台帳の修正（`ledger-edit.service.ts`）は呼び出しを変えない。監査の項目の元の型が経路の列を求めるときだけ、読む列に足す（design の Allowed Dependencies の 2）
+  - 規則とサービスの単体に Testing Strategy の単体（backend）の経路の主張を足し、経路の単体に、経路の欄を添えた画面の要求でもサービスへ画面の `origin` が渡り、経路の欄が渡らない主張を足す（46.17）。統合に、HTTP の登録と更新で経路の欄を添えて確認済みを送ると DB の経路が `SCREEN` である主張（46.13・46.17）、サービスを直接呼ぶ ArchiBench の入口の確認済みの登録（確認者・日時・経路）と、日時の欠け・未来で何も保存されない主張、明細行を変えた更新で経路が null に戻る主張、監査ログの前後に経路が入る主張を足す。各試験に `@requirement estimate-request/REQ-46.15` などの印を置く。改修の前に赤になることを先に示す
+  - 共有の規則と監査の項目の戻り値が変わるため、台帳の修正と取り込みの既存の単体・統合（unit-price-ledger の試験を grep して選ぶ）を流して回帰が無いことを確かめ、台帳の修正で新しく確認済みにした受領見積書の経路が画面である主張を足す（D14）
+  - 単体と統合で、画面の確認が画面、ArchiBench の入口の確認が ArchiBench として記録され、未確認へ戻ると経路が消える状態になる
+  - _Requirements: 46.12, 46.13, 46.15, 46.16, 46.17, 46.18, 46.21_
+  - _Boundary: ReceivedQuotationRules, ReceivedQuotationService, ReceivedQuotationRoutes, ProjectQuotationsRoutes_
+
+- [ ] 123.3 台帳の取り込みが確認済みで登録するときに経路を台帳の取り込みにする
+  - design.md の同章の D17 のとおり、取り込みの確認の列の組み立てに、確認済みなら経路 `LEDGER_IMPORT`、未確認なら null を足す。取り込みを共有の規則へ寄せる作り替えは行わない（design の Allowed Dependencies の 1 に限る）
+  - 台帳の取り込みの単体と統合（既存の取り込みの試験のファイルを grep して選ぶ）に、確認済みのカードの受領見積書の経路が台帳の取り込み、未確認のカードの経路が null である主張を足し、`@requirement estimate-request/REQ-46.14` の印を置く。改修の前に赤になることを先に示す
+  - 単体と統合で、確認済みのカードを取り込んだ受領見積書の経路が台帳の取り込みである状態になる
+  - _Requirements: 46.14_
+  - _Boundary: LedgerImportRoute_
+
+- [ ] 123.4 受領見積書の応答に原本の指紋と経路を、二重登録の 409 に既存の受領見積書の ID を足す
+  - design.md の同章の D18・D19 のとおり、応答の形（作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧の既定と `include=all`）に `fileSha256`（ファイルの無いものは null）と `readingConfirmationRoute` を足す。案件の配下の一覧が別の形で組み立てている場合はその形にも足す
+  - 二重登録の判定の照会に ID を読み足し、`DuplicateOriginalExisting` と 409 の本文の `existing` に `id` を入れる。既存として示す受領見積書の選び方と、照会を同じ案件に限ることは変えない。経路の OpenAPI の注記を新しい欄に合わせる
+  - サービスと経路の単体に、応答の `fileSha256`（ファイルあり・無し）と経路、`existing.id` の主張を足す。統合に、作成・更新・詳細・2 つの一覧の応答の `fileSha256` が保存したファイルの sha256（16 進の小文字 64 文字）と同じである主張、409 の `existing.id` が同じ案件の一度目の受領見積書の ID である主張、範囲外の利用者の要求が 404 で本文に指紋も ID も持たない主張（48.11）を足す。改修の前に赤になることを先に示す
+  - 単体と統合で、どの応答も `fileSha256` と経路を持ち、409 が既存の受領見積書の ID を持つ状態になる
+  - _Requirements: 48.9, 48.10, 48.11_
+  - _Boundary: ReceivedQuotationService, ReceivedQuotationRoutes, ProjectQuotationsRoutes_
+
+## タスク124: 読取の確認の経路の表示と区分「端数調整」の画面（利用者の判断で起票、2026-11-21）
+
+**経緯**: タスク123 の経緯と同じ。design.md の同章の D20・D21 と Testing Strategy の単体（frontend）を行う
+
+- [ ] 124.1 受領見積書のフォームと一覧に、読取の確認の経路を確認者・日時とともに表示する
+  - frontend の API の型（`frontend/src/api/received-quotations.ts`）に、応答の `fileSha256`・`readingConfirmationRoute` と、409 の `existing.id` を足す（`parseDuplicateExisting` は `id` が文字でなければ形の壊れとして null にする）。試験の部品（`frontend/src/test-support/received-quotation-fixtures.ts`）と Storybook の記述を新しい必須の欄に追随させる
+  - design.md の同章の D21 のとおり、経路の表示名（画面・台帳の取り込み・ArchiBench）と確認の要約の文字を作る関数を `ledger-info-form.ts` に置く。経路があれば「経路: {表示名}」、null なら「経路の記録なし」、渡さなければ従来の文字（台帳の画面の表示を変えない）
+  - `LedgerInfoSection` に経路の入力を足し、`ReceivedQuotationForm` が保存済みの経路を渡す。`ReceivedQuotationLedgerIndicators` に省略できる確認の要約の入力を足し、確認済みのときだけ「読取: 確認済み」の札の横に要約を出す。`ReceivedQuotationList` と `ProjectReceivedQuotationListPage` が確認者の表示名・日時・経路を渡す
+  - 単体に、要約の 3 通り、フォームと札の表示（経路あり・「経路の記録なし」・未確認では出さない・入力を渡さないと従来の表示）、`parseDuplicateExisting` の `id` の主張を足す。改修の前に赤になることを先に示す
+  - 単体と型検査で、確認済みの受領見積書のフォームと一覧に確認者・日時・経路が出て、追補の前の確認済みは「経路の記録なし」と出る状態になる
+  - _Requirements: 46.19, 46.20, 48.10_
+  - _Boundary: ReadingRouteLabels, LedgerInfoSection, ReceivedQuotationLedgerIndicators, ReceivedQuotationForm, ReceivedQuotationList, ProjectReceivedQuotationListPage_
+  - _Depends: 123.4_
+
+- [ ] 124.2 明細行の区分の選択と小計に端数調整を足す
+  - frontend の区分の一覧（`LINE_ITEM_CATEGORIES`）の末尾に `ROUNDING` を、表示名の表に「端数調整」を足す（D20）。124.1 と同じ API の型のファイルを変えるため、124.1 の後に行う
+  - `LineItemEditor` の単体に、区分の選択肢に端数調整があること、小計が 8 つで端数調整の小計が出ること、端数調整の正と負の金額が合計（別途を除く）に入ること、端数調整の行に値引きの文言が出ないことの主張を足す。`ReceivedQuotationForm` の単体に、OCR・データパースの一括取り込みと項目選択からの一括転記の行の区分が直接工事である主張を足す（45.16）。既存の「小計は 7 つ」の主張は 8 つへ改める（主張を弱めない）
+  - 単体で、端数調整を選んだ行が保存の入力に `ROUNDING` で入り、小計と合計に数えられる状態になる
+  - _Requirements: 45.1, 45.6, 45.14, 45.15, 45.16_
+  - _Boundary: LineItemEditor, ReceivedQuotationForm_
+  - _Depends: 123.1, 124.1_
+
+## タスク125: 読取の確認の経路・原本の指紋の応答・区分「端数調整」の E2E と関門（利用者の判断で起票、2026-11-21）
+
+**経緯**: タスク123 の経緯と同じ。design.md の同章の Testing Strategy の E2E と関門を行う
+
+- [ ] 125.1 経路・指紋・409 の ID・端数調整の E2E を足す
+  - `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` に、design.md の同章の Testing Strategy の E2E の 1〜7 を足す（画面の確認で「経路: 画面」が確認者・日時とともにフォームと一覧に出て、明細行を変えると消える。要求の本文へ経路の欄を足しても画面になる。DB で確認済み・経路 null にした受領見積書が「経路の記録なし」と出る。監査ログの前後に経路が入る。登録と一覧の応答の `fileSha256` が試験の求めた sha256 と同じで、ファイル無しは null。二度目の登録の 409 の `existing.id` が一度目の ID。端数調整の正と負の行の保存・小計・合計と、一括転記の行の区分が直接工事）
+  - 各テストに `@requirement estimate-request/REQ-46.12` などの印を置く。前提（利用者・案件・ファイル）が足りないときは飛ばさず失敗させる。既存の受領見積書の E2E（`/quotations` を e2e/ 全体で grep して選ぶ）を流して回帰が無いことを確かめる。frontend を変えたためテスト環境の frontend を作り直し、migration を足したためテスト環境の backend を起動し直して migration を流してから流す。E2E が経路の列を Prisma（`e2e/fixtures/database.ts`）で書くため、リポジトリ直下の Prisma クライアントも作り直す
+  - E2E で、45.1・45.6・45.14〜45.16、46.12・46.13・46.17〜46.21、48.9・48.10 の画面と応答で観測できる受入基準が緑になる状態になる
+  - _Requirements: 45.1, 45.6, 45.14, 45.15, 45.16, 46.12, 46.13, 46.17, 46.18, 46.19, 46.20, 46.21, 48.9, 48.10_
+  - _Depends: 124.2_
+
+- [ ] 125.2 除外の登録と spec の関門を通し、steering を今の形に合わせる
+  - E2E で観測できない 46.14（取り込んだ受領見積書は本機能の画面に出ない）、46.15・46.16（入口は claude-connector がまだ持たない）、48.11（範囲外の応答に値が無いこと）について、`check:req-coverage` が統合の被覆の印を本番に到達する被覆として数えるかを確かめ、数えられないものだけを `e2e/requirement-exclusions.json` に代替の検証（タスク123.2〜123.4 の統合）つきで登録し、件数の宣言を実数に合わせる（タスク120.3 の先例）
+  - 受入基準の逐語（「経路の記録なし」ほか）が実装に入っていることを `check:criterion-literals` で確かめる
+  - `check:req-coverage`・`check:req-exclusions`・`check:trace-coverage`・`check:criterion-literals`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流す。鮮度の宣言（除外の件数ほか）が動けば、帰属つきで貼り直す
+  - steering（`structure.md`・`tech.md`）に受領見積書の列・区分・応答の欄の記述があれば今の形に合わせ、`check:steering-refs`・`check:steering-idents` を流す
+  - estimate-request の 45.14〜45.16・46.12〜46.21・48.9〜48.11 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
+  - _Requirements: 46.14, 46.15, 46.16, 48.11_
+  - _Depends: 125.1_
