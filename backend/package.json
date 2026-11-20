@@ -156,7 +156,8 @@
     "hono": "^4.12.25",
     "fast-xml-parser": "^5.3.6",
     "@prisma/config": {
-      "deepmerge-ts": "^8.0.2"
+      "deepmerge-ts": "^8.0.2",
+      "effect": "^3.22.5"
     },
     "mysql2": "^3.24.5",
     "body-parser": "^2.4.0",
