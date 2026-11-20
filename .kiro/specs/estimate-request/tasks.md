@@ -2855,7 +2855,7 @@
 
 **経緯**: タスク123 の経緯と同じ。design.md の同章の D20・D21 と Testing Strategy の単体（frontend）を行う
 
-- [ ] 124.1 受領見積書のフォームと一覧に、読取の確認の経路を確認者・日時とともに表示する
+- [x] 124.1 受領見積書のフォームと一覧に、読取の確認の経路を確認者・日時とともに表示する
   - frontend の API の型（`frontend/src/api/received-quotations.ts`）に、応答の `fileSha256`・`readingConfirmationRoute` と、409 の `existing.id` を足す（`parseDuplicateExisting` は `id` が文字でなければ形の壊れとして null にする）。試験の部品（`frontend/src/test-support/received-quotation-fixtures.ts`）と Storybook の記述を新しい必須の欄に追随させる
   - design.md の同章の D21 のとおり、経路の表示名（画面・台帳の取り込み・ArchiBench）と確認の要約の文字を作る関数を `ledger-info-form.ts` に置く。経路があれば「経路: {表示名}」、null なら「経路の記録なし」、渡さなければ従来の文字（台帳の画面の表示を変えない）
   - `LedgerInfoSection` に経路の入力を足し、`ReceivedQuotationForm` が保存済みの経路を渡す。`ReceivedQuotationLedgerIndicators` に省略できる確認の要約の入力を足し、確認済みのときだけ「読取: 確認済み」の札の横に要約を出す。`ReceivedQuotationList` と `ProjectReceivedQuotationListPage` が確認者の表示名・日時・経路を渡す

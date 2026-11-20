@@ -1709,12 +1709,13 @@ export function ReceivedQuotationForm({
         />
       </div>
 
-      {/* 台帳の情報（タスク117.4。46.9: 既定で折りたたむ。確認者の表示名を渡す。46.7） */}
+      {/* 台帳の情報（タスク117.4。46.9: 既定で折りたたむ。確認者の表示名を渡す。46.7。タスク124.1: 保存済みの経路を渡す。46.19・46.20） */}
       <LedgerInfoSection
         value={ledgerInfo}
         onChange={handleLedgerInfoChange}
         readingConfirmedAt={initialData?.readingConfirmedAt ?? null}
         readingConfirmedByName={initialData?.readingConfirmedBy?.displayName ?? null}
+        readingConfirmationRoute={initialData?.readingConfirmationRoute ?? null}
         errors={ledgerServerErrors}
         disabled={isOperationLocked}
       />

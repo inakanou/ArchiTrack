@@ -8173,6 +8173,7 @@ flowchart TD
 - `LedgerInfoSection` は入力 `readingConfirmationRoute?: ReadingConfirmationRoute | null` を足す。保存前に確認済みへ変えたときの「保存すると確認者と日時を記録します」は変えない
 - `ReceivedQuotationLedgerIndicators` は省略できる入力 `readingConfirmation?: { confirmedByName: string | null; confirmedAt: Date | null; route: ReadingConfirmationRoute | null }` を足し、読取の確認が確認済みで入力があるとき、「読取: 確認済み」の札の横に要約の文字を出す（札の文字は変えない）。未確認のとき・入力が無いときは出さない
 - 名前を引けないとき（確認者の利用者が消えた）は従来どおり「—」とする
+- 実装の記録（タスク124.1、2026-11-21）: 「経路の記録なし」の文字は定数 `READING_ROUTE_NOT_RECORDED_TEXT` に置く。確認済みなのに確認の日時が無い行は、一覧の札の要約では日時を「—」で出す（名前を引けないときと同じ扱い）。フォームの台帳の情報の欄は、従来どおり保存済みの確認の日時が無ければ「保存すると確認者と日時を記録します」を出すため、この場合だけ一覧とフォームの表示が違う（確認済みで日時の無い行は、保存の規則では生じない）。要約の文字は `data-testid="received-quotation-reading-confirmation"` の要素に出す
 
 **D22 監査ログ**: `ledgerAuditFields` の項目に `readingConfirmationRoute` を足す（46.21）。作成の after、更新の before と after、論理削除の before に入る（D10 の置き方のまま）。台帳の修正の監査も同じ関数を使うため、同じ項目が入る
 

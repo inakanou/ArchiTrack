@@ -126,6 +126,40 @@ export const ConfirmedReading: Story = {
 };
 
 /**
+ * 読取の確認が確認済みで経路あり（確認者・確認日時に続けて経路を表示。46.19）
+ */
+export const ConfirmedReadingWithRoute: Story = {
+  args: {
+    value: { ...filledValue, readingStatus: 'CONFIRMED' },
+    readingConfirmedAt: new Date('2025-01-20T10:30:00+09:00'),
+    readingConfirmedByName: '山田 太郎',
+    readingConfirmationRoute: 'LEDGER_IMPORT',
+  },
+  play: async (context) => {
+    await expandSection(context);
+    const confirmation = within(context.canvasElement).getByTestId('ledger-reading-confirmation');
+    await expect(confirmation).toHaveTextContent('経路: 台帳の取り込み');
+  },
+};
+
+/**
+ * 経路を記録する前に確認済みになった受領見積書（経路の記録が無いことを表示。46.20）
+ */
+export const ConfirmedReadingWithoutRouteRecord: Story = {
+  args: {
+    value: { ...filledValue, readingStatus: 'CONFIRMED' },
+    readingConfirmedAt: new Date('2025-01-20T10:30:00+09:00'),
+    readingConfirmedByName: '山田 太郎',
+    readingConfirmationRoute: null,
+  },
+  play: async (context) => {
+    await expandSection(context);
+    const confirmation = within(context.canvasElement).getByTestId('ledger-reading-confirmation');
+    await expect(confirmation).toHaveTextContent('経路の記録なし');
+  },
+};
+
+/**
  * 読取を確認済みに変えたが未保存（保存すると確認者と日時を記録する旨を表示）
  */
 export const ConfirmedReadingNotSaved: Story = {

@@ -5,9 +5,17 @@
  * 明細行を持つことと読取の確認の状態を出す。案件の受領見積書の一覧の画面（タスク118.1）も
  * 同じ部品を使う（要件 46.10）。色だけに頼らず、状態を文字で示す。文字と判定は
  * received-quotation-ledger-indicators.ts に置く。
+ *
+ * タスク124.1: 確認済みの札の横に、確認者・日時・経路の要約の文字を出す（要件 46.19・46.20）。
+ * 要約の文字はフォームの台帳の情報の欄と同じ関数（ledger-info-form.ts）が作る。
  */
 
-import type { LineItemInfo, ReadingStatus } from '../../api/received-quotations';
+import type {
+  LineItemInfo,
+  ReadingConfirmationRoute,
+  ReadingStatus,
+} from '../../api/received-quotations';
+import { formatReadingConfirmationSummary } from './ledger-info-form';
 import {
   READING_STATUS_INDICATOR_TEXT,
   REFERENCE_LINE_INDICATOR_TEXT,
@@ -19,6 +27,15 @@ export interface ReceivedQuotationLedgerIndicatorsProps {
   lineItems: readonly Pick<LineItemInfo, 'isReference'>[];
   /** 読取の確認の状態 */
   readingStatus: ReadingStatus;
+  /**
+   * 読取の確認の要約（確認者の表示名・日時・経路）。確認済みのときだけ札の横に出す。
+   * 渡さなければ出さない
+   */
+  readingConfirmation?: {
+    confirmedByName: string | null;
+    confirmedAt: Date | null;
+    route: ReadingConfirmationRoute | null;
+  };
 }
 
 const styles = {
@@ -55,6 +72,12 @@ const styles = {
     backgroundColor: '#ecfdf5',
     borderColor: '#10b981',
   },
+  // 確認の要約（白地・淡い地で 4.5:1 以上。長い文字は折り返す）
+  confirmation: {
+    fontSize: '12px',
+    lineHeight: 1.6,
+    color: '#4b5563',
+  },
 };
 
 /**
@@ -63,6 +86,7 @@ const styles = {
 export function ReceivedQuotationLedgerIndicators({
   lineItems,
   readingStatus,
+  readingConfirmation,
 }: ReceivedQuotationLedgerIndicatorsProps) {
   const hasReference = hasReferenceLineItem(lineItems);
   const readingStyle = readingStatus === 'CONFIRMED' ? styles.confirmed : styles.unconfirmed;
@@ -84,6 +108,11 @@ export function ReceivedQuotationLedgerIndicators({
       >
         {READING_STATUS_INDICATOR_TEXT[readingStatus]}
       </span>
+      {readingStatus === 'CONFIRMED' && readingConfirmation && (
+        <span style={styles.confirmation} data-testid="received-quotation-reading-confirmation">
+          {formatReadingConfirmationSummary(readingConfirmation)}
+        </span>
+      )}
     </span>
   );
 }

@@ -398,6 +398,11 @@ function QuotationRow({ quotation, onEdit, onDelete }: QuotationRowProps) {
         <ReceivedQuotationLedgerIndicators
           lineItems={quotation.lineItems}
           readingStatus={quotation.readingStatus}
+          readingConfirmation={{
+            confirmedByName: quotation.readingConfirmedBy?.displayName ?? null,
+            confirmedAt: quotation.readingConfirmedAt,
+            route: quotation.readingConfirmationRoute,
+          }}
         />
       </td>
       <td style={styles.td}>

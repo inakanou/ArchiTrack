@@ -4,6 +4,9 @@
  * 受領見積書の型に台帳の項目・業者名・明細行の新しい欄を足した（estimate-request のタスク117.1）ため、
  * 既存の固定の値へ広げて型を満たす。値はサーバーの既定（業者名は空・採否は不明・読取は未確認・
  * 区分は直接工事・参考の印なし）に揃える。
+ *
+ * タスク124.1: 応答に足した原本の指紋（`fileSha256`）と読取の確認の経路（`readingConfirmationRoute`）の
+ * 既定（どちらも null。ファイルなし・未確認）を足す。
  */
 
 import type { LineItemInfo, ReceivedQuotationInfo } from '../api/received-quotations';
@@ -27,7 +30,9 @@ export const RECEIVED_QUOTATION_LEDGER_DEFAULTS: Pick<
   | 'readingConfirmedById'
   | 'readingConfirmedAt'
   | 'readingConfirmedBy'
+  | 'readingConfirmationRoute'
   | 'quoteDiscriminator'
+  | 'fileSha256'
 > = {
   vendorName: '',
   tradingPartnerId: null,
@@ -45,7 +50,9 @@ export const RECEIVED_QUOTATION_LEDGER_DEFAULTS: Pick<
   readingConfirmedById: null,
   readingConfirmedAt: null,
   readingConfirmedBy: null,
+  readingConfirmationRoute: null,
   quoteDiscriminator: '',
+  fileSha256: null,
 };
 
 /** 明細行の新しい欄の既定 */

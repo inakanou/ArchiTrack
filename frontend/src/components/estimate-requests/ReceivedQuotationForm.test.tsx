@@ -3042,6 +3042,52 @@ describe('ReceivedQuotationForm', () => {
           '確認者: 確認 太郎'
         );
       });
+
+      it('確認済みの受領見積書の保存済みの経路を、確認者・日時とともに台帳の情報の欄に出す（タスク124.1。46.19）', () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              readingStatus: 'CONFIRMED',
+              readingConfirmedById: 'user-confirmer',
+              readingConfirmedAt: new Date(2026, 10, 2, 10, 0),
+              readingConfirmedBy: { id: 'user-confirmer', displayName: '確認 太郎' },
+              readingConfirmationRoute: 'SCREEN',
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        openLedgerSection();
+        expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+          '確認者: 確認 太郎　確認日時: 2026/11/02 10:00　経路: 画面'
+        );
+      });
+
+      it('追補の前に確認済みになった受領見積書（経路が null）は、経路の記録が無いことを台帳の情報の欄に出す（タスク124.1。46.20）', () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              readingStatus: 'CONFIRMED',
+              readingConfirmedById: 'user-confirmer',
+              readingConfirmedAt: new Date(2026, 10, 2, 10, 0),
+              readingConfirmedBy: { id: 'user-confirmer', displayName: '確認 太郎' },
+              readingConfirmationRoute: null,
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        openLedgerSection();
+        expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+          '確認者: 確認 太郎　確認日時: 2026/11/02 10:00　経路の記録なし'
+        );
+      });
     });
 
     describe('明細行の新しい欄の保存（45.1・45.7・45.8・46.4・47.1・47.4）', () => {
@@ -3237,6 +3283,7 @@ describe('ReceivedQuotationForm', () => {
       it('409 の同じ原本の重複では、重複の文言と既存の受領見積書の名前・業者名・提出日を出し、楽観的排他の文言を出さない', async () => {
         mockOnSubmit.mockRejectedValueOnce(
           new DuplicateOriginalError(DUPLICATE_ORIGINAL_MESSAGE, {
+            id: 'rq-existing-id',
             name: '先に登録した見積書',
             vendorName: '先の業者',
             submittedAt: new Date('2026-10-15T00:00:00.000Z'),
@@ -3259,12 +3306,15 @@ describe('ReceivedQuotationForm', () => {
         expect(duplicate).toHaveTextContent('先に登録した見積書');
         expect(duplicate).toHaveTextContent('先の業者');
         expect(duplicate).toHaveTextContent('2026-10-15');
+        // 既存の受領見積書の ID は画面に出さない（48.10。design の D19）
+        expect(duplicate).not.toHaveTextContent('rq-existing-id');
         expect(screen.queryByTestId('optimistic-conflict-error')).not.toBeInTheDocument();
       });
 
       it('再認証の後の自動の再試行が 409 の同じ原本の重複を受けても、通常の保存と同じく文言と既存の受領見積書を出す', async () => {
         mockOnSubmit.mockRejectedValueOnce(new ApiError(401, 'Unauthorized')).mockRejectedValueOnce(
           new DuplicateOriginalError(DUPLICATE_ORIGINAL_MESSAGE, {
+            id: 'rq-retry-existing-id',
             name: '再試行で重なった見積書',
             vendorName: '重なった業者',
             submittedAt: new Date('2026-10-20T00:00:00.000Z'),

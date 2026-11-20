@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceivedQuotationList } from './ReceivedQuotationList';
+import { ReceivedQuotationLedgerIndicators } from './ReceivedQuotationLedgerIndicators';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
 import {
   LINE_ITEM_LEDGER_DEFAULTS,
@@ -773,6 +774,90 @@ describe('ReceivedQuotationList', () => {
       expect(within(first!).getByText('読取: 確認済み')).toBeInTheDocument();
       expect(within(second!).queryByText('参考の印あり')).not.toBeInTheDocument();
       expect(within(second!).getByText('読取: 未確認')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * 一覧の読取の確認の経路の表示（estimate-request のタスク124.1。要件 46.19・46.20）
+   */
+  describe('読取の確認の経路の表示 (Task 124.1)', () => {
+    const baseQuotation = quotationsWithLineItems[0]!;
+    const confirmedAt = new Date(2026, 10, 8, 10, 30);
+    const confirmed: ReceivedQuotationInfo = {
+      ...baseQuotation,
+      readingStatus: 'CONFIRMED',
+      readingConfirmedById: 'user-1',
+      readingConfirmedAt: confirmedAt,
+      readingConfirmedBy: { id: 'user-1', displayName: '確認 太郎' },
+      readingConfirmationRoute: 'LEDGER_IMPORT',
+    };
+
+    const renderList = (quotations: ReceivedQuotationInfo[]) =>
+      render(
+        <ReceivedQuotationList
+          estimateRequestId={estimateRequestId}
+          quotations={quotations}
+          onAddClick={mockOnAddClick}
+          onEditClick={mockOnEditClick}
+          onDeleteClick={mockOnDeleteClick}
+          onPreviewClick={mockOnPreviewClick}
+        />
+      );
+
+    it('確認済みの受領見積書に、確認者・日時・経路が確認済みの札の横に表示される', () => {
+      renderList([confirmed]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByTestId('received-quotation-reading-status').textContent).toBe(
+        '読取: 確認済み'
+      );
+      expect(within(item).getByTestId('received-quotation-reading-confirmation').textContent).toBe(
+        '確認者: 確認 太郎　確認日時: 2026/11/08 10:30　経路: 台帳の取り込み'
+      );
+    });
+
+    it('経路が null の確認済みの受領見積書に、経路の記録が無いことが表示される', () => {
+      renderList([{ ...confirmed, readingConfirmationRoute: null }]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByTestId('received-quotation-reading-confirmation').textContent).toBe(
+        '確認者: 確認 太郎　確認日時: 2026/11/08 10:30　経路の記録なし'
+      );
+    });
+
+    it('確認者の名前を引けない確認済みの受領見積書は、確認者を「—」で表示する', () => {
+      renderList([{ ...confirmed, readingConfirmedBy: null, readingConfirmationRoute: 'SCREEN' }]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByTestId('received-quotation-reading-confirmation').textContent).toBe(
+        '確認者: —　確認日時: 2026/11/08 10:30　経路: 画面'
+      );
+    });
+
+    it('未確認の受領見積書には、確認の要約が表示されない', () => {
+      renderList([{ ...baseQuotation, readingStatus: 'UNCONFIRMED' }]);
+
+      const item = screen.getByTestId('received-quotation-item');
+      expect(within(item).getByText('読取: 未確認')).toBeInTheDocument();
+      expect(
+        within(item).queryByTestId('received-quotation-reading-confirmation')
+      ).not.toBeInTheDocument();
+    });
+
+    it('札の部品は、確認済みでも確認の要約の入力を渡さなければ、札だけを出して要約を出さない', () => {
+      render(
+        <ReceivedQuotationLedgerIndicators
+          lineItems={[{ isReference: false }]}
+          readingStatus="CONFIRMED"
+        />
+      );
+
+      expect(screen.getByTestId('received-quotation-reading-status').textContent).toBe(
+        '読取: 確認済み'
+      );
+      expect(
+        screen.queryByTestId('received-quotation-reading-confirmation')
+      ).not.toBeInTheDocument();
     });
   });
 });
