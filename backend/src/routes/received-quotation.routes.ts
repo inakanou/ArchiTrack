@@ -222,8 +222,11 @@ export function respondQuotationSaveError(error: unknown, res: Response): boolea
 }
 
 /**
- * 登録の本文（検証済み）と受け取ったファイル・明細行を、サービスの作成の入力にする。
+ * 画面の登録の本文（検証済み）と受け取ったファイル・明細行を、サービスの作成の入力にする。
  * 台帳の項目・業者名・取引先の ID はそのまま渡す（文脈ごとの扱いはサービスが決める。44.3・44.5）
+ *
+ * 作成の入口は常に画面とする（46.13・46.17。タスク123.2）。入口と読取の確認の経路は要求の本文から受けない
+ * （検証のスキーマに欄が無く、本文に添えてあっても落ちる）。本文の後に置き、本文の値で上書きさせない
  */
 export function toCreateQuotationInput(
   body: CreateReceivedQuotationBody,
@@ -235,6 +238,7 @@ export function toCreateQuotationInput(
     submittedAt: new Date(body.submittedAt),
     file: toQuotationFileInfo(file),
     lineItems,
+    origin: { kind: 'screen' } as const,
   };
 }
 
@@ -283,7 +287,7 @@ export function toCreateQuotationInput(
  *                 description: 明細行（JSON 文字列）
  *               quoteNumber:
  *                 type: string
- *                 description: 台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）
+ *                 description: 台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる
  *     responses:
  *       201:
  *         description: 受領見積書作成成功（本文は受領見積書と sharedOriginalCount〔同じ原本で見積の区別が違う他の受領見積書の数〕）
@@ -323,7 +327,8 @@ router.post(
         return;
       }
 
-      // 台帳の項目・業者名・取引先の ID も渡す（見積依頼の文脈では業者名と取引先をサービスが写す。44.3、タスク114.1）
+      // 台帳の項目・業者名・取引先の ID も渡す（見積依頼の文脈では業者名と取引先をサービスが写す。44.3、タスク114.1）。
+      // 作成の入口は画面（toCreateQuotationInput が入れる。46.13・46.17、タスク123.2）
       const input = toCreateQuotationInput(
         req.validatedBody as CreateReceivedQuotationBody,
         req.file,

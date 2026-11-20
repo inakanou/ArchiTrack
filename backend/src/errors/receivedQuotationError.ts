@@ -7,6 +7,7 @@
  * - 11.9: ファイルサイズバリデーション
  * - 11.10: バリデーションエラー表示
  * - 11.16: 楽観的排他制御エラー
+ * - 46.16: ArchiBench の入口の確認の日時の誤り
  *
  * @module errors/receivedQuotationError
  */
@@ -139,6 +140,32 @@ export class FileOrLineItemsRequiredError extends ApiError {
       PROBLEM_TYPES.VALIDATION_ERROR
     );
     this.name = 'FileOrLineItemsRequiredError';
+  }
+}
+
+/**
+ * 確認の日時の誤りの文言（estimate-request の Requirement 46.16）
+ */
+export const READING_CONFIRMED_AT_INVALID_MESSAGE =
+  '確認の日時が正しくありません（欠けているか、受け付けた時刻より後です）';
+
+/**
+ * ArchiBench の入口の確認済みの登録で、確認の日時が欠けているか、受け付けた時刻より後であるエラー
+ * 400 Bad Request（`code: 'READING_CONFIRMED_AT_INVALID'`）
+ *
+ * design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の章の D16、タスク123.2。
+ * このエラーではデータもストレージも変えない（46.16）
+ */
+export class ReadingConfirmedAtInvalidError extends ApiError {
+  constructor() {
+    super(
+      400,
+      READING_CONFIRMED_AT_INVALID_MESSAGE,
+      'READING_CONFIRMED_AT_INVALID',
+      undefined,
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'ReadingConfirmedAtInvalidError';
   }
 }
 

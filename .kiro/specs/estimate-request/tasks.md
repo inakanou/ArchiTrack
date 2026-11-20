@@ -2823,7 +2823,7 @@
   - _Requirements: 45.1, 45.14, 45.15, 46.12_
   - _Boundary: ReceivedQuotationSchema, ReceivedQuotationValidation, ReceivedQuotationService_
 
-- [ ] 123.2 読取の確認の経路を共有の規則で決め、作成の入口の区別と ArchiBench の確認の日時の検証を入れる
+- [x] 123.2 読取の確認の経路を共有の規則で決め、作成の入口の区別と ArchiBench の確認の日時の検証を入れる
   - design.md の同章の D13・D15・D16・D22 と Service Interface のとおり、`decideReadingConfirmation` の戻り値に経路を足す（新しく確認済み＝`newConfirmation` の経路と日時、省けば画面と今。送り直しは経路に触れない。未確認へ戻す分岐は null）。監査の台帳の項目（`ledgerAuditFields`）に経路を足す
   - 作成の入力に必須の `origin`（画面か ArchiBench か）を足し、画面の登録の経路（見積依頼の配下・案件の配下）は画面を渡す。渡していない呼び出し元は型の誤りから特定して直す。`origin` は経路の検証スキーマに欄を置かない
   - ArchiBench の入口で確認済みが送られたとき、確認の日時が欠けるか受け付けた時刻より後なら `ReadingConfirmedAtInvalidError`（400 `READING_CONFIRMED_AT_INVALID`）を投げ、二重登録の判定・レコードの作成・ファイルの送信を行わない。通れば確認者を操作した利用者、日時を送られた値、経路を ArchiBench にする。ArchiBench の入口で確認済みが送られなければ未確認・経路 null で保存する

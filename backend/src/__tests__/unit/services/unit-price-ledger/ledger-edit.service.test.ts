@@ -463,6 +463,50 @@ describe('LedgerEditService', () => {
       });
 
       /**
+       * 台帳の修正の画面で確認済みにしたものは、人が画面で確かめたものとして経路を画面にする
+       * （estimate-request の design の D14。共有の規則の既定が当たる）
+       *
+       * @requirement estimate-request/REQ-46.13
+       */
+      it('未確認から確認済みにしたときは、読取の確認の経路を画面として記録する', async () => {
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ readingStatus: 'CONFIRMED' }),
+          ACTOR_ID
+        );
+
+        expect(claimedData().readingConfirmationRoute).toBe('SCREEN');
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.18
+       */
+      it('確認済みで明細行の中身が変わるとき・未確認を送ったときは、読取の確認の経路を消す', async () => {
+        tx.receivedQuotation.findFirst.mockResolvedValue(
+          quotationRow({
+            readingStatus: 'CONFIRMED',
+            readingConfirmedById: 'other-user',
+            readingConfirmationRoute: 'LEDGER_IMPORT',
+          })
+        );
+
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ readingStatus: 'CONFIRMED', lineItems: [lineInput({ unitPrice: 1600 })] }),
+          ACTOR_ID
+        );
+        expect(claimedData().readingConfirmationRoute).toBeNull();
+
+        tx.receivedQuotation.updateMany.mockClear();
+        await service.updateQuotation(
+          QUOTATION_ID,
+          updateInput({ readingStatus: 'UNCONFIRMED' }),
+          ACTOR_ID
+        );
+        expect(claimedData().readingConfirmationRoute).toBeNull();
+      });
+
+      /**
        * @requirement unit-price-ledger/REQ-5.4
        */
       it('確認済みのまま明細行を変えずに確認済みを送り直しても、確認者と日時を保つ', async () => {

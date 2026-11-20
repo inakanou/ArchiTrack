@@ -1130,6 +1130,55 @@ describe('received-quotation.routes', () => {
       );
     });
 
+    /**
+     * @requirement estimate-request/REQ-46.13
+     * @requirement estimate-request/REQ-46.17
+     */
+    it('見積依頼の配下の登録は、要求に経路や入口の欄が添えてあっても、サービスへ画面の入口を渡し、経路の欄を渡さない', async () => {
+      mockCreate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', 'テスト受領見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z')
+        .field('readingStatus', 'CONFIRMED')
+        .field('readingConfirmationRoute', 'ARCHIBENCH')
+        .field('readingConfirmedAt', '2024-01-14T00:00:00.000Z')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }))
+        .field('lineItems', JSON.stringify([{ name: '明細', sortOrder: 0, amount: 100 }]));
+
+      expect(response.status).toBe(201);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const [, input] = mockCreate.mock.calls[0]!;
+      expect(input.origin).toEqual({ kind: 'screen' });
+      expect(input.readingStatus).toBe('CONFIRMED');
+      expect(input).not.toHaveProperty('readingConfirmationRoute');
+      expect(input).not.toHaveProperty('readingConfirmedAt');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.17
+     */
+    it('更新は、要求に経路や入口の欄が添えてあっても、サービスへ経路の欄も入口も渡さない', async () => {
+      mockUpdate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .field('expectedUpdatedAt', '2024-01-01T00:00:00.000Z')
+        .field('readingStatus', 'CONFIRMED')
+        .field('readingConfirmationRoute', 'ARCHIBENCH')
+        .field('readingConfirmedAt', '2024-01-14T00:00:00.000Z')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }));
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      const [, input] = mockUpdate.mock.calls[0]!;
+      expect(input.readingStatus).toBe('CONFIRMED');
+      expect(input).not.toHaveProperty('readingConfirmationRoute');
+      expect(input).not.toHaveProperty('readingConfirmedAt');
+      expect(input).not.toHaveProperty('origin');
+    });
+
     it('登録で同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の受領見積書を返す', async () => {
       mockCreate.mockRejectedValue(duplicate());
 

@@ -149,7 +149,7 @@ router.get(
  * /api/projects/{projectId}/quotations:
  *   post:
  *     summary: 見積依頼に紐づかない受領見積書の登録
- *     description: 案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404
+ *     description: 案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる
  *     tags:
  *       - Received Quotations
  *     security:
@@ -235,7 +235,8 @@ router.post(
         parsed.lineItems
       );
 
-      // 案件の文脈で作る（業者名の必須〔43.8〕と取引先の照合〔44.5〜44.7〕はサービスが行う）
+      // 案件の文脈で作る（業者名の必須〔43.8〕と取引先の照合〔44.5〜44.7〕はサービスが行う）。
+      // 作成の入口は画面（toCreateQuotationInput が入れる。46.13・46.17、タスク123.2）
       const { quotation, sharedOriginalCount } = await getService().create(
         { kind: 'project', projectId },
         input,

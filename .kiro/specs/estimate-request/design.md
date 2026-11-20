@@ -8156,6 +8156,7 @@ flowchart TD
 **D15 作成の入口を必須の欄にする**: `CreateReceivedQuotationInput.origin` を必須にし、画面の 2 つの登録の経路（見積依頼の配下・案件の配下）は `{ kind: 'screen' }` を、claude-connector の登録は `{ kind: 'archibench', readingConfirmedAt }` を渡す。必須にするのは、後から足す入口が確認済みを黙って画面として記録しないようにするためである（渡し忘れは型が通らない）。`origin` は経路の検証スキーマ（zod）に欄を置かない。画面の要求の本文に経路や `origin` に当たる欄が入っていても、既存の検証が知らない欄を落とすため、サービスへ届かない（46.17）。試験は、画面の経路へ経路の欄を添えて確認済みを送り、保存された経路が画面であることを主張する
 
 **D16 ArchiBench の確認の日時**: `origin.kind === 'archibench'` で確認済みが送られたとき、サービスは保存の前に `readingConfirmedAt` を確かめる。null（欠け）か、サービスが作成を受け付けた時刻（作成の処理の最初に 1 回だけ取る今の時刻）より後なら `ReadingConfirmedAtInvalidError`（400、`code: 'READING_CONFIRMED_AT_INVALID'`、文言「確認の日時が正しくありません（欠けているか、受け付けた時刻より後です）」）を投げ、二重登録の判定・レコードの作成・ファイルの送信のどれも行わない（46.16）。通れば `newConfirmation: { route: 'ARCHIBENCH', confirmedAt: origin.readingConfirmedAt }` を規則へ渡す（46.15。確認者は `actorId`）。`archibench` で確認済みが送られないときは未確認で保存し、`readingConfirmedAt` は読まない（46.12）。時計のずれの猶予は置かない（要件が「受け付けた時刻より後」を拒むと定めている。猶予が要るかは claude-connector の要件で、送る側の時刻の決め方と合わせて決める）
+- 実装の記録（タスク123.2、2026-11-21）: 日時として読めない値（Invalid Date）も欠けとして拒む（比較が常に偽になって通り、書き込みで 500 になるのを防ぐ）。確認の日時の検証はファイルの形式・大きさの検証より前に置くため、ArchiBench の入口で両方が誤っている要求は 400 `READING_CONFIRMED_AT_INVALID` が先に返る。画面の 2 つの登録の経路が共用する入力の組み立ては画面の入口を固定で入れるため、claude-connector の入口はこれを使わず自分で `origin` を組み立てる
 
 **D17 台帳の取り込みの経路**: 取り込みは共有の規則を通らずに確認の列を組み立てているため、確認済みの組み立てに `readingConfirmationRoute: 'LEDGER_IMPORT'`、未確認の組み立てに null を足す（46.14）。取り込みを共有の規則へ寄せる作り替えは行わない（取り込みの確認の日時はカードの記録か取り込みの時刻で、規則の「今」と決め方が違う。変えるのは unit-price-ledger の判断）
 

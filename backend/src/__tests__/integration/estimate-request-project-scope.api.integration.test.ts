@@ -1374,6 +1374,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       const { quotation: created } = await service.create(
         { kind: 'project', projectId: target.projectId },
         {
+          origin: { kind: 'screen' },
           name: `${MARK}-project-context`,
           vendorName: `${MARK}-own-vendor`,
           submittedAt: new Date('2026-11-01'),

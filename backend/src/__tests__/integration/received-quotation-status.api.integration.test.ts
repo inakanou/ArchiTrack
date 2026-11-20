@@ -37,7 +37,10 @@ import {
   ReceivedQuotationService,
   type SaveResult,
 } from '../../services/received-quotation.service.js';
-import { DuplicateOriginalError } from '../../errors/receivedQuotationError.js';
+import {
+  DuplicateOriginalError,
+  ReadingConfirmedAtInvalidError,
+} from '../../errors/receivedQuotationError.js';
 import { LocalStorageProvider } from '../../storage/local-storage.provider.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { TradingPartnerService } from '../../services/trading-partner.service.js';
@@ -1310,7 +1313,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         where: { id: testTradingPartnerId },
         select: { name: true },
       });
-      // 台帳の項目の前後（D10。タスク113.3）。工事価格・確定金額は入れない
+      // 台帳の項目の前後（D10。タスク113.3）。工事価格・確定金額は入れない。読取の確認の経路を含む
+      // （46.21。タスク123.2。未確認は null）
       const ledgerAudit = {
         vendorName: destination.name,
         quoteNumber: null,
@@ -1322,6 +1326,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         distanceKm: null,
         adoption: 'UNKNOWN',
         readingStatus: 'UNCONFIRMED',
+        readingConfirmationRoute: null,
         quoteDiscriminator: '',
       };
       const createdLog = await prisma.auditLog.findFirstOrThrow({
@@ -1405,6 +1410,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         rollingBackService.create(
           { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
           {
+            origin: { kind: 'screen' },
             name,
             submittedAt: new Date('2026-01-23T00:00:00.000Z'),
             lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
@@ -1891,6 +1897,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         .create(
           { kind: 'project', projectId: testProjectId },
           {
+            origin: { kind: 'screen' },
             vendorName,
             tradingPartnerId,
             name: `業者名の照合_${vendorName}`,
@@ -1989,6 +1996,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const { quotation: created } = await service.create(
         { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
         {
+          origin: { kind: 'screen' },
           vendorName: '入力の業者名',
           name: `業者名の照合_見積依頼_${suffix}`,
           submittedAt: new Date('2026-11-01T00:00:00.000Z'),
@@ -2090,6 +2098,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         .create(
           { kind: 'project', projectId: testProjectId },
           {
+            origin: { kind: 'screen' },
             vendorName: `台帳の業者_${suffix}`,
             name: `台帳の保存_${suffix}`,
             submittedAt: new Date('2026-11-08T00:00:00.000Z'),
@@ -2444,6 +2453,296 @@ describe('Received Quotation & Status API Integration Tests', () => {
   });
 
   /**
+   * 読取の確認の経路と作成の入口（タスク123.2）
+   *
+   * design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の章の D13・D15・D16・D22 を実際の DB と
+   * ローカルのストレージで確かめる。画面の経路（HTTP）は経路の欄を添えても画面として保存し、ArchiBench の入口
+   * （入口の経路はまだ無いためサービスを直接呼ぶ）は確認者・日時・経路を保存し、日時の誤りでは何も残さない
+   */
+  describe('読取の確認の経路と作成の入口（タスク123.2）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+    let storageRoot: string;
+    const createdIds: string[] = [];
+
+    const lineItemsJson = JSON.stringify([
+      { name: '経路の明細', sortOrder: 0, quantity: 2, unitPrice: 1500 },
+    ]);
+    const pdfOf = (content: string) => {
+      const buffer = Buffer.from(`%PDF-1.4 ${content} ${suffix}`);
+      return { buffer, originalName: '原本.pdf', mimeType: 'application/pdf', size: buffer.length };
+    };
+
+    const storedRoute = (id: string) =>
+      prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id },
+        select: {
+          readingStatus: true,
+          readingConfirmedById: true,
+          readingConfirmedAt: true,
+          readingConfirmationRoute: true,
+          updatedAt: true,
+        },
+      });
+
+    /** ArchiBench の入口の登録（サービスを直接呼ぶ） */
+    const createFromArchibench = async (
+      readingConfirmedAt: Date | null,
+      extra: Partial<Parameters<ReceivedQuotationService['create']>[1]> = {}
+    ) => {
+      const { quotation } = await service.create(
+        { kind: 'project', projectId: testProjectId },
+        {
+          vendorName: `経路の業者_${suffix}`,
+          name: `経路の受領見積書_${suffix}`,
+          submittedAt: new Date('2026-11-21T00:00:00.000Z'),
+          lineItems: [{ name: '経路の明細', sortOrder: 0, quantity: 2, unitPrice: 1500 }],
+          origin: { kind: 'archibench', readingConfirmedAt },
+          ...extra,
+        },
+        testUserId
+      );
+      createdIds.push(quotation.id);
+      return quotation;
+    };
+
+    const storedFiles = async (): Promise<string[]> => {
+      const entries = await readdir(storageRoot, { recursive: true, withFileTypes: true });
+      return entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
+    };
+
+    const logsOf = (targetId: string) =>
+      prisma.auditLog.findMany({
+        where: { targetType: 'ReceivedQuotation', targetId },
+        orderBy: { createdAt: 'asc' },
+      });
+
+    beforeAll(async () => {
+      storageRoot = await mkdtemp(join(tmpdir(), 'rq-route-'));
+      const storageProvider = new LocalStorageProvider({ basePath: storageRoot });
+      await storageProvider.initialize();
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.receivedQuotation.deleteMany({ where: { id: { in: createdIds } } });
+      await rm(storageRoot, { recursive: true, force: true });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.13: When ユーザーが本機能の画面で受領見積書を確認済みにしたとき, the システム shall 経路を画面として記録する
+     * @requirement estimate-request/REQ-46.17: The システム shall 本機能の画面からの登録・更新の要求で経路の指定を受け付けず、画面で確認済みにした受領見積書の経路を画面以外にしない
+     */
+    it('見積依頼の配下と案件の配下の登録（HTTP）へ経路の欄を添えて確認済みを送ると、DB の経路は画面になる', async () => {
+      const viaRequest = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', `経路_見積依頼の配下_${suffix}`)
+        .field('submittedAt', '2026-11-21T00:00:00.000Z')
+        .field('readingStatus', 'CONFIRMED')
+        .field('readingConfirmationRoute', 'ARCHIBENCH')
+        .field('readingConfirmedAt', '2026-01-01T00:00:00.000Z')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }))
+        .field('lineItems', lineItemsJson);
+      expect(viaRequest.status).toBe(201);
+      createdIds.push(viaRequest.body.id);
+
+      const before = Date.now();
+      const viaProject = await request(app)
+        .post(`/api/projects/${testProjectId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', `経路_案件の配下_${suffix}`)
+        .field('vendorName', `経路の業者_${suffix}`)
+        .field('submittedAt', '2026-11-21T00:00:00.000Z')
+        .field('readingStatus', 'CONFIRMED')
+        .field('readingConfirmationRoute', 'LEDGER_IMPORT')
+        .field('readingConfirmedAt', '2026-01-01T00:00:00.000Z')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }))
+        .field('lineItems', lineItemsJson);
+      expect(viaProject.status).toBe(201);
+      createdIds.push(viaProject.body.id);
+
+      for (const id of [viaRequest.body.id, viaProject.body.id]) {
+        const row = await storedRoute(id);
+        expect(row.readingStatus).toBe('CONFIRMED');
+        expect(row.readingConfirmedById).toBe(testUserId);
+        expect(row.readingConfirmationRoute).toBe('SCREEN');
+      }
+      // 送られた確認の日時は使わず、保存の時刻を記録する
+      const projectRow = await storedRoute(viaProject.body.id);
+      expect(projectRow.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.13: When ユーザーが本機能の画面で受領見積書を確認済みにしたとき, the システム shall 経路を画面として記録する
+     * @requirement estimate-request/REQ-46.17: The システム shall 本機能の画面からの登録・更新の要求で経路の指定を受け付けず、画面で確認済みにした受領見積書の経路を画面以外にしない
+     */
+    it('更新（HTTP）へ経路の欄を添えて確認済みを送ると、DB の経路は画面になる', async () => {
+      const created = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', `経路_更新_${suffix}`)
+        .field('submittedAt', '2026-11-21T00:00:00.000Z')
+        .field('lineItems', lineItemsJson);
+      expect(created.status).toBe(201);
+      createdIds.push(created.body.id);
+      expect(await storedRoute(created.body.id)).toMatchObject({
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmationRoute: null,
+      });
+
+      const updated = await request(app)
+        .put(`/api/quotations/${created.body.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('expectedUpdatedAt', new Date(created.body.updatedAt).toISOString())
+        .field('readingStatus', 'CONFIRMED')
+        .field('readingConfirmationRoute', 'ARCHIBENCH')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }));
+      expect(updated.status).toBe(200);
+
+      expect(await storedRoute(created.body.id)).toMatchObject({
+        readingStatus: 'CONFIRMED',
+        readingConfirmedById: testUserId,
+        readingConfirmationRoute: 'SCREEN',
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.15: When claude-connector の登録が、読取の確認が確認済みであることと確認の日時を添えて受領見積書を登録したとき, the システム shall その受領見積書を確認済みで保存し、確認済みにした利用者を接続した利用者、確認の日時を送られた値、経路を ArchiBench として記録する
+     */
+    it('ArchiBench の入口の確認済みの登録は、確認者を操作した利用者、日時を送られた値、経路を ArchiBench として保存する', async () => {
+      const sentAt = new Date('2026-11-18T04:05:06.000Z');
+
+      const created = await createFromArchibench(sentAt, {
+        readingStatus: 'CONFIRMED',
+        file: pdfOf('ArchiBench の確認済み'),
+      });
+
+      const row = await storedRoute(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      expect(row.readingConfirmedAt!.toISOString()).toBe(sentAt.toISOString());
+      expect(row.readingConfirmationRoute).toBe('ARCHIBENCH');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.12: The システム shall 確認済みの受領見積書ごとに、読取の確認の経路（画面・台帳の取り込み・ArchiBench のいずれか）を保持し、未確認の受領見積書には経路を持たせない
+     */
+    it('ArchiBench の入口で確認済みを送らない登録は、未確認・経路 null で保存する', async () => {
+      const created = await createFromArchibench(new Date('2026-11-18T04:05:06.000Z'));
+
+      expect(await storedRoute(created.id)).toMatchObject({
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmedById: null,
+        readingConfirmedAt: null,
+        readingConfirmationRoute: null,
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.16: If 受入基準15 の登録で、確認の日時が欠けている、または受け付けた時刻より後である場合, then the システム shall 受領見積書を登録せず、確認の日時の誤りを示すエラーを返す
+     */
+    it('ArchiBench の入口の確認済みの登録で、確認の日時が欠けるか受け付けた時刻より後なら、確認の日時の誤りで拒み、DB にもストレージにも何も残さない', async () => {
+      const name = `経路_日時の誤り_${suffix}`;
+      const filesBefore = await storedFiles();
+      const logsBefore = await prisma.auditLog.count({
+        where: { targetType: 'ReceivedQuotation', action: 'RECEIVED_QUOTATION_CREATED' },
+      });
+
+      for (const readingConfirmedAt of [null, new Date(Date.now() + 60 * 60 * 1000)]) {
+        const error: unknown = await createFromArchibench(readingConfirmedAt, {
+          name,
+          readingStatus: 'CONFIRMED',
+          file: pdfOf(`日時の誤り ${String(readingConfirmedAt?.getTime())}`),
+        }).then(
+          () => null,
+          (thrown: unknown) => thrown
+        );
+
+        expect(error).toBeInstanceOf(ReadingConfirmedAtInvalidError);
+        expect(error).toMatchObject({ statusCode: 400, code: 'READING_CONFIRMED_AT_INVALID' });
+      }
+
+      expect(await prisma.receivedQuotation.count({ where: { name } })).toBe(0);
+      expect(await storedFiles()).toEqual(filesBefore);
+      expect(
+        await prisma.auditLog.count({
+          where: { targetType: 'ReceivedQuotation', action: 'RECEIVED_QUOTATION_CREATED' },
+        })
+      ).toBe(logsBefore);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.18: When 受入基準8 で読取の確認を未確認に戻したとき, the システム shall 経路も消す
+     * @requirement estimate-request/REQ-46.21: The システム shall 経路の変更を、受入基準11 の監査ログの変更の前後に含める
+     */
+    it('確認済みの受領見積書の明細行を変えて更新すると経路が null に戻り、監査ログの前後に経路が入る', async () => {
+      const created = await createFromArchibench(new Date('2026-11-18T04:05:06.000Z'), {
+        readingStatus: 'CONFIRMED',
+      });
+      const confirmed = await storedRoute(created.id);
+      expect(confirmed.readingConfirmationRoute).toBe('ARCHIBENCH');
+
+      // 明細行の単価を直して確認済みを送る（確認済みを送っても未確認に戻る）
+      const reverted = await request(app)
+        .put(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('expectedUpdatedAt', confirmed.updatedAt.toISOString())
+        .field('readingStatus', 'CONFIRMED')
+        .field(
+          'lineItems',
+          JSON.stringify([{ name: '経路の明細', sortOrder: 0, quantity: 2, unitPrice: 1600 }])
+        );
+      expect(reverted.status).toBe(200);
+      expect(await storedRoute(created.id)).toMatchObject({
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmedById: null,
+        readingConfirmedAt: null,
+        readingConfirmationRoute: null,
+      });
+
+      // 改めて画面で確認済みにすると、経路は画面になる
+      const reconfirmed = await request(app)
+        .put(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('expectedUpdatedAt', new Date(reverted.body.updatedAt).toISOString())
+        .field('readingStatus', 'CONFIRMED');
+      expect(reconfirmed.status).toBe(200);
+      expect((await storedRoute(created.id)).readingConfirmationRoute).toBe('SCREEN');
+
+      await service.delete(created.id, new Date(reconfirmed.body.updatedAt), testUserId);
+
+      const logs = await logsOf(created.id);
+      expect(logs.map((log) => log.action)).toEqual([
+        'RECEIVED_QUOTATION_CREATED',
+        'RECEIVED_QUOTATION_UPDATED',
+        'RECEIVED_QUOTATION_UPDATED',
+        'RECEIVED_QUOTATION_DELETED',
+      ]);
+      const [createdLog, revertedLog, reconfirmedLog, deletedLog] = logs;
+      expect(createdLog!.after).toMatchObject({
+        readingStatus: 'CONFIRMED',
+        readingConfirmationRoute: 'ARCHIBENCH',
+      });
+      expect(revertedLog!.before).toMatchObject({ readingConfirmationRoute: 'ARCHIBENCH' });
+      expect(revertedLog!.after).toMatchObject({
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmationRoute: null,
+      });
+      expect(reconfirmedLog!.before).toMatchObject({ readingConfirmationRoute: null });
+      expect(reconfirmedLog!.after).toMatchObject({
+        readingStatus: 'CONFIRMED',
+        readingConfirmationRoute: 'SCREEN',
+      });
+      expect(deletedLog!.before).toMatchObject({ readingConfirmationRoute: 'SCREEN' });
+    });
+  });
+
+  /**
    * 原本の指紋と同じ案件の二重登録（タスク113.4）
    *
    * design の Requirements 43-50 の章の D6 を実際の DB とローカルのストレージで確かめる。同じ案件への同じ原本の
@@ -2497,6 +2796,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       via.create(
         { kind: 'project', projectId },
         {
+          origin: { kind: 'screen' },
           vendorName: `指紋の業者_${suffix}`,
           name: `指紋の受領見積書_${suffix}`,
           submittedAt: new Date('2026-11-08T00:00:00.000Z'),

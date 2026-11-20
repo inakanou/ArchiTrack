@@ -257,6 +257,27 @@ describe('project-quotations.routes', () => {
       expect(mockCallOrder).toEqual(['scope', 'upload']);
     });
 
+    /**
+     * @requirement estimate-request/REQ-46.13
+     * @requirement estimate-request/REQ-46.17
+     */
+    it('案件の配下の登録は、要求に経路や入口の欄が添えてあっても、サービスへ画面の入口を渡し、経路の欄を渡さない', async () => {
+      mockCreate.mockResolvedValue({ quotation: savedQuotation, sharedOriginalCount: 0 });
+
+      const response = await postMultipart()
+        .field('readingConfirmationRoute', 'ARCHIBENCH')
+        .field('readingConfirmedAt', '2026-10-31T00:00:00.000Z')
+        .field('origin', JSON.stringify({ kind: 'archibench', readingConfirmedAt: null }));
+
+      expect(response.status).toBe(201);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const [, input] = mockCreate.mock.calls[0]!;
+      expect(input.origin).toEqual({ kind: 'screen' });
+      expect(input.readingStatus).toBe('CONFIRMED');
+      expect(input).not.toHaveProperty('readingConfirmationRoute');
+      expect(input).not.toHaveProperty('readingConfirmedAt');
+    });
+
     it('登録には見積依頼の更新の権限を求め、無ければ 403 にして範囲の判定もファイルの受信もしない', async () => {
       mockState.shouldRejectPermission = true;
 

@@ -72,6 +72,7 @@ import {
   FileSizeLimitExceededError,
   FileOrLineItemsRequiredError,
   DuplicateOriginalError,
+  ReadingConfirmedAtInvalidError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
@@ -253,6 +254,19 @@ export type QuotationContext =
   | { readonly kind: 'estimateRequest'; readonly estimateRequestId: string }
   | { readonly kind: 'project'; readonly projectId: string };
 
+/**
+ * 受領見積書の作成の入口（46.13・46.15・46.17。design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」
+ * の章の D15、タスク123.2）
+ *
+ * - screen: 本機能の画面の登録（見積依頼の配下・案件の配下）。確認済みの経路は画面になる
+ * - archibench: claude-connector の登録。確認済みを送るときは確認の日時を添える（D16）
+ *
+ * 要求の本文の検証（zod）には欄を置かず、呼び出し元のコードが決める（画面の利用者が経路を偽れないように）
+ */
+export type QuotationOrigin =
+  | { readonly kind: 'screen' }
+  | { readonly kind: 'archibench'; readonly readingConfirmedAt: Date | null };
+
 /** 案件の配下の一覧の対象（D2。既定の requested は見積依頼に紐づくものだけ） */
 export interface FindByProjectIdOptions {
   readonly include: 'requested' | 'all';
@@ -304,10 +318,15 @@ export interface CreateReceivedQuotationInput extends LedgerFieldsInput {
   netAmount?: number | null;
   file?: FileInfo;
   lineItems?: LineItemInput[];
+  /**
+   * 作成の入口（D15。タスク123.2）。必須にして、後から足す入口が確認済みを黙って画面として記録しないようにする
+   */
+  readonly origin: QuotationOrigin;
 }
 
 /**
- * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）
+ * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）。更新は入口の区別を持たず、新しく確認済みにすれば
+ * 経路は画面になる（更新の入口は画面だけ。タスク123.2）
  */
 export interface UpdateReceivedQuotationInput extends LedgerFieldsInput {
   /** 業者名（44.1）。案件の文脈だけで使い、見積依頼の文脈では無視する（44.3。タスク113.2） */
@@ -541,6 +560,39 @@ export class ReceivedQuotationService {
   }
 
   /**
+   * 作成の読取の確認の決め方を、入口から決める（D15・D16。タスク123.2）
+   *
+   * - 画面の入口: 共有の規則の既定のまま（新しく確認済みにすれば経路は画面、日時は今）
+   * - ArchiBench の入口で確認済みが送られた: 確認の日時が欠けるか、受け付けた時刻より後なら拒む（46.16）。
+   *   通れば経路を ArchiBench、日時を送られた値にする（46.15。確認者は規則が操作した利用者にする）
+   * - ArchiBench の入口で確認済みが送られない: 確認の日時は読まない（未確認で保存する。46.12）
+   *
+   * @param acceptedAt - サービスが作成を受け付けた時刻
+   * @throws ReadingConfirmedAtInvalidError 確認の日時が欠けるか、受け付けた時刻より後のとき
+   */
+  private resolveCreateConfirmationOptions(
+    input: Pick<CreateReceivedQuotationInput, 'origin' | 'readingStatus'>,
+    acceptedAt: Date
+  ): ReadingConfirmationOptions {
+    const { origin } = input;
+    if (origin.kind !== 'archibench' || input.readingStatus !== 'CONFIRMED') {
+      return READING_CONFIRMATION_OPTIONS;
+    }
+    const confirmedAt = origin.readingConfirmedAt;
+    if (
+      confirmedAt === null ||
+      Number.isNaN(confirmedAt.getTime()) ||
+      confirmedAt.getTime() > acceptedAt.getTime()
+    ) {
+      throw new ReadingConfirmedAtInvalidError();
+    }
+    return {
+      ...READING_CONFIRMATION_OPTIONS,
+      newConfirmation: { route: 'ARCHIBENCH', confirmedAt },
+    };
+  }
+
+  /**
    * 入力のとおりに保存する台帳の項目を取り出す（送られた欄だけ。null は消す）
    */
   private pickLedgerColumns(input: LedgerFieldsInput): LedgerColumns {
@@ -744,6 +796,7 @@ export class ReceivedQuotationService {
    * @param input - 作成入力
    * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @returns 作成された受領見積書情報（明細行・合計金額を含む）と、同じ原本で区別の違う他の受領見積書の数
+   * @throws ReadingConfirmedAtInvalidError ArchiBench の入口の確認済みの登録で、確認の日時が欠けるか受け付けた時刻より後の場合（46.16）
    * @throws DuplicateOriginalError 同じ案件に原本の指紋と見積の区別が同じ受領見積書がある場合（48.3）
    * @throws EstimateRequestNotFoundError 見積依頼の文脈で見積依頼が存在しない場合
    * @throws ProjectNotFoundError 案件の文脈で案件が存在しないか論理削除済みの場合
@@ -757,6 +810,11 @@ export class ReceivedQuotationService {
     input: CreateReceivedQuotationInput,
     actorId: string
   ): Promise<SaveResult> {
+    // 0. 作成を受け付けた時刻（1 回だけ取る）と、入口ごとの読取の確認の決め方（D15・D16。タスク123.2）。
+    // 確認の日時の誤りは、二重登録の判定・レコードの作成・ファイルの送信より前に拒む（46.16）
+    const acceptedAt = new Date();
+    const confirmationOptions = this.resolveCreateConfirmationOptions(input, acceptedAt);
+
     // 1. ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -808,13 +866,13 @@ export class ReceivedQuotationService {
           // 台帳の項目（タスク113.3）。見積の区別は送られなければ空（48.2）
           ...this.pickLedgerColumns(input),
           quoteDiscriminator,
-          // 読取の確認（D9）。作成は保存前を未確認とみる
+          // 読取の確認（D9）。作成は保存前を未確認とみる。経路と日時は入口で決まる（D13・D15）
           ...decideReadingConfirmation(
             null,
             input.readingStatus,
             false,
             actorId,
-            READING_CONFIRMATION_OPTIONS
+            confirmationOptions
           ),
         },
         include: {

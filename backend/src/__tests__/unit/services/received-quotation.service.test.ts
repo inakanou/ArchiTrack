@@ -38,6 +38,7 @@ import {
   FileSizeLimitExceededError,
   DuplicateOriginalError,
   DUPLICATE_ORIGINAL_MESSAGE,
+  ReadingConfirmedAtInvalidError,
 } from '../../../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../../../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
@@ -89,6 +90,12 @@ const createMockStorageProvider = (): StorageProvider => ({
 
 /** 操作した利用者（監査ログの実行者。estimate-request の Requirement 14.7、タスク111.1） */
 const ACTOR_ID = 'user-actor-001';
+
+/**
+ * 画面の入口（design の Service Interface の `QuotationOrigin`。タスク123.2）。入口を主題にしない検証の
+ * 作成の入力は、画面の登録として渡す
+ */
+const SCREEN_ORIGIN = { kind: 'screen' } as const;
 
 /**
  * 見積依頼の文脈（design の Service Interface の `QuotationContext`。タスク113.1）。
@@ -165,6 +172,7 @@ describe('ReceivedQuotationService', () => {
         { name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 10000, amount: 10000 },
       ];
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
@@ -235,6 +243,7 @@ describe('ReceivedQuotationService', () => {
     it('ファイル付きで受領見積書を作成する（Requirements: 11.6, 11.8）', async () => {
       // Arrange
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（PDF）',
         submittedAt: new Date('2026-01-23'),
@@ -296,6 +305,7 @@ describe('ReceivedQuotationService', () => {
     it('見積依頼が存在しない場合、エラーを発生させる', async () => {
       // Arrange: 明細行ありでバリデーションを通過させるが、見積依頼が存在しない
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-nonexistent',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
@@ -321,6 +331,7 @@ describe('ReceivedQuotationService', () => {
     it('許可されていないファイル形式の場合、エラーを発生させる（Requirements: 11.8）', async () => {
       // Arrange
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
@@ -341,6 +352,7 @@ describe('ReceivedQuotationService', () => {
     it('ファイルサイズが10MBを超える場合、エラーを発生させる（Requirements: 11.9）', async () => {
       // Arrange
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-23'),
@@ -361,6 +373,7 @@ describe('ReceivedQuotationService', () => {
     it('Excelファイルで受領見積書を作成する', async () => {
       // Arrange
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（Excel）',
         submittedAt: new Date('2026-01-23'),
@@ -421,6 +434,7 @@ describe('ReceivedQuotationService', () => {
     it('画像ファイルで受領見積書を作成する', async () => {
       // Arrange
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-001',
         name: 'テスト受領見積書（画像）',
         submittedAt: new Date('2026-01-23'),
@@ -1083,6 +1097,7 @@ describe('ReceivedQuotationService', () => {
     };
 
     const baseInput = {
+      origin: SCREEN_ORIGIN,
       name: '  見積依頼の無い受領見積書  ',
       submittedAt: new Date('2026-11-01'),
       lineItems: [{ name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 }],
@@ -1563,6 +1578,7 @@ describe('ReceivedQuotationService', () => {
     };
 
     const baseInput = {
+      origin: SCREEN_ORIGIN,
       name: '受領見積書',
       submittedAt: new Date('2026-11-01'),
       lineItems: [{ name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 }],
@@ -1940,6 +1956,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: 'テスト受領見積書（明細行付き）',
           submittedAt: new Date('2026-01-23'),
@@ -2012,6 +2029,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: 'テスト受領見積書（ファイル+明細行）',
           submittedAt: new Date('2026-01-23'),
@@ -2081,6 +2099,7 @@ describe('ReceivedQuotationService', () => {
       it('ファイルも明細行もない場合にエラーを発生させる（Requirements: 11.22, 11.24）', async () => {
         // Arrange
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: 'テスト受領見積書',
           submittedAt: new Date('2026-01-23'),
@@ -2100,6 +2119,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: 'テスト受領見積書',
           submittedAt: new Date('2026-01-23'),
@@ -2463,6 +2483,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '外壁改修見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2534,6 +2555,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '設備工事見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2603,6 +2625,7 @@ describe('ReceivedQuotationService', () => {
       it('ファイルのみの登録テスト（明細行なし）', async () => {
         // Arrange: ファイルのみで明細行なし
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: 'ファイルのみ見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2673,6 +2696,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '明細のみ見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2739,6 +2763,7 @@ describe('ReceivedQuotationService', () => {
       it('ファイルも明細行もない場合のバリデーションエラーテスト（Requirements: 11.22, 11.24）', async () => {
         // Arrange: ファイルも明細行もなし
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '空の見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2754,6 +2779,7 @@ describe('ReceivedQuotationService', () => {
       it('空の明細行配列の場合もバリデーションエラーになる', async () => {
         // Arrange: 空の明細行配列
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '空配列見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2781,6 +2807,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '金額検証テスト見積書',
           submittedAt: new Date('2026-02-01'),
@@ -2868,6 +2895,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '数量null見積書',
           submittedAt: new Date('2026-02-01'),
@@ -3303,6 +3331,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '見積書（任意分類・工種あり）',
           submittedAt: new Date('2026-02-01'),
@@ -3402,6 +3431,7 @@ describe('ReceivedQuotationService', () => {
         ];
 
         const input = {
+          origin: SCREEN_ORIGIN,
           estimateRequestId: 'er-001',
           name: '見積書（任意分類・工種なし）',
           submittedAt: new Date('2026-02-01'),
@@ -3534,6 +3564,7 @@ describe('ReceivedQuotationService', () => {
         },
       ];
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-net-001',
         name: 'NET金額テスト',
         submittedAt: new Date('2026-02-18'),
@@ -3703,6 +3734,7 @@ describe('ReceivedQuotationService', () => {
         },
       ];
       const input = {
+        origin: SCREEN_ORIGIN,
         estimateRequestId: 'er-net-004',
         name: 'NET金額明細行除外テスト',
         submittedAt: new Date('2026-02-18'),
@@ -4069,6 +4101,7 @@ describe('ReceivedQuotationService', () => {
         await service.create(
           { kind: 'estimateRequest', estimateRequestId: 'er-001' },
           {
+            origin: SCREEN_ORIGIN,
             name: '監査ログの受領見積書',
             submittedAt: new Date('2026-01-24T00:00:00.000Z'),
             netAmount: NET_AMOUNT,
@@ -4120,6 +4153,7 @@ describe('ReceivedQuotationService', () => {
         await service.create(
           { kind: 'estimateRequest', estimateRequestId: 'er-001' },
           {
+            origin: SCREEN_ORIGIN,
             name: 'ファイルの受領見積書',
             submittedAt: new Date('2026-01-24T00:00:00.000Z'),
             netAmount: NET_AMOUNT,
@@ -4179,6 +4213,7 @@ describe('ReceivedQuotationService', () => {
           service.create(
             { kind: 'estimateRequest', estimateRequestId: 'er-001' },
             {
+              origin: SCREEN_ORIGIN,
               name: 'ファイルの受領見積書',
               submittedAt: new Date('2026-01-24T00:00:00.000Z'),
               file: {
@@ -4208,6 +4243,7 @@ describe('ReceivedQuotationService', () => {
           service.create(
             { kind: 'estimateRequest', estimateRequestId: 'er-missing' },
             {
+              origin: SCREEN_ORIGIN,
               name: '不在',
               submittedAt: new Date('2026-01-24'),
               lineItems: [{ name: '明細', sortOrder: 0 }],
@@ -4546,6 +4582,7 @@ describe('ReceivedQuotationService', () => {
       service.create(
         { kind: 'estimateRequest', estimateRequestId: 'er-001' },
         {
+          origin: SCREEN_ORIGIN,
           name: '台帳の受領見積書',
           submittedAt: new Date('2026-11-01T00:00:00.000Z'),
           lineItems,
@@ -5143,6 +5180,326 @@ describe('ReceivedQuotationService', () => {
       });
     });
 
+    /**
+     * 読取の確認の経路と作成の入口（design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の章の
+     * D13・D15・D16・D22、タスク123.2）
+     */
+    describe('読取の確認の経路と作成の入口（D13・D15・D16・D22）', () => {
+      const pdfFile = () => ({
+        buffer: Buffer.from('%PDF-1.4 archibench'),
+        originalName: '見積書.pdf',
+        mimeType: 'application/pdf',
+        size: 19,
+      });
+      const createFrom = (
+        origin: Parameters<ReceivedQuotationService['create']>[1]['origin'],
+        extra: Partial<Parameters<ReceivedQuotationService['create']>[1]> = {}
+      ) =>
+        service.create(
+          { kind: 'estimateRequest', estimateRequestId: 'er-001' },
+          {
+            name: '台帳の受領見積書',
+            submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+            lineItems: [{ name: '明細', sortOrder: 0, amount: 100 }],
+            origin,
+            ...extra,
+          },
+          ACTOR_ID
+        );
+      const createdData = (txClient: ReturnType<typeof setupCreateTx>) =>
+        txClient.receivedQuotation.create.mock.calls[0]![0].data;
+
+      /**
+       * @requirement estimate-request/REQ-46.13
+       */
+      it('画面の入口で確認済みを送って作ると、経路を画面として書く', async () => {
+        const txClient = setupCreateTx();
+
+        await createFrom({ kind: 'screen' }, { readingStatus: 'CONFIRMED' });
+
+        expect(createdData(txClient)).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: ACTOR_ID,
+          readingConfirmationRoute: 'SCREEN',
+        });
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.12
+       */
+      it('画面の入口で確認済みを送らずに作ると、経路の列を書かない（列の既定の null のまま）', async () => {
+        const txClient = setupCreateTx();
+
+        await createFrom({ kind: 'screen' });
+
+        const data = createdData(txClient);
+        expect(data).not.toHaveProperty('readingStatus');
+        expect(data.readingConfirmationRoute ?? null).toBeNull();
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.13
+       * @requirement estimate-request/REQ-46.17
+       */
+      it('未確認から確認済みにする更新は、経路を画面として書く（更新の入口は画面だけ）', async () => {
+        const txClient = setupUpdateTx(storedQuotation());
+
+        await service.update(
+          'rq-ledger',
+          { readingStatus: 'CONFIRMED' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        expect(txClient.receivedQuotation.update.mock.calls[0]![0].data).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: ACTOR_ID,
+          readingConfirmationRoute: 'SCREEN',
+        });
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.12
+       */
+      it('確認済みを送り直す更新は、経路の列を書かない（ArchiBench の経路も追補の前の null も保つ）', async () => {
+        for (const route of ['ARCHIBENCH', null]) {
+          const txClient = setupUpdateTx(
+            storedQuotation({
+              readingStatus: 'CONFIRMED',
+              readingConfirmedById: OTHER_USER_ID,
+              readingConfirmedAt: CONFIRMED_AT,
+              readingConfirmationRoute: route,
+            })
+          );
+
+          await service.update(
+            'rq-ledger',
+            { readingStatus: 'CONFIRMED', quoteNumber: 'Q-1' },
+            expectedUpdatedAt,
+            ACTOR_ID
+          );
+
+          const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+          expect(data).not.toHaveProperty('readingConfirmationRoute');
+          expect(data).not.toHaveProperty('readingConfirmedById');
+          expect(data).not.toHaveProperty('readingConfirmedAt');
+        }
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.18
+       */
+      it('確認済みの受領見積書の明細行を変える更新と、未確認を送る更新は、経路を null にする', async () => {
+        const confirmed = () =>
+          storedQuotation({
+            readingStatus: 'CONFIRMED',
+            readingConfirmedById: OTHER_USER_ID,
+            readingConfirmedAt: CONFIRMED_AT,
+            readingConfirmationRoute: 'ARCHIBENCH',
+          });
+        const inputs: Array<Parameters<ReceivedQuotationService['update']>[1]> = [
+          {
+            readingStatus: 'CONFIRMED',
+            lineItems: [{ name: '直した明細', sortOrder: 0, amount: 49000 }],
+          },
+          { readingStatus: 'UNCONFIRMED' },
+        ];
+
+        for (const input of inputs) {
+          const txClient = setupUpdateTx(confirmed(), [storedLine()]);
+
+          await service.update('rq-ledger', input, expectedUpdatedAt, ACTOR_ID);
+
+          expect(txClient.receivedQuotation.update.mock.calls[0]![0].data).toMatchObject({
+            readingStatus: 'UNCONFIRMED',
+            readingConfirmedById: null,
+            readingConfirmedAt: null,
+            readingConfirmationRoute: null,
+          });
+        }
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.15
+       */
+      it('ArchiBench の入口で確認済みと確認の日時を送って作ると、確認者を操作した利用者、日時を送られた値、経路を ArchiBench として書く', async () => {
+        const txClient = setupCreateTx();
+        const sentAt = new Date(Date.now() - 60 * 60 * 1000);
+
+        await createFrom(
+          { kind: 'archibench', readingConfirmedAt: sentAt },
+          { readingStatus: 'CONFIRMED' }
+        );
+
+        const data = createdData(txClient);
+        expect(data).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: ACTOR_ID,
+          readingConfirmationRoute: 'ARCHIBENCH',
+        });
+        expect((data.readingConfirmedAt as Date).getTime()).toBe(sentAt.getTime());
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.15
+       * @requirement estimate-request/REQ-46.16
+       */
+      it('ArchiBench の入口の確認の日時が受け付けた時刻ちょうどなら通す（拒むのは受け付けた時刻より後だけ）', async () => {
+        vi.useFakeTimers();
+        try {
+          const acceptedAt = new Date('2026-11-21T03:00:00.000Z');
+          vi.setSystemTime(acceptedAt);
+          const txClient = setupCreateTx();
+
+          await createFrom(
+            { kind: 'archibench', readingConfirmedAt: new Date(acceptedAt.getTime()) },
+            { readingStatus: 'CONFIRMED' }
+          );
+
+          expect(createdData(txClient)).toMatchObject({
+            readingConfirmedAt: acceptedAt,
+            readingConfirmationRoute: 'ARCHIBENCH',
+          });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.16
+       */
+      it('ArchiBench の入口で確認済みを送り、確認の日時が欠けるか受け付けた時刻より後なら、確認の日時の誤りで拒み、何も書かない', async () => {
+        vi.useFakeTimers();
+        try {
+          const acceptedAt = new Date('2026-11-21T03:00:00.000Z');
+          vi.setSystemTime(acceptedAt);
+          const invalidTimes: Array<{ label: string; readingConfirmedAt: Date | null }> = [
+            { label: '欠け', readingConfirmedAt: null },
+            { label: '1 ミリ秒後', readingConfirmedAt: new Date(acceptedAt.getTime() + 1) },
+            { label: '翌日', readingConfirmedAt: new Date('2026-11-22T03:00:00.000Z') },
+            { label: '日時として読めない値', readingConfirmedAt: new Date('invalid') },
+          ];
+
+          for (const { label, readingConfirmedAt } of invalidTimes) {
+            const txClient = setupCreateTx();
+            vi.mocked(mockStorageProvider.upload).mockClear();
+            mockAuditLogService.createLog.mockClear();
+
+            const error: unknown = await createFrom(
+              { kind: 'archibench', readingConfirmedAt },
+              { readingStatus: 'CONFIRMED', file: pdfFile() }
+            ).then(
+              () => null,
+              (thrown: unknown) => thrown
+            );
+
+            expect({ label, isError: error instanceof ReadingConfirmedAtInvalidError }).toEqual({
+              label,
+              isError: true,
+            });
+            expect(error).toMatchObject({
+              statusCode: 400,
+              code: 'READING_CONFIRMED_AT_INVALID',
+              message: '確認の日時が正しくありません（欠けているか、受け付けた時刻より後です）',
+            });
+            // 二重登録の判定（勧告ロックと照会）・レコードの作成・明細行の保存・監査・ファイルの送信のどれも行わない
+            expect(txClient.$executeRaw).not.toHaveBeenCalled();
+            expect(txClient.receivedQuotation.findMany).not.toHaveBeenCalled();
+            expect(txClient.receivedQuotation.create).not.toHaveBeenCalled();
+            expect(txClient.receivedQuotationLineItem.createMany).not.toHaveBeenCalled();
+            expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+            expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+          }
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.12
+       */
+      it('ArchiBench の入口で確認済みを送らなければ、確認の日時を読まずに未確認・経路 null で作る', async () => {
+        const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const cases: Array<Partial<Parameters<ReceivedQuotationService['create']>[1]>> = [
+          {},
+          { readingStatus: 'UNCONFIRMED' },
+        ];
+
+        for (const extra of cases) {
+          const txClient = setupCreateTx();
+
+          const { quotation } = await createFrom(
+            { kind: 'archibench', readingConfirmedAt: future },
+            extra
+          );
+
+          const data = createdData(txClient);
+          expect(data.readingStatus ?? 'UNCONFIRMED').toBe('UNCONFIRMED');
+          expect(data.readingConfirmedById ?? null).toBeNull();
+          expect(data.readingConfirmedAt ?? null).toBeNull();
+          expect(data.readingConfirmationRoute ?? null).toBeNull();
+          expect(quotation.readingStatus).toBe('UNCONFIRMED');
+        }
+      });
+
+      it('入口（origin）を DB の列として書かない', async () => {
+        const txClient = setupCreateTx();
+
+        await createFrom(
+          { kind: 'archibench', readingConfirmedAt: new Date(Date.now() - 1000) },
+          { readingStatus: 'CONFIRMED' }
+        );
+
+        expect(createdData(txClient)).not.toHaveProperty('origin');
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.21
+       */
+      it('監査ログの作成の後・更新の前後・論理削除の前に経路を入れる', async () => {
+        setupCreateTx();
+        await createFrom(
+          { kind: 'archibench', readingConfirmedAt: new Date(Date.now() - 1000) },
+          { readingStatus: 'CONFIRMED' }
+        );
+        const [createdLog] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(createdLog.after).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmationRoute: 'ARCHIBENCH',
+        });
+
+        mockAuditLogService.createLog.mockClear();
+        const confirmed = storedQuotation({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: OTHER_USER_ID,
+          readingConfirmedAt: CONFIRMED_AT,
+          readingConfirmationRoute: 'ARCHIBENCH',
+        });
+        setupUpdateTx(confirmed);
+        await service.update(
+          'rq-ledger',
+          { readingStatus: 'UNCONFIRMED' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        const [updatedLog] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(updatedLog.before).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmationRoute: 'ARCHIBENCH',
+        });
+        expect(updatedLog.after).toMatchObject({
+          readingStatus: 'UNCONFIRMED',
+          readingConfirmationRoute: null,
+        });
+
+        mockAuditLogService.createLog.mockClear();
+        setupUpdateTx(confirmed);
+        await service.delete('rq-ledger', expectedUpdatedAt, ACTOR_ID);
+        const [deletedLog] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(deletedLog.before).toMatchObject({ readingConfirmationRoute: 'ARCHIBENCH' });
+      });
+    });
+
     describe('監査ログの金額の項目（46.11）', () => {
       it('更新の後に工事価格・確定金額の変更の有無だけを入れ、値を入れない', async () => {
         const current = storedQuotation({ constructionPrice: 30_000_000, confirmedAmount: null });
@@ -5294,6 +5651,7 @@ describe('ReceivedQuotationService', () => {
       service.create(
         { kind: 'estimateRequest', estimateRequestId: 'er-001' },
         {
+          origin: SCREEN_ORIGIN,
           name: '新しい受領見積書',
           submittedAt: new Date('2026-11-02T00:00:00.000Z'),
           ...extra,
