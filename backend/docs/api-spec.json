@@ -4521,7 +4521,7 @@
                   },
                   "quoteNumber": {
                     "type": "string",
-                    "description": "台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）"
+                    "description": "台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる"
                   }
                 }
               }
@@ -7333,7 +7333,7 @@
       },
       "post": {
         "summary": "見積依頼に紐づかない受領見積書の登録",
-        "description": "案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404",
+        "description": "案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる",
         "tags": [
           "Received Quotations"
         ],
