@@ -2877,7 +2877,7 @@
 
 **経緯**: タスク123 の経緯と同じ。design.md の同章の Testing Strategy の E2E と関門を行う
 
-- [ ] 125.1 経路・指紋・409 の ID・端数調整の E2E を足す
+- [x] 125.1 経路・指紋・409 の ID・端数調整の E2E を足す
   - `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` に、design.md の同章の Testing Strategy の E2E の 1〜7 を足す（画面の確認で「経路: 画面」が確認者・日時とともにフォームと一覧に出て、明細行を変えると消える。要求の本文へ経路の欄を足しても画面になる。DB で確認済み・経路 null にした受領見積書が「経路の記録なし」と出る。監査ログの前後に経路が入る。登録と一覧の応答の `fileSha256` が試験の求めた sha256 と同じで、ファイル無しは null。二度目の登録の 409 の `existing.id` が一度目の ID。端数調整の正と負の行の保存・小計・合計と、一括転記の行の区分が直接工事）
   - 各テストに `@requirement estimate-request/REQ-46.12` などの印を置く。前提（利用者・案件・ファイル）が足りないときは飛ばさず失敗させる。既存の受領見積書の E2E（`/quotations` を e2e/ 全体で grep して選ぶ）を流して回帰が無いことを確かめる。frontend を変えたためテスト環境の frontend を作り直し、migration を足したためテスト環境の backend を起動し直して migration を流してから流す。E2E が経路の列を Prisma（`e2e/fixtures/database.ts`）で書くため、リポジトリ直下の Prisma クライアントも作り直す
   - E2E で、45.1・45.6・45.14〜45.16、46.12・46.13・46.17〜46.21、48.9・48.10 の画面と応答で観測できる受入基準が緑になる状態になる
