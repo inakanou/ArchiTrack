@@ -243,11 +243,13 @@ export class LedgerImportService {
             readingStatus: 'CONFIRMED' as const,
             readingConfirmedById: actorId,
             readingConfirmedAt: input.readingConfirmed.readAt ?? importedAt,
+            readingConfirmationRoute: 'LEDGER_IMPORT' as const,
           }
         : {
             readingStatus: 'UNCONFIRMED' as const,
             readingConfirmedById: null,
             readingConfirmedAt: null,
+            readingConfirmationRoute: null,
           };
       const fields = input.ledgerFields;
 

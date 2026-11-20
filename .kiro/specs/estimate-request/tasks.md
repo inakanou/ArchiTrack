@@ -2834,7 +2834,7 @@
   - _Requirements: 46.12, 46.13, 46.15, 46.16, 46.17, 46.18, 46.21_
   - _Boundary: ReceivedQuotationRules, ReceivedQuotationService, ReceivedQuotationRoutes, ProjectQuotationsRoutes_
 
-- [ ] 123.3 台帳の取り込みが確認済みで登録するときに経路を台帳の取り込みにする
+- [x] 123.3 台帳の取り込みが確認済みで登録するときに経路を台帳の取り込みにする
   - design.md の同章の D17 のとおり、取り込みの確認の列の組み立てに、確認済みなら経路 `LEDGER_IMPORT`、未確認なら null を足す。取り込みを共有の規則へ寄せる作り替えは行わない（design の Allowed Dependencies の 1 に限る）
   - 台帳の取り込みの単体と統合（既存の取り込みの試験のファイルを grep して選ぶ）に、確認済みのカードの受領見積書の経路が台帳の取り込み、未確認のカードの経路が null である主張を足し、`@requirement estimate-request/REQ-46.14` の印を置く。改修の前に赤になることを先に示す
   - 単体と統合で、確認済みのカードを取り込んだ受領見積書の経路が台帳の取り込みである状態になる

@@ -399,6 +399,41 @@ describe('LedgerImportService', () => {
         readingConfirmedAt: null,
       });
     });
+
+    it('@requirement estimate-request/REQ-46.14 確認済みのカードの受領見積書は、読取の確認の経路を台帳の取り込みにする', async () => {
+      vi.mocked(parseUpload).mockReturnValue([
+        parsed(
+          'card-1',
+          {},
+          { readingConfirmed: { confirmed: true, readAt: new Date('2026-10-05T03:00:00.000Z') } }
+        ),
+        parsed('card-2', {}, { readingConfirmed: { confirmed: true, readAt: null } }),
+      ]);
+
+      await service.importCards(FILES, ACTOR_ID);
+
+      expect(tx.receivedQuotation.create).toHaveBeenCalledTimes(2);
+      for (const call of tx.receivedQuotation.create.mock.calls) {
+        expect(call[0].data).toMatchObject({
+          readingStatus: 'CONFIRMED',
+          readingConfirmationRoute: 'LEDGER_IMPORT',
+        });
+      }
+    });
+
+    it('@requirement estimate-request/REQ-46.14 未確認のカードの受領見積書は、読取の確認の経路を null にする', async () => {
+      vi.mocked(parseUpload).mockReturnValue([
+        parsed('card-1', {}, { readingConfirmed: { confirmed: false, readAt: null } }),
+      ]);
+
+      await service.importCards(FILES, ACTOR_ID);
+
+      expect(tx.receivedQuotation.create).toHaveBeenCalledTimes(1);
+      expect(tx.receivedQuotation.create.mock.calls[0]![0].data).toMatchObject({
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmationRoute: null,
+      });
+    });
   });
 
   describe('取り込み済みのカード', () => {
@@ -640,6 +675,7 @@ describe('LedgerImportService', () => {
           distanceKm: 12.5,
           adoption: 'ADOPTED',
           readingStatus: 'UNCONFIRMED',
+          readingConfirmationRoute: null,
           quoteDiscriminator: 'disc-1',
           ledgerCardId: 'card-1',
           ledgerProjectName: 'A小学校改修',
