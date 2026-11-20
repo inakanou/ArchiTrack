@@ -1043,8 +1043,10 @@ describe('received-quotation.routes', () => {
   // 台帳の項目・業者名の受け渡し、同じ原本の応答、同じ原本の他の件数（タスク114.1、design の D6）
   describe('台帳の項目と同じ原本の応答（タスク114.1）', () => {
     const partnerId = '550e8400-e29b-41d4-a716-446655440012';
+    const existingQuotationId = '550e8400-e29b-41d4-a716-446655440013';
     const duplicate = () =>
       new DuplicateOriginalError({
+        id: existingQuotationId,
         name: '先に登録した見積',
         vendorName: '山田設備',
         submittedAt: '2026-10-20T00:00:00.000Z',
@@ -1056,6 +1058,7 @@ describe('received-quotation.routes', () => {
       detail: '同じ原本の受領見積書が既に登録されています',
       code: 'DUPLICATE_ORIGINAL',
       existing: {
+        id: existingQuotationId,
         name: '先に登録した見積',
         vendorName: '山田設備',
         submittedAt: '2026-10-20T00:00:00.000Z',
@@ -1179,7 +1182,10 @@ describe('received-quotation.routes', () => {
       expect(input).not.toHaveProperty('origin');
     });
 
-    it('登録で同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の受領見積書を返す', async () => {
+    /**
+     * @requirement estimate-request/REQ-48.10
+     */
+    it('登録で同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の受領見積書（ID・名前・業者名・提出日）を返す', async () => {
       mockCreate.mockRejectedValue(duplicate());
 
       const response = await request(app)
@@ -1195,7 +1201,10 @@ describe('received-quotation.routes', () => {
       expect(response.body).toEqual(duplicateBody);
     });
 
-    it('更新で同じ原本・同じ区別ができるなら 409 DUPLICATE_ORIGINAL と既存の受領見積書を返す', async () => {
+    /**
+     * @requirement estimate-request/REQ-48.10
+     */
+    it('更新で同じ原本・同じ区別ができるなら 409 DUPLICATE_ORIGINAL と既存の受領見積書（ID・名前・業者名・提出日）を返す', async () => {
       mockUpdate.mockRejectedValue(duplicate());
 
       const response = await request(app)
@@ -1205,6 +1214,102 @@ describe('received-quotation.routes', () => {
 
       expect(response.status).toBe(409);
       expect(response.body).toEqual(duplicateBody);
+    });
+
+    /**
+     * 応答の原本の指紋と経路（design の 2026-11-21 の追補の章の D18、タスク123.4）。
+     * 経路はサービスの応答の形をそのまま本文へ流す
+     *
+     * @requirement estimate-request/REQ-48.9
+     */
+    describe('応答の原本の指紋と読取の確認の経路（タスク123.4）', () => {
+      const sha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+      const withFile = {
+        ...mockQuotation,
+        fileSha256: sha256,
+        readingConfirmationRoute: 'SCREEN',
+      };
+      const noFile = {
+        ...mockQuotation,
+        id: existingQuotationId,
+        fileName: null,
+        fileSha256: null,
+        readingConfirmationRoute: null,
+      };
+
+      it('登録の応答は fileSha256 と readingConfirmationRoute を持つ', async () => {
+        mockCreate.mockResolvedValue({ quotation: withFile, sharedOriginalCount: 0 });
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+          .field('name', 'テスト受領見積書')
+          .field('submittedAt', '2024-01-15T00:00:00.000Z')
+          .field('readingStatus', 'CONFIRMED')
+          .attach('file', Buffer.from('%PDF-1.4 quote'), {
+            filename: 'quote.pdf',
+            contentType: 'application/pdf',
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body.fileSha256).toBe(sha256);
+        expect(response.body.readingConfirmationRoute).toBe('SCREEN');
+      });
+
+      it('ファイルの無い登録の応答は fileSha256 が null である', async () => {
+        mockCreate.mockResolvedValue({ quotation: noFile, sharedOriginalCount: 0 });
+
+        const response = await request(app)
+          .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+          .field('name', 'テスト受領見積書')
+          .field('submittedAt', '2024-01-15T00:00:00.000Z')
+          .field('lineItems', JSON.stringify([{ name: '明細', sortOrder: 0, amount: 100 }]));
+
+        expect(response.status).toBe(201);
+        expect(response.body).toHaveProperty('fileSha256', null);
+        expect(response.body).toHaveProperty('readingConfirmationRoute', null);
+      });
+
+      it('更新の応答は fileSha256 と readingConfirmationRoute を持つ', async () => {
+        mockUpdate.mockResolvedValue({ quotation: withFile, sharedOriginalCount: 0 });
+
+        const response = await request(app)
+          .put(`/api/quotations/${validUUID}`)
+          .field('expectedUpdatedAt', '2024-01-01T00:00:00.000Z')
+          .field('readingStatus', 'CONFIRMED');
+
+        expect(response.status).toBe(200);
+        expect(response.body.fileSha256).toBe(sha256);
+        expect(response.body.readingConfirmationRoute).toBe('SCREEN');
+      });
+
+      it('詳細の応答は fileSha256 と readingConfirmationRoute を持つ', async () => {
+        mockFindById.mockResolvedValue(withFile);
+
+        const response = await request(app).get(`/api/quotations/${validUUID}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.fileSha256).toBe(sha256);
+        expect(response.body.readingConfirmationRoute).toBe('SCREEN');
+      });
+
+      it('見積依頼の配下の一覧の応答は、行ごとに fileSha256（ファイルの無いものは null）と readingConfirmationRoute を持つ', async () => {
+        mockFindByEstimateRequestId.mockResolvedValue([withFile, noFile]);
+
+        const response = await request(app).get(
+          `/api/estimate-requests/${estimateRequestId}/quotations`
+        );
+
+        expect(response.status).toBe(200);
+        expect(
+          response.body.map((q: { fileSha256: unknown; readingConfirmationRoute: unknown }) => [
+            q.fileSha256,
+            q.readingConfirmationRoute,
+          ])
+        ).toEqual([
+          [sha256, 'SCREEN'],
+          [null, null],
+        ]);
+      });
     });
   });
 });

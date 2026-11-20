@@ -168,6 +168,38 @@ describe('project-quotations.routes', () => {
       expect(mockFindByProjectId).toHaveBeenCalledWith(projectId, { include: 'all' });
     });
 
+    /**
+     * 応答の原本の指紋と経路（design の 2026-11-21 の追補の章の D18、タスク123.4）
+     *
+     * @requirement estimate-request/REQ-48.9
+     */
+    it.each([
+      ['既定', ''],
+      ['include=all', '?include=all'],
+    ])(
+      '一覧（%s）の応答は、行ごとに fileSha256（ファイルの無いものは null）と readingConfirmationRoute を持つ',
+      async (_label, query) => {
+        const sha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+        mockFindByProjectId.mockResolvedValue([
+          { ...savedQuotation, fileSha256: sha256, readingConfirmationRoute: 'SCREEN' },
+          { ...savedQuotation, fileName: null, fileSha256: null, readingConfirmationRoute: null },
+        ]);
+
+        const response = await request(app).get(`/api/projects/${projectId}/quotations${query}`);
+
+        expect(response.status).toBe(200);
+        expect(
+          response.body.map((q: { fileSha256: unknown; readingConfirmationRoute: unknown }) => [
+            q.fileSha256,
+            q.readingConfirmationRoute,
+          ])
+        ).toEqual([
+          [sha256, 'SCREEN'],
+          [null, null],
+        ]);
+      }
+    );
+
     it('include に知らない値を渡すと 400 にし、一覧を読まない', async () => {
       const response = await request(app).get(
         `/api/projects/${projectId}/quotations?include=deleted`
@@ -223,12 +255,20 @@ describe('project-quotations.routes', () => {
     }
 
     it('案件の文脈で登録し、201 と同じ原本の他の件数を返す', async () => {
-      mockCreate.mockResolvedValue({ quotation: savedQuotation, sharedOriginalCount: 2 });
+      const saved = {
+        ...savedQuotation,
+        fileSha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        readingConfirmationRoute: 'SCREEN',
+      };
+      mockCreate.mockResolvedValue({ quotation: saved, sharedOriginalCount: 2 });
 
       const response = await postMultipart();
 
       expect(response.status).toBe(201);
-      expect(response.body).toEqual({ ...savedQuotation, sharedOriginalCount: 2 });
+      expect(response.body).toEqual({ ...saved, sharedOriginalCount: 2 });
+      // 応答は原本の指紋と経路を持つ（48.9。タスク123.4）
+      expect(response.body.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(response.body.readingConfirmationRoute).toBe('SCREEN');
       expect(mockCreate).toHaveBeenCalledTimes(1);
       const [context, input, actorId] = mockCreate.mock.calls[0]!;
       expect(context).toEqual({ kind: 'project', projectId });
@@ -323,9 +363,13 @@ describe('project-quotations.routes', () => {
       expect(mockCreate).not.toHaveBeenCalled();
     });
 
-    it('同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の名前・業者名・提出日を返す', async () => {
+    /**
+     * @requirement estimate-request/REQ-48.10
+     */
+    it('同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の ID・名前・業者名・提出日を返す', async () => {
       mockCreate.mockRejectedValue(
         new DuplicateOriginalError({
+          id: quotationId,
           name: '先に登録した見積',
           vendorName: '山田設備',
           submittedAt: '2026-10-20T00:00:00.000Z',
@@ -342,6 +386,7 @@ describe('project-quotations.routes', () => {
         detail: '同じ原本の受領見積書が既に登録されています',
         code: 'DUPLICATE_ORIGINAL',
         existing: {
+          id: quotationId,
           name: '先に登録した見積',
           vendorName: '山田設備',
           submittedAt: '2026-10-20T00:00:00.000Z',

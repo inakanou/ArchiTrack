@@ -1680,6 +1680,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
 
     /**
      * @requirement estimate-request/REQ-48.3
+     * @requirement estimate-request/REQ-48.10
      */
     it('同じ案件に同じ原本・同じ区別があれば 409 DUPLICATE_ORIGINAL と既存の受領見積書を返し、何も保存しない', async () => {
       const before = await prisma.receivedQuotation.count({
@@ -1701,6 +1702,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         detail: '同じ原本の受領見積書が既に登録されています',
         code: 'DUPLICATE_ORIGINAL',
         existing: {
+          id: createdId,
           name: existing.name,
           vendorName: existing.vendorName,
           submittedAt: existing.submittedAt.toISOString(),
@@ -1841,6 +1843,332 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       expect(await prisma.receivedQuotation.count({ where: { projectId: target.projectId } })).toBe(
         before
       );
+    });
+  });
+
+  /**
+   * 応答の原本の指紋と経路、二重登録の 409 の既存の ID、範囲外の応答（タスク123.4、design の 2026-11-21 の
+   * 追補の章の D18・D19）。登録・更新・取得・一覧は HTTP の経路で行い、指紋は保存されたファイルの中身から
+   * 試験が求めた sha256 と比べる
+   */
+  describe('応答の原本の指紋と経路・409 の既存の ID（タスク123.4）', () => {
+    const STAMP = `${MARK}-er1234-${Date.now()}`;
+    const FIRST_FILE = Buffer.from(`%PDF-1.4 ${STAMP} first`);
+    const REPLACED_FILE = Buffer.from(`%PDF-1.4 ${STAMP} replaced`);
+    const PROJECT_FILE = Buffer.from(`%PDF-1.4 ${STAMP} under project`);
+    const DUPLICATED_FILE = Buffer.from(`%PDF-1.4 ${STAMP} duplicated`);
+    const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+    const sha256Of = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex');
+
+    type Listed = {
+      id: string;
+      fileSha256: string | null;
+      readingConfirmationRoute: string | null;
+    };
+
+    let createdUnderRequest: request.Response;
+    let updatedUnderRequest: request.Response;
+    let createdWithoutFile: request.Response;
+    let createdUnderProject: request.Response;
+
+    function post(
+      user: TestUser,
+      url: string,
+      fields: Record<string, string>,
+      file: Buffer | null
+    ): request.Test {
+      const req = request(app)
+        .post(url)
+        .set(...auth(user));
+      for (const [key, value] of Object.entries(fields)) {
+        req.field(key, value);
+      }
+      if (file) {
+        req.attach('file', file, { filename: 'er1234.pdf', contentType: 'application/pdf' });
+      }
+      return req;
+    }
+
+    const requestUrl = () => `/api/estimate-requests/${target.estimateRequestId}/quotations`;
+    const projectUrl = (projectId: string) => `/api/projects/${projectId}/quotations`;
+    const fields = (label: string): Record<string, string> => ({
+      name: `${STAMP}-${label}`,
+      submittedAt: '2026-11-21T00:00:00.000Z',
+      vendorName: `${STAMP}-vendor`,
+    });
+
+    /** 保存されたファイルの中身の sha256（ローカルストレージから読む） */
+    async function storedFileSha256(quotationId: string): Promise<string> {
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotationId },
+        select: { filePath: true },
+      });
+      const root = process.env.LOCAL_STORAGE_PATH;
+      expect(root, '前提: ローカルストレージのパス').toBeTruthy();
+      expect(row.filePath, '前提: 受領見積書がファイルを持つ').toBeTruthy();
+      return sha256Of(fs.readFileSync(path.join(root ?? '', row.filePath ?? '')));
+    }
+
+    beforeAll(async () => {
+      createdUnderRequest = await post(
+        sales,
+        requestUrl(),
+        { ...fields('request'), readingStatus: 'CONFIRMED' },
+        FIRST_FILE
+      );
+      updatedUnderRequest = await request(app)
+        .put(`/api/quotations/${createdUnderRequest.body.id}`)
+        .set(...auth(sales))
+        .field('expectedUpdatedAt', String(createdUnderRequest.body.updatedAt))
+        .attach('file', REPLACED_FILE, {
+          filename: 'er1234-replaced.pdf',
+          contentType: 'application/pdf',
+        });
+      createdWithoutFile = await post(
+        sales,
+        requestUrl(),
+        {
+          ...fields('no-file'),
+          lineItems: JSON.stringify([{ name: '明細', sortOrder: 0, amount: 100 }]),
+        },
+        null
+      );
+      createdUnderProject = await post(
+        sales,
+        projectUrl(target.projectId),
+        fields('project'),
+        PROJECT_FILE
+      );
+    });
+
+    afterAll(() => {
+      // 見積依頼の配下に格納したファイルを消す（案件の配下のものは cleanup が消す）
+      const root = process.env.LOCAL_STORAGE_PATH;
+      if (!root) return;
+      for (const response of [createdUnderRequest, createdWithoutFile]) {
+        const id: unknown = response?.body?.id;
+        if (typeof id === 'string') {
+          fs.rmSync(path.join(root, 'quotations', target.estimateRequestId, id), {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.9
+     */
+    it('ファイルを添えた登録の応答は、送ったファイルの sha256（16 進の小文字 64 文字）と経路を持つ', async () => {
+      expect(createdUnderRequest.status).toBe(201);
+      expect(createdUnderRequest.body.fileSha256).toBe(sha256Of(FIRST_FILE));
+      expect(createdUnderRequest.body.fileSha256).toMatch(SHA256_PATTERN);
+      expect(createdUnderRequest.body.readingConfirmationRoute).toBe('SCREEN');
+
+      expect(createdUnderProject.status).toBe(201);
+      expect(createdUnderProject.body.fileSha256).toBe(sha256Of(PROJECT_FILE));
+      expect(createdUnderProject.body.fileSha256).toBe(
+        await storedFileSha256(createdUnderProject.body.id)
+      );
+      // 未確認の登録は経路を持たない
+      expect(createdUnderProject.body).toHaveProperty('readingConfirmationRoute', null);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.9
+     */
+    it('ファイルの無い登録の応答は、指紋が null である', () => {
+      expect(createdWithoutFile.status).toBe(201);
+      expect(createdWithoutFile.body).toHaveProperty('fileSha256', null);
+      expect(createdWithoutFile.body).toHaveProperty('readingConfirmationRoute', null);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.9
+     */
+    it('ファイルを差し替えた更新の応答と詳細の応答は、保存されたファイルの sha256 を持つ', async () => {
+      expect(updatedUnderRequest.status).toBe(200);
+      const id: string = createdUnderRequest.body.id;
+      const stored = await storedFileSha256(id);
+      expect(stored).toBe(sha256Of(REPLACED_FILE));
+      expect(updatedUnderRequest.body.fileSha256).toBe(stored);
+      expect(updatedUnderRequest.body.fileSha256).toMatch(SHA256_PATTERN);
+
+      const detail = await request(app)
+        .get(`/api/quotations/${id}`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(detail.body.fileSha256).toBe(stored);
+      expect(detail.body).toHaveProperty('readingConfirmationRoute');
+
+      const noFileDetail = await request(app)
+        .get(`/api/quotations/${createdWithoutFile.body.id}`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(noFileDetail.body).toHaveProperty('fileSha256', null);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.9
+     */
+    it('見積依頼の配下の一覧と案件の配下の一覧（既定・include=all）の応答は、行ごとに保存されたファイルの sha256 を持つ', async () => {
+      const requestId: string = createdUnderRequest.body.id;
+      const noFileId: string = createdWithoutFile.body.id;
+      const projectContextId: string = createdUnderProject.body.id;
+      const replaced = sha256Of(REPLACED_FILE);
+      const byId = (rows: Listed[], id: string): Listed => {
+        const found = rows.find((row) => row.id === id);
+        if (!found) throw new Error(`一覧に受領見積書 ${id} が無い`);
+        return found;
+      };
+
+      const underRequest = await request(app)
+        .get(requestUrl())
+        .set(...auth(sales))
+        .expect(200);
+      expect(byId(underRequest.body, requestId).fileSha256).toBe(replaced);
+      expect(byId(underRequest.body, requestId)).toHaveProperty('readingConfirmationRoute');
+      expect(byId(underRequest.body, noFileId)).toHaveProperty('fileSha256', null);
+
+      const requested = await request(app)
+        .get(projectUrl(target.projectId))
+        .set(...auth(sales))
+        .expect(200);
+      expect(byId(requested.body, requestId).fileSha256).toBe(replaced);
+      expect(byId(requested.body, requestId)).toHaveProperty('readingConfirmationRoute');
+      expect(byId(requested.body, noFileId)).toHaveProperty('fileSha256', null);
+
+      const all = await request(app)
+        .get(`${projectUrl(target.projectId)}?include=all`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(byId(all.body, requestId).fileSha256).toBe(replaced);
+      expect(byId(all.body, projectContextId).fileSha256).toBe(sha256Of(PROJECT_FILE));
+      expect(byId(all.body, projectContextId)).toHaveProperty('readingConfirmationRoute', null);
+      expect(byId(all.body, noFileId)).toHaveProperty('fileSha256', null);
+      // どの行も欄を持ち、値は null か 16 進の小文字 64 文字
+      for (const row of all.body as Listed[]) {
+        expect(row).toHaveProperty('fileSha256');
+        expect(row).toHaveProperty('readingConfirmationRoute');
+        if (row.fileSha256 !== null) expect(row.fileSha256).toMatch(SHA256_PATTERN);
+      }
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.10
+     * @requirement estimate-request/REQ-48.7
+     */
+    it('二度目の登録の 409 の existing.id は、同じ案件の一度目の受領見積書の ID で、先に別の案件へ登録された同じ原本を示さない', async () => {
+      // 別の案件へ先に同じ原本を登録しておく（全体では最も早い）
+      const elsewhere = await post(
+        outsider,
+        projectUrl(other.projectId),
+        fields('duplicated-elsewhere'),
+        DUPLICATED_FILE
+      ).expect(201);
+      const first = await post(
+        sales,
+        projectUrl(target.projectId),
+        fields('duplicated-first'),
+        DUPLICATED_FILE
+      ).expect(201);
+
+      const second = await post(
+        sales,
+        projectUrl(target.projectId),
+        fields('duplicated-second'),
+        DUPLICATED_FILE
+      ).expect(409);
+
+      expect(second.body.code).toBe('DUPLICATE_ORIGINAL');
+      expect(second.body.existing).toEqual({
+        id: first.body.id,
+        name: `${STAMP}-duplicated-first`,
+        vendorName: `${STAMP}-vendor`,
+        submittedAt: '2026-11-21T00:00:00.000Z',
+      });
+      expect(second.body.existing.id).not.toBe(elsewhere.body.id);
+      expect(JSON.stringify(second.body)).not.toContain(elsewhere.body.id);
+      const existingRow = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: second.body.existing.id },
+        select: { projectId: true },
+      });
+      expect(existingRow.projectId).toBe(target.projectId);
+
+      // 見積依頼の配下の登録の経路でも同じ ID を返す
+      const viaRequest = await post(
+        sales,
+        requestUrl(),
+        fields('duplicated-via-request'),
+        DUPLICATED_FILE
+      ).expect(409);
+      expect(viaRequest.body.existing.id).toBe(first.body.id);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.11
+     */
+    it('範囲外の利用者の取得・一覧・登録・更新は 404 になり、本文に指紋も受領見積書の ID も持たない', async () => {
+      const requestId: string = createdUnderRequest.body.id;
+      const projectContextId: string = createdUnderProject.body.id;
+      const countBefore = await prisma.receivedQuotation.count({
+        where: { projectId: target.projectId },
+      });
+
+      const detail = await request(app)
+        .get(`/api/quotations/${requestId}`)
+        .set(...auth(outsider))
+        .expect(404);
+      const underRequest = await request(app)
+        .get(requestUrl())
+        .set(...auth(outsider))
+        .expect(404);
+      const requested = await request(app)
+        .get(projectUrl(target.projectId))
+        .set(...auth(outsider))
+        .expect(404);
+      const all = await request(app)
+        .get(`${projectUrl(target.projectId)}?include=all`)
+        .set(...auth(outsider))
+        .expect(404);
+      // 範囲内の利用者なら 409 と既存の ID が返る要求（同じ原本・同じ区別）も、範囲外には 404 が先に返る
+      const duplicatePost = await post(
+        outsider,
+        projectUrl(target.projectId),
+        fields('outsider-duplicate'),
+        PROJECT_FILE
+      ).expect(404);
+      const duplicatePut = await request(app)
+        .put(`/api/quotations/${requestId}`)
+        .set(...auth(outsider))
+        .field('expectedUpdatedAt', String(updatedUnderRequest.body.updatedAt))
+        .attach('file', PROJECT_FILE, { filename: 'er1234.pdf', contentType: 'application/pdf' })
+        .expect(404);
+
+      const hashes = [sha256Of(FIRST_FILE), sha256Of(REPLACED_FILE), sha256Of(PROJECT_FILE)];
+      for (const response of [detail, underRequest, requested, all, duplicatePost, duplicatePut]) {
+        expect(response.body).not.toHaveProperty('fileSha256');
+        expect(response.body).not.toHaveProperty('existing');
+        expect(response.body).not.toHaveProperty('id');
+        const whole = JSON.stringify(response.body);
+        for (const hash of hashes) {
+          expect(whole).not.toContain(hash);
+        }
+        // 要求の経路の写し（instance）を除いた本文に、受領見積書の ID が無い
+        const exposed = JSON.stringify(withoutInstance(response.body));
+        expect(exposed).not.toContain(requestId);
+        expect(exposed).not.toContain(projectContextId);
+      }
+      // 要求の経路が ID を持たない応答は、本文の全体に受領見積書の ID が無い
+      for (const response of [underRequest, requested, all, duplicatePost]) {
+        const whole = JSON.stringify(response.body);
+        expect(whole).not.toContain(requestId);
+        expect(whole).not.toContain(projectContextId);
+      }
+      expect(await prisma.receivedQuotation.count({ where: { projectId: target.projectId } })).toBe(
+        countBefore
+      );
+      expect(await storedFileSha256(requestId)).toBe(sha256Of(REPLACED_FILE));
     });
   });
 });

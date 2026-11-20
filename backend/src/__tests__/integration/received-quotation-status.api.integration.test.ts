@@ -2881,6 +2881,49 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(sharedOriginalCount).toBe(0);
     });
 
+    /**
+     * 応答の原本の指紋と経路（design の 2026-11-21 の追補の章の D18、タスク123.4）。HTTP の経路の応答と
+     * 範囲外の 404 は estimate-request-project-scope.api.integration.test.ts で確かめる
+     *
+     * @requirement estimate-request/REQ-48.9
+     */
+    it('作成・更新・詳細・2 つの一覧の応答は、保存した指紋と経路を持ち、ファイルを外すと指紋が null になる', async () => {
+      const file = pdfOf('応答の指紋');
+      const expected = sha256Of(file.buffer);
+
+      const created = await saveInProject(testProjectId, file, { readingStatus: 'CONFIRMED' });
+      expect(created.quotation.fileSha256).toBe(expected);
+      expect(created.quotation.readingConfirmationRoute).toBe('SCREEN');
+
+      const detail = await service.findById(created.quotation.id);
+      expect(detail?.fileSha256).toBe(expected);
+      expect(detail?.readingConfirmationRoute).toBe('SCREEN');
+
+      const listed = (await service.findByProjectId(testProjectId, { include: 'all' })).find(
+        (q) => q.id === created.quotation.id
+      );
+      expect(listed?.fileSha256).toBe(expected);
+      expect(listed?.readingConfirmationRoute).toBe('SCREEN');
+
+      const replacement = pdfOf('応答の指紋の差し替え');
+      const replaced = await service.update(
+        created.quotation.id,
+        { file: replacement },
+        created.quotation.updatedAt,
+        testUserId
+      );
+      expect(replaced.quotation.fileSha256).toBe(sha256Of(replacement.buffer));
+      expect(replaced.quotation.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+
+      const removed = await service.update(
+        created.quotation.id,
+        { removeFile: true },
+        replaced.quotation.updatedAt,
+        testUserId
+      );
+      expect(removed.quotation).toHaveProperty('fileSha256', null);
+    });
+
     it('同じ案件へ同じ原本・同じ区別を同時に 2 件送ると 1 件だけが保存され、拒んだ側のファイルはストレージに残らない', async () => {
       const file = pdfOf('同時の保存');
       const before = await storedQuotationDirs(testProjectId);
@@ -2900,7 +2943,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const reason = (rejected[0] as PromiseRejectedResult).reason;
       expect(reason).toBeInstanceOf(DuplicateOriginalError);
       const winner = (fulfilled[0] as PromiseFulfilledResult<SaveResult>).value.quotation;
+      // 既存として示す受領見積書は保存された側で、ID も持つ（48.10。タスク123.4）
       expect((reason as DuplicateOriginalError).existing).toEqual({
+        id: winner.id,
         name: winner.name,
         vendorName: `指紋の業者_${suffix}`,
         submittedAt: '2026-11-08T00:00:00.000Z',

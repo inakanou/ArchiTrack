@@ -95,6 +95,7 @@ import {
   toScaled,
   type LineItemInput,
   type ReadingConfirmationOptions,
+  type ReadingConfirmationRoute,
   type ReadingStatus,
   type VendorAssignment,
 } from './received-quotation-rules.js';
@@ -388,7 +389,11 @@ export interface ReceivedQuotationInfo {
   readingConfirmedAt: Date | null;
   /** 確認者の ID と表示名（46.7。タスク117.4）。確認者がいない・利用者が消えたときは null */
   readingConfirmedBy: ReadingConfirmer | null;
+  /** 読取の確認の経路（46.12。タスク123.4）。未確認と、経路の記録の無い確認済みは null */
+  readingConfirmationRoute: ReadingConfirmationRoute | null;
   quoteDiscriminator: string;
+  /** 原本の指紋（48.9。タスク123.4）。sha256 の 16 進の小文字 64 文字。ファイルの無いものは null */
+  fileSha256: string | null;
   lineItems: LineItemInfo[];
   /** 区分が別途の行を除いた金額の合計（45.5） */
   totalAmount: number | null;
@@ -521,7 +526,8 @@ export class ReceivedQuotationService {
    *
    * 呼び出し元のトランザクションの中で案件の勧告ロックを取り、同じ案件の論理削除されていない（論理削除された
    * 見積依頼の配下のものも除く）自分以外の受領見積書で、同じ指紋のものを読む。見積の区別も同じものがあれば
-   * `DuplicateOriginalError` を投げる。他の案件は読まない
+   * `DuplicateOriginalError` を投げる。他の案件は読まない。誤りが示す既存の受領見積書は、同じ組のうち
+   * 最も早く作られたもので、その ID も持つ（48.10。2026-11-21 の追補の章の D19）
    *
    * @returns 同じ指紋で見積の区別が違う他の受領見積書の数
    */
@@ -545,12 +551,19 @@ export class ReceivedQuotationService {
         ...(params.excludeId !== null ? { id: { not: params.excludeId } } : {}),
       },
       orderBy: { createdAt: 'asc' },
-      select: { name: true, vendorName: true, submittedAt: true, quoteDiscriminator: true },
+      select: {
+        id: true,
+        name: true,
+        vendorName: true,
+        submittedAt: true,
+        quoteDiscriminator: true,
+      },
     });
 
     const same = others.find((other) => other.quoteDiscriminator === params.quoteDiscriminator);
     if (same) {
       throw new DuplicateOriginalError({
+        id: same.id,
         name: same.name,
         vendorName: same.vendorName,
         submittedAt: same.submittedAt.toISOString(),
@@ -1508,6 +1521,9 @@ export class ReceivedQuotationService {
   /**
    * データベースの結果をReceivedQuotationInfoに変換（明細行・合計金額を含む）
    * Task 61.2: netAmountを受領見積書レベルに追加
+   *
+   * 作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧がこの変換を通るため、原本の指紋と読取の
+   * 確認の経路はここで入れる（48.9。2026-11-21 の追補の章の D18、タスク123.4）
    */
   private toReceivedQuotationInfoWithLineItems(
     quotation: {
@@ -1536,7 +1552,9 @@ export class ReceivedQuotationService {
       readingConfirmedById: string | null;
       readingConfirmedAt: Date | null;
       readingConfirmedBy?: ReadingConfirmer | null;
+      readingConfirmationRoute: ReadingConfirmationRoute | null;
       quoteDiscriminator: string;
+      fileSha256: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -1572,7 +1590,9 @@ export class ReceivedQuotationService {
             displayName: quotation.readingConfirmedBy.displayName,
           }
         : null,
+      readingConfirmationRoute: quotation.readingConfirmationRoute,
       quoteDiscriminator: quotation.quoteDiscriminator,
+      fileSha256: quotation.fileSha256,
       lineItems,
       totalAmount: this.calculateTotalAmount(lineItems),
       createdAt: quotation.createdAt,

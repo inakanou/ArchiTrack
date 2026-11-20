@@ -5593,6 +5593,7 @@ describe('ReceivedQuotationService', () => {
       readingStatus: 'UNCONFIRMED',
       readingConfirmedById: null,
       readingConfirmedAt: null,
+      readingConfirmationRoute: null,
       quoteDiscriminator: '',
       createdAt: new Date('2026-11-01T00:00:00.000Z'),
       updatedAt: expectedUpdatedAt,
@@ -5602,6 +5603,7 @@ describe('ReceivedQuotationService', () => {
 
     /** 同じ案件・同じ指紋の他の受領見積書（照会の結果） */
     const sibling = (quoteDiscriminator: string, name = `既存_${quoteDiscriminator}`) => ({
+      id: `rq-${name}`,
       name,
       vendorName: '既存の業者',
       submittedAt: new Date('2026-10-15T00:00:00.000Z'),
@@ -5730,6 +5732,7 @@ describe('ReceivedQuotationService', () => {
         expect(duplicate.statusCode).toBe(409);
         expect(duplicate.code).toBe('DUPLICATE_ORIGINAL');
         expect(duplicate.existing).toEqual({
+          id: 'rq-先に登録した見積',
           name: '先に登録した見積',
           vendorName: '既存の業者',
           submittedAt: '2026-10-15T00:00:00.000Z',
@@ -5915,6 +5918,172 @@ describe('ReceivedQuotationService', () => {
         expect(removing.receivedQuotation.findMany).not.toHaveBeenCalled();
         expect(removing.receivedQuotation.update.mock.calls[0]![0].data.fileSha256).toBeNull();
         expect(removed.sharedOriginalCount).toBe(0);
+      });
+    });
+
+    /**
+     * 応答の原本の指紋と経路、二重登録の既存の ID（design の 2026-11-21 の追補の章の D18・D19、タスク123.4）
+     *
+     * @requirement estimate-request/REQ-48.9
+     * @requirement estimate-request/REQ-48.10
+     */
+    describe('応答の原本の指紋と経路・既存の ID（タスク123.4）', () => {
+      const confirmedAt = new Date('2026-11-10T03:00:00.000Z');
+      /** ファイルを持ち、ArchiBench の経路で確認済みの保存済みの行 */
+      const withFileRow = (overrides: Record<string, unknown> = {}) =>
+        storedRow({
+          filePath: 'quotations/er-001/rq-self/原本.pdf',
+          fileName: '原本.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 3,
+          fileSha256: ABC_SHA256,
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: ACTOR_ID,
+          readingConfirmedAt: confirmedAt,
+          readingConfirmationRoute: 'ARCHIBENCH',
+          lineItems: [],
+          ...overrides,
+        });
+      /** ファイルが無く未確認の保存済みの行 */
+      const noFileRow = (overrides: Record<string, unknown> = {}) =>
+        storedRow({ readingConfirmationRoute: null, lineItems: [], ...overrides });
+
+      it('ファイルを添えた作成の応答は、保存した指紋（16 進の小文字 64 文字）と経路を持つ', async () => {
+        setupTx();
+
+        const result = await createWith({
+          file: abcFile,
+          readingStatus: 'CONFIRMED',
+          lineItems: [{ name: '明細', sortOrder: 0, amount: 100 }],
+        });
+
+        expect(result.quotation.fileSha256).toBe(ABC_SHA256);
+        expect(result.quotation.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(result.quotation.readingConfirmationRoute).toBe('SCREEN');
+      });
+
+      it('ファイルの無い作成の応答は、指紋が null で、未確認の経路も null である', async () => {
+        setupTx();
+
+        const result = await createWith({
+          lineItems: [{ name: '明細', sortOrder: 0, amount: 100 }],
+        });
+
+        expect(result.quotation).toHaveProperty('fileSha256', null);
+        expect(result.quotation).toHaveProperty('readingConfirmationRoute', null);
+      });
+
+      it('更新の応答は、保存済みの指紋と経路を持ち、ファイルを差し替えれば新しい指紋に、外せば null になる', async () => {
+        const current = withFileRow({ fileSha256: OTHER_SHA256 });
+        setupTx({ current });
+
+        const renamed = await service.update(
+          'rq-self',
+          { name: '名前だけ変える' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(renamed.quotation.fileSha256).toBe(OTHER_SHA256);
+        expect(renamed.quotation.readingConfirmationRoute).toBe('ARCHIBENCH');
+
+        setupTx({ current });
+        const replaced = await service.update(
+          'rq-self',
+          { file: abcFile },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(replaced.quotation.fileSha256).toBe(ABC_SHA256);
+        // ファイルの差し替えは読み取った内容の変化のため、未確認へ戻り経路も消える（46.18）
+        expect(replaced.quotation.readingStatus).toBe('UNCONFIRMED');
+        expect(replaced.quotation).toHaveProperty('readingConfirmationRoute', null);
+
+        setupTx({ current });
+        const removed = await service.update(
+          'rq-self',
+          { removeFile: true },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(removed.quotation).toHaveProperty('fileSha256', null);
+      });
+
+      it('詳細の応答は、保存済みの指紋と経路を持ち、ファイルの無いものは指紋が null である', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          withFileRow() as never
+        );
+        const withFile = await service.findById('rq-self');
+        expect(withFile?.fileSha256).toBe(ABC_SHA256);
+        expect(withFile?.readingConfirmationRoute).toBe('ARCHIBENCH');
+
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(noFileRow() as never);
+        const noFile = await service.findById('rq-self');
+        expect(noFile).toHaveProperty('fileSha256', null);
+        expect(noFile).toHaveProperty('readingConfirmationRoute', null);
+      });
+
+      it('見積依頼の配下の一覧の応答は、行ごとに指紋と経路を持つ', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          withFileRow({ id: 'rq-file', readingConfirmationRoute: 'LEDGER_IMPORT' }),
+          noFileRow({ id: 'rq-plain' }),
+        ] as never);
+
+        const list = await service.findByEstimateRequestId('er-001');
+
+        expect(list.map((q) => [q.id, q.fileSha256, q.readingConfirmationRoute])).toEqual([
+          ['rq-file', ABC_SHA256, 'LEDGER_IMPORT'],
+          ['rq-plain', null, null],
+        ]);
+      });
+
+      it.each(['requested', 'all'] as const)(
+        '案件の配下の一覧（include: %s）の応答は、行ごとに指紋と経路を持つ',
+        async (include) => {
+          vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+            withFileRow({ id: 'rq-file', estimateRequest: { name: '内装の見積依頼' } }),
+            noFileRow({ id: 'rq-plain', estimateRequest: { name: '内装の見積依頼' } }),
+          ] as never);
+
+          const list = await service.findByProjectId('project-001', { include });
+
+          expect(list.map((q) => [q.id, q.fileSha256, q.readingConfirmationRoute])).toEqual([
+            ['rq-file', ABC_SHA256, 'ARCHIBENCH'],
+            ['rq-plain', null, null],
+          ]);
+        }
+      );
+
+      it('二重登録の照会は ID を読み、誤りの既存は、同じ区別のうち照会の並び（作成の早い順）の先頭の ID を持つ', async () => {
+        const txClient = setupTx({
+          siblings: [sibling('別案'), sibling('', '一度目'), sibling('', '二度目')],
+        });
+
+        const error = await createWith({ file: abcFile }).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(DuplicateOriginalError);
+        expect((error as DuplicateOriginalError).existing).toEqual({
+          id: 'rq-一度目',
+          name: '一度目',
+          vendorName: '既存の業者',
+          submittedAt: '2026-10-15T00:00:00.000Z',
+        });
+        const query = txClient.receivedQuotation.findMany.mock.calls[0]![0];
+        expect(query.select).toMatchObject({ id: true });
+        expect(query.orderBy).toEqual({ createdAt: 'asc' });
+        // 照会は同じ案件に限ったまま（48.7）
+        expect(query.where.projectId).toBe('project-001');
+      });
+
+      it('更新の二重登録の誤りの既存も ID を持つ', async () => {
+        const current = withFileRow();
+        setupTx({ current, siblings: [sibling('', '先に登録した見積')] });
+
+        const error = await service
+          .update('rq-self', { name: '名前だけ変える' }, expectedUpdatedAt, ACTOR_ID)
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(DuplicateOriginalError);
+        expect((error as DuplicateOriginalError).existing.id).toBe('rq-先に登録した見積');
       });
     });
   });

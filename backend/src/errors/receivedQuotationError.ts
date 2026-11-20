@@ -175,9 +175,11 @@ export class ReadingConfirmedAtInvalidError extends ApiError {
 export const DUPLICATE_ORIGINAL_MESSAGE = '同じ原本の受領見積書が既に登録されています';
 
 /**
- * 同じ原本の二重登録の誤りが示す既存の受領見積書（48.3）。提出日は ISO 8601 の文字列
+ * 同じ原本の二重登録の誤りが示す既存の受領見積書（48.3）。提出日は ISO 8601 の文字列。
+ * `id` は既存の受領見積書の ID（48.10。タスク123.4）
  */
 export interface DuplicateOriginalExisting {
+  id: string;
   name: string;
   vendorName: string;
   submittedAt: string;
@@ -187,7 +189,8 @@ export interface DuplicateOriginalExisting {
  * 同じ案件に、原本の指紋と見積の区別がともに同じ受領見積書が既にあるエラー
  * 409 Conflict（`code: 'DUPLICATE_ORIGINAL'`）
  *
- * design の Requirements 43-50 の章の D6、タスク113.4。既存の受領見積書の名前・業者名・提出日を持つ。
+ * design の Requirements 43-50 の章の D6、タスク113.4。既存の受領見積書の ID・名前・業者名・提出日を持つ
+ * （ID は 2026-11-21 の追補の章の D19、48.10）。
  * 同じ案件の受領見積書だけを示し、他の案件の受領見積書の有無は含めない（48.7）
  */
 export class DuplicateOriginalError extends ApiError {

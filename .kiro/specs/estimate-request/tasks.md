@@ -2187,6 +2187,8 @@
 
 ## Implementation Notes
 
+- **既存の不具合（未修正。2026-11-21 にタスク123.4 で見つけた。追補の範囲外）**: 受領見積書のファイルを同じファイル名で差し替えると、保存したファイルの実体が消える。格納先（`generateFilePath`）が受領見積書の ID とファイル名だけで決まり、更新が新しいファイルを同じ格納先へ上書きした後に「差し替え前のファイル」として同じ格納先を取り除くためである（新旧の格納先が同じかを確かめていない）。DB の格納先・指紋・ファイル名は残る。develop（`b1b2144d`）の時点からある。直すときは、同じ名前で差し替えた後に実体を読む主張を足す。タスク123.4 の統合の試験は、差し替えのファイル名を変えてこの不具合を避けている
+
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
 - Task 90.3（Requirement 41 メーラー転記 E2E）は本実装セッションのサンドボックスに docker テストDB（postgres:5433）が無いため **E2E 実行（グリーン確認）が未実施**。lint + type-check は PASS、スペックのロジック/セレクタ/アサーションはレビューで妥当性確認済み（テスト skip/無効化なし＝第3原則準拠）。MEMORY「見積要件はE2Eで検証必須」に従い、docker テスト環境（`npm run test:docker` 起動 + frontend 再ビルド）で `npm run test:e2e -- estimate-request-e2e` を実行しグリーンを確認する作業が**残タスク**として必要。
   - **解消（2026-10-06、HEAD `00147512`）**: docker テスト環境で frontend を再ビルドしたうえで `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（Requirement 41 の test を含む）が 86/86、`e2e/specs/estimate-requests/` 全体が 330/330 緑であることを、機能検証で確かめた。
@@ -2841,7 +2843,7 @@
   - _Requirements: 46.14_
   - _Boundary: LedgerImportRoute_
 
-- [ ] 123.4 受領見積書の応答に原本の指紋と経路を、二重登録の 409 に既存の受領見積書の ID を足す
+- [x] 123.4 受領見積書の応答に原本の指紋と経路を、二重登録の 409 に既存の受領見積書の ID を足す
   - design.md の同章の D18・D19 のとおり、応答の形（作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧の既定と `include=all`）に `fileSha256`（ファイルの無いものは null）と `readingConfirmationRoute` を足す。案件の配下の一覧が別の形で組み立てている場合はその形にも足す
   - 二重登録の判定の照会に ID を読み足し、`DuplicateOriginalExisting` と 409 の本文の `existing` に `id` を入れる。既存として示す受領見積書の選び方と、照会を同じ案件に限ることは変えない。経路の OpenAPI の注記を新しい欄に合わせる
   - サービスと経路の単体に、応答の `fileSha256`（ファイルあり・無し）と経路、`existing.id` の主張を足す。統合に、作成・更新・詳細・2 つの一覧の応答の `fileSha256` が保存したファイルの sha256（16 進の小文字 64 文字）と同じである主張、409 の `existing.id` が同じ案件の一度目の受領見積書の ID である主張、範囲外の利用者の要求が 404 で本文に指紋も ID も持たない主張（48.11）を足す。改修の前に赤になることを先に示す

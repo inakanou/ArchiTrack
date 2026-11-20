@@ -8194,6 +8194,8 @@ flowchart TD
   backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
 - **統合（backend）**: 実際の DB で、migration の CHECK（未確認に経路を書くと失敗する、確認済みで経路 null は通る）、区分 `ROUNDING` の保存と合計、`archibench` の入口の確認済みの登録と日時の誤り（サービスを直接呼ぶ。入口の経路はまだ無い）、台帳の取り込みの経路、作成・更新・詳細・2 つの一覧の応答の `fileSha256` と経路、409 の `existing.id` が同じ案件の受領見積書であること、範囲外の利用者の要求が 404 で本文に指紋も ID も持たないこと（48.11）を主張する。所在は次のファイル
   backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+  - 実装の記録（タスク123.4、2026-11-21）: HTTP の経路の応答の `fileSha256`・409 の既存の ID・範囲外の 404（48.11）の主張は、範囲外の利用者と別の案件の備えを持つ次のファイルに置いた
+  backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
 - **単体（frontend）**: `formatReadingConfirmationSummary` の 3 通り（経路あり・null・渡さない）、`LedgerInfoSection` と `ReceivedQuotationLedgerIndicators` の表示（確認済みで経路あり・「経路の記録なし」・未確認では出さない・入力を渡さないと従来の表示）、`LineItemEditor` の区分の選択肢と 8 つの小計・合計に端数調整が入ること・端数調整の行の正と負の金額、一括取り込みと一括転記の行が直接工事であること、`parseDuplicateExisting` の `id` を主張する。既存の LedgerInfoSection.test.tsx・LineItemEditor.test.tsx・ReceivedQuotationForm.test.tsx に足す
 - **E2E**（e2e/specs/estimate-requests/received-quotation-ledger.spec.ts に足す）:
   1. 受領見積書を画面で確認済みにして保存し、フォームの台帳の情報の欄と一覧に「経路: 画面」が確認者・日時とともに出ること。明細行を変えて保存すると未確認に戻り、経路の表示が消えること（46.12・46.13・46.18・46.19）
