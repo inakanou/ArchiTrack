@@ -1,10 +1,10 @@
 import { useState, useEffect, FormEvent } from 'react';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
+import { getPasswordRequirements } from '../utils/password-policy';
 import type {
   PasswordResetRequestFormData,
   PasswordResetFormData,
   PasswordStrengthResult,
-  PasswordRequirements,
 } from '../types/auth.types';
 
 interface PasswordResetFormProps {
@@ -48,31 +48,13 @@ function PasswordResetForm({
     return undefined;
   }, [successMessage]);
 
-  // パスワード要件チェック
-  const checkPasswordRequirements = (pwd: string): PasswordRequirements => {
-    return {
-      minLength: pwd.length >= 12,
-      hasUppercase: /[A-Z]/.test(pwd),
-      hasLowercase: /[a-z]/.test(pwd),
-      hasNumber: /\d/.test(pwd),
-      hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
-      complexity:
-        [
-          /[A-Z]/.test(pwd),
-          /[a-z]/.test(pwd),
-          /\d/.test(pwd),
-          /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
-        ].filter(Boolean).length >= 3,
-    };
-  };
-
   // パスワード強度評価
   const evaluatePasswordStrength = (pwd: string): PasswordStrengthResult => {
     if (!pwd) {
       return { strength: 'weak', score: 0, feedback: [] };
     }
 
-    const requirements = checkPasswordRequirements(pwd);
+    const requirements = getPasswordRequirements(pwd);
     const feedback: string[] = [];
 
     if (!requirements.minLength) {
@@ -112,7 +94,7 @@ function PasswordResetForm({
   };
 
   const passwordStrengthResult = evaluatePasswordStrength(password);
-  const passwordRequirements = checkPasswordRequirements(password);
+  const passwordRequirements = getPasswordRequirements(password);
 
   // メールアドレスバリデーション
   const validateEmail = (value: string): string => {

@@ -20,6 +20,8 @@ export type AuditLogAction =
   | 'LOGIN_FAILED'
   | 'LOGOUT'
   | 'PASSWORD_CHANGED'
+  // 2FA の設定の開始（秘密鍵・QR コードの発行。backend の TwoFactorService.setupTwoFactor が記録する）
+  | 'TWO_FACTOR_SETUP_STARTED'
   | 'TWO_FACTOR_ENABLED'
   | 'TWO_FACTOR_DISABLED'
   // 招待の作成・取り消し（要件40.5。表示名と絞り込みの並びは utils/audit-log-actions.ts）

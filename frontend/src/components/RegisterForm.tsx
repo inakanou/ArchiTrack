@@ -1,10 +1,10 @@
 import { useState, useEffect, FormEvent } from 'react';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
+import { getPasswordPolicyError, getPasswordRequirements } from '../utils/password-policy';
 import type {
   RegisterFormData,
   InvitationVerificationResult,
   PasswordStrengthResult,
-  PasswordRequirements,
 } from '../types/auth.types';
 
 interface RegisterFormProps {
@@ -62,31 +62,13 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
     };
   }, [invitationToken, onVerifyInvitation]);
 
-  // パスワード要件チェック
-  const checkPasswordRequirements = (pwd: string): PasswordRequirements => {
-    return {
-      minLength: pwd.length >= 12,
-      hasUppercase: /[A-Z]/.test(pwd),
-      hasLowercase: /[a-z]/.test(pwd),
-      hasNumber: /\d/.test(pwd),
-      hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
-      complexity:
-        [
-          /[A-Z]/.test(pwd),
-          /[a-z]/.test(pwd),
-          /\d/.test(pwd),
-          /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
-        ].filter(Boolean).length >= 3,
-    };
-  };
-
   // パスワード強度評価（簡易実装）
   const evaluatePasswordStrength = (pwd: string): PasswordStrengthResult => {
     if (!pwd) {
       return { strength: 'weak', score: 0, feedback: [] };
     }
 
-    const requirements = checkPasswordRequirements(pwd);
+    const requirements = getPasswordRequirements(pwd);
     const feedback: string[] = [];
 
     if (!requirements.minLength) {
@@ -126,38 +108,7 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
   };
 
   const passwordStrengthResult = evaluatePasswordStrength(password);
-  const passwordRequirements = checkPasswordRequirements(password);
-
-  /**
-   * パスワードの複雑性要件をチェックし、エラーメッセージを返す
-   */
-  const validatePasswordComplexity = (pwd: string): string | null => {
-    // 12文字以上
-    if (pwd.length < 12) {
-      return 'パスワードは12文字以上である必要があります';
-    }
-    // 大文字を含む
-    if (!/[A-Z]/.test(pwd)) {
-      return 'パスワードは大文字を1文字以上含む必要があります';
-    }
-    // 小文字を含む
-    if (!/[a-z]/.test(pwd)) {
-      return 'パスワードは小文字を1文字以上含む必要があります';
-    }
-    // 数字を含む
-    if (!/[0-9]/.test(pwd)) {
-      return 'パスワードは数字を1文字以上含む必要があります';
-    }
-    // 記号を含む
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
-      return 'パスワードは記号を1文字以上含む必要があります';
-    }
-    // 連続した同一文字のチェック（3文字以上）
-    if (/(.)\1\1/.test(pwd)) {
-      return 'パスワードに3文字以上の連続した同一文字を含めることはできません';
-    }
-    return null;
-  };
+  const passwordRequirements = getPasswordRequirements(password);
 
   // パスワード確認のblurイベント
   const handlePasswordConfirmBlur = () => {
@@ -188,8 +139,8 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
     if (!password) {
       newErrors.password = 'パスワードは必須です';
     } else {
-      // パスワード複雑性のクライアントサイドバリデーション
-      const complexityError = validatePasswordComplexity(password);
+      // パスワードの長さと複雑性のクライアントサイドバリデーション（要件2.5・2.6。backend と同じ規則・文言）
+      const complexityError = getPasswordPolicyError(password);
       if (complexityError) {
         newErrors.password = complexityError;
       }

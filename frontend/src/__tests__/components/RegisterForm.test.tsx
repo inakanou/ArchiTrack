@@ -382,6 +382,126 @@ describe('RegisterForm', () => {
       });
     });
 
+    /**
+     * パスワードの規則は要件2.5・2.6 と backend（PasswordService.validatePasswordStrength）に合わせる。
+     * 大文字・小文字・数字・記号のうち3種類以上を含めばよく、同じ文字の連続も禁じない
+     *
+     * @requirement user-authentication/REQ-2.5 @requirement user-authentication/REQ-2.6
+     */
+    it.each([
+      ['記号を含まない3種類（大文字・小文字・数字）', 'XyzUniqTest123'],
+      ['大文字を含まない3種類（小文字・数字・記号）', 'xyzuniqtest1!@'],
+      ['backend が記号と数える文字（~）を含む3種類', 'xyzuniqtest1~'],
+      ['同じ文字が3つ以上続く', 'XyzPassss12!@'],
+    ])('%s のパスワードは画面で拒まず、onRegisterが呼ばれること', async (_, password) => {
+      const user = userEvent.setup();
+      mockOnRegister.mockResolvedValue(undefined);
+
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+      });
+
+      await user.type(screen.getByLabelText(/表示名/i), 'Test User');
+      await user.type(screen.getByLabelText(/^パスワード$/i), password);
+      await user.type(screen.getByLabelText(/パスワード \(確認\)/i), password);
+      await user.click(screen.getByRole('checkbox', { name: /利用規約/i }));
+      await user.click(screen.getByRole('button', { name: /登録/i }));
+
+      await waitFor(() => {
+        expect(mockOnRegister).toHaveBeenCalledWith({
+          invitationToken: 'valid-token',
+          displayName: 'Test User',
+          password,
+          passwordConfirm: password,
+          agreedToTerms: true,
+        });
+      });
+      expect(screen.queryByText(/必要があります|連続した同一文字/)).not.toBeInTheDocument();
+    });
+
+    /**
+     * 文字種が3種類に満たないとき、backend と同じく足りない文字種を全て示して送信しない
+     *
+     * @requirement user-authentication/REQ-2.6
+     */
+    it.each([
+      [
+        '小文字・数字だけ',
+        'xyzuniqtest12',
+        [
+          'パスワードは大文字を1文字以上含む必要があります',
+          'パスワードは記号を1文字以上含む必要があります',
+        ],
+      ],
+      [
+        '大文字・小文字だけ',
+        'XyzUniqTestAbc',
+        [
+          'パスワードは数字を1文字以上含む必要があります',
+          'パスワードは記号を1文字以上含む必要があります',
+        ],
+      ],
+    ])(
+      '%s のパスワードでは足りない文字種を全て示し、onRegisterを呼ばないこと',
+      async (_, password, messages) => {
+        const user = userEvent.setup();
+
+        render(
+          <RegisterForm
+            invitationToken="valid-token"
+            onRegister={mockOnRegister}
+            onVerifyInvitation={mockOnVerifyInvitation}
+          />
+        );
+
+        await waitFor(() => {
+          expect(screen.getByLabelText(/表示名/i)).toBeInTheDocument();
+        });
+
+        await user.type(screen.getByLabelText(/表示名/i), 'Test User');
+        await user.type(screen.getByLabelText(/^パスワード$/i), password);
+        await user.type(screen.getByLabelText(/パスワード \(確認\)/i), password);
+        await user.click(screen.getByRole('checkbox', { name: /利用規約/i }));
+        await user.click(screen.getByRole('button', { name: /登録/i }));
+
+        await waitFor(() => {
+          expect(screen.getByText(messages.join('; '))).toBeInTheDocument();
+        });
+        expect(mockOnRegister).not.toHaveBeenCalled();
+      }
+    );
+
+    it('backend が記号と数える文字（~）を、要件チェックリストで特殊文字として扱うこと', async () => {
+      const user = userEvent.setup();
+      render(
+        <RegisterForm
+          invitationToken="valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/^パスワード$/i)).toBeInTheDocument();
+      });
+      await user.type(screen.getByLabelText(/^パスワード$/i), 'xyzuniqtest1~');
+
+      await waitFor(() => {
+        expect(screen.getByText('特殊文字を含む').closest('li')).toHaveClass('requirement-met');
+        expect(screen.getByText('3種類以上の文字種を含む').closest('li')).toHaveClass(
+          'requirement-met'
+        );
+      });
+    });
+
     it('登録処理中、ローディングスピナーとボタンの無効化が表示されること', async () => {
       const user = userEvent.setup();
       let resolveRegister: () => void;

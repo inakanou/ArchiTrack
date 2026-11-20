@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 import { TAP_TARGET_MIN_PX } from '../utils/tap-target';
+import { getPasswordPolicyError, getPasswordRequirements } from '../utils/password-policy';
 import type {
   ChangePasswordFormData,
   PasswordStrengthResult,
@@ -23,22 +24,8 @@ function evaluatePasswordStrength(password: string): {
   result: PasswordStrengthResult;
   requirements: PasswordRequirements;
 } {
-  const requirements: PasswordRequirements = {
-    minLength: password.length >= 12,
-    hasUppercase: /[A-Z]/.test(password),
-    hasLowercase: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password),
-    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
-    complexity: false,
-  };
-
-  // 複雑性: 3種類以上の文字種を含む
-  const complexityCount =
-    (requirements.hasUppercase ? 1 : 0) +
-    (requirements.hasLowercase ? 1 : 0) +
-    (requirements.hasNumber ? 1 : 0) +
-    (requirements.hasSpecialChar ? 1 : 0);
-  requirements.complexity = complexityCount >= 3;
+  // 要件の達成状況（12文字以上・3種類以上の文字種。要件2.5・2.6）
+  const requirements = getPasswordRequirements(password);
 
   // スコア計算（0-4）
   let score = 0;
@@ -114,37 +101,6 @@ export function PasswordChangeSection({ onPasswordChanged }: PasswordChangeSecti
   }, [showPasswordDialog]);
 
   /**
-   * パスワードの複雑性要件をチェックし、エラーメッセージを返す
-   */
-  const validatePasswordComplexity = (password: string): string | null => {
-    // 12文字以上
-    if (password.length < 12) {
-      return 'パスワードは12文字以上である必要があります';
-    }
-    // 大文字を含む
-    if (!/[A-Z]/.test(password)) {
-      return 'パスワードは大文字を1文字以上含む必要があります';
-    }
-    // 小文字を含む
-    if (!/[a-z]/.test(password)) {
-      return 'パスワードは小文字を1文字以上含む必要があります';
-    }
-    // 数字を含む
-    if (!/[0-9]/.test(password)) {
-      return 'パスワードは数字を1文字以上含む必要があります';
-    }
-    // 記号を含む
-    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      return 'パスワードは記号を1文字以上含む必要があります';
-    }
-    // 連続した同一文字のチェック（3文字以上）
-    if (/(.)\1\1/.test(password)) {
-      return 'パスワードに3文字以上の連続した同一文字を含めることはできません';
-    }
-    return null;
-  };
-
-  /**
    * パスワード変更確認ダイアログを表示
    */
   const handleChangePasswordClick = () => {
@@ -158,8 +114,8 @@ export function PasswordChangeSection({ onPasswordChanged }: PasswordChangeSecti
       return;
     }
 
-    // パスワードの複雑性要件をチェック
-    const complexityError = validatePasswordComplexity(newPassword);
+    // パスワードの長さと複雑性（要件2.5・2.6。backend と同じ規則・文言）
+    const complexityError = getPasswordPolicyError(newPassword);
     if (complexityError) {
       setPasswordMessage(complexityError);
       return;

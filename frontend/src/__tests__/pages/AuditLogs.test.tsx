@@ -963,4 +963,173 @@ describe('AuditLogs Component', () => {
       }
     );
   });
+
+  describe('2FA の設定の開始の監査の種別（要件22.2）', () => {
+    it('2FA の設定の開始を一覧で表示名により表示し、種別のコードを出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'setup-started-1',
+          actorId: 'user-1',
+          actorEmail: 'user@example.com',
+          action: 'TWO_FACTOR_SETUP_STARTED',
+          targetType: 'User',
+          targetId: 'setup-user-1',
+          createdAt: '2026-11-17T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('setup-user-1').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^2FA設定開始$/);
+      expect(within(table).queryByText('TWO_FACTOR_SETUP_STARTED')).not.toBeInTheDocument();
+    });
+
+    it('イベント種別の絞り込みに 2FA の設定の開始を表示名で並べ、選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+      await screen.findByText('監査ログがありません');
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', { name: '2FA設定開始' });
+      expect(option).toHaveValue('TWO_FACTOR_SETUP_STARTED');
+
+      await user.selectOptions(actionFilter, '2FA設定開始');
+
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(
+          expect.stringContaining('action=TWO_FACTOR_SETUP_STARTED')
+        );
+      });
+    });
+  });
+
+  describe('絞り込みの変更の前の要求の応答が遅れて届く場合（要件22.3）', () => {
+    /** 解決を外から決める応答 */
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => {};
+      let reject: (reason: unknown) => void = () => {};
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    const unfilteredLogs: AuditLog[] = [
+      {
+        id: 'unfiltered-1',
+        actorId: 'user-1',
+        actorEmail: 'admin@example.com',
+        action: 'ROLE_CREATED',
+        targetType: 'role',
+        targetId: 'role-unfiltered',
+        createdAt: '2026-11-17T00:00:00Z',
+      },
+    ];
+    const filteredLogs: AuditLog[] = [
+      {
+        id: 'filtered-1',
+        actorId: 'user-1',
+        actorEmail: 'admin@example.com',
+        action: 'LOGIN_SUCCESS',
+        targetType: 'user',
+        targetId: 'user-filtered',
+        createdAt: '2026-11-17T01:00:00Z',
+      },
+    ];
+
+    it('絞り込みの前の要求の一覧が後から届いても、絞り込んだ一覧を上書きしない', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      const initial = deferred<AuditLog[]>();
+      const filtered = deferred<AuditLog[]>();
+      vi.mocked(apiClient.get).mockImplementation((path: string) =>
+        path.includes('action=LOGIN_SUCCESS') ? filtered.promise : initial.promise
+      );
+
+      render(<AuditLogs />);
+      const actionFilter = screen.getByLabelText('イベント種別');
+      await user.selectOptions(actionFilter, 'LOGIN_SUCCESS');
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=LOGIN_SUCCESS'));
+      });
+
+      // 後の要求（絞り込みあり）が先に応答する
+      filtered.resolve(filteredLogs);
+      const table = await screen.findByRole('table');
+      expect(within(table).getByText('user-filtered')).toBeInTheDocument();
+
+      // 前の要求（絞り込みなし）の応答が後から届く
+      initial.resolve(unfilteredLogs);
+      await initial.promise;
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(actionFilter).toHaveValue('LOGIN_SUCCESS');
+      const tableAfter = screen.getByRole('table');
+      expect(within(tableAfter).getByText('user-filtered')).toBeInTheDocument();
+      expect(within(tableAfter).queryByText('role-unfiltered')).not.toBeInTheDocument();
+      expect(within(tableAfter).queryByText('ロール作成')).not.toBeInTheDocument();
+    });
+
+    it('絞り込みの前の要求が後から失敗しても、絞り込んだ一覧にエラーを出さない', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      const initial = deferred<AuditLog[]>();
+      const filtered = deferred<AuditLog[]>();
+      vi.mocked(apiClient.get).mockImplementation((path: string) =>
+        path.includes('action=LOGIN_SUCCESS') ? filtered.promise : initial.promise
+      );
+
+      render(<AuditLogs />);
+      await user.selectOptions(screen.getByLabelText('イベント種別'), 'LOGIN_SUCCESS');
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=LOGIN_SUCCESS'));
+      });
+
+      filtered.resolve(filteredLogs);
+      await screen.findByRole('table');
+
+      initial.reject(new Error('network'));
+      await initial.promise.catch(() => undefined);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(screen.queryByText('監査ログを取得できませんでした')).not.toBeInTheDocument();
+      expect(within(screen.getByRole('table')).getByText('user-filtered')).toBeInTheDocument();
+    });
+
+    it('後の要求の応答を待つ間は、前の要求の応答が届いても読み込み中の表示を続ける', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      const initial = deferred<AuditLog[]>();
+      const filtered = deferred<AuditLog[]>();
+      vi.mocked(apiClient.get).mockImplementation((path: string) =>
+        path.includes('action=LOGIN_SUCCESS') ? filtered.promise : initial.promise
+      );
+
+      render(<AuditLogs />);
+      await user.selectOptions(screen.getByLabelText('イベント種別'), 'LOGIN_SUCCESS');
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=LOGIN_SUCCESS'));
+      });
+
+      // 前の要求（絞り込みなし）だけが応答する
+      initial.resolve(unfilteredLogs);
+      await initial.promise;
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(screen.getByText('読み込み中...')).toBeInTheDocument();
+      expect(screen.queryByText('role-unfiltered')).not.toBeInTheDocument();
+
+      filtered.resolve(filteredLogs);
+      const table = await screen.findByRole('table');
+      expect(within(table).getByText('user-filtered')).toBeInTheDocument();
+      expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+    });
+  });
 });

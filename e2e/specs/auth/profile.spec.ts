@@ -247,31 +247,46 @@ test.describe('プロフィール管理機能（読み取り系）', () => {
   });
 
   /**
+   * 要件2.6: 大文字・小文字・数字・記号のうち3種類以上を含まない新パスワードは拒まれる
+   * （backend と同じく、足りない文字種を全て示す）
    * @requirement user-authentication/REQ-2.6
    */
-  test('大文字を含まない新パスワードではエラーが表示される', async ({ page }) => {
+  test('文字種が3種類に満たない（大文字と記号を含まない）新パスワードではエラーが表示される', async ({
+    page,
+  }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    // ユニークなパスワード: 大文字なし、漏洩DBにない
-    await page.locator('input#newPassword').fill('xyzuniqtest1!@');
-    await page.locator('input#confirmPassword').fill('xyzuniqtest1!@');
+    // ユニークなパスワード: 小文字と数字の2種類だけ、漏洩DBにない
+    await page.locator('input#newPassword').fill('xyzuniqtest12');
+    await page.locator('input#confirmPassword').fill('xyzuniqtest12');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
-    await expect(page.getByText(/パスワードは大文字を1文字以上含む必要があります/i)).toBeVisible();
+    const error = page.getByRole('alert').filter({ hasText: '必要があります' });
+    await expect(error).toContainText('パスワードは大文字を1文字以上含む必要があります');
+    await expect(error).toContainText('パスワードは記号を1文字以上含む必要があります');
+    await expect(page.getByRole('button', { name: /はい、変更する/i })).toHaveCount(0);
   });
 
   /**
+   * 要件2.6: 3種類以上の文字種を含めば、大文字が無く同じ文字が3つ続いても画面は拒まない。
+   * 要件と backend に無い規則（4種類全ての要求・同じ文字の連続の禁止）を画面だけが課さないことを確かめる。
+   * 共有の利用者のパスワードは変えないため、確認ダイアログで取り消す
    * @requirement user-authentication/REQ-2.6
    */
-  test('連続した同一文字を含む新パスワードではエラーが表示される', async ({ page }) => {
+  test('3種類の文字種を含む新パスワードは、大文字が無く同じ文字が続いても確認ダイアログへ進む', async ({
+    page,
+  }) => {
     await page.locator('input#currentPassword').fill('Password123!');
-    // ユニークなパスワード: 'www'が連続、12文字以上
-    await page.locator('input#newPassword').fill('XyzNewww12!@');
-    await page.locator('input#confirmPassword').fill('XyzNewww12!@');
+    // 小文字・数字・記号の3種類、'www' が連続、12文字以上
+    await page.locator('input#newPassword').fill('xyznewww12!@');
+    await page.locator('input#confirmPassword').fill('xyznewww12!@');
     await page.getByRole('button', { name: /パスワードを変更/i }).click();
 
-    await expect(
-      page.getByText(/パスワードに3文字以上の連続した同一文字を含めることはできません/i)
-    ).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('button', { name: /はい、変更する/i })).toBeVisible();
+    await expect(page.getByText(/必要があります|連続した同一文字/)).toHaveCount(0);
+
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toHaveCount(0);
   });
 
   /**
