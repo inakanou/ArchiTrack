@@ -107,6 +107,7 @@ const CATEGORY_LABELS: Readonly<Record<LineItemCategory, string>> = {
   DISCOUNT: '値引き',
   LEGAL_WELFARE: '法定福利費',
   EXCLUDED: '別途',
+  ROUNDING: '端数調整',
 };
 
 /** 採否の表示名（46.3） */

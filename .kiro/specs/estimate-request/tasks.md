@@ -2814,7 +2814,7 @@
 
 **経緯**: roadmap の「2026-11-17 の決定（ArchiBench#9）」の 2〜4 について、利用者の判断（2026-11-21「承認して実装まで一括」。要件・設計・タスクは一括承認）で Requirement 45.1・45.6 を改め、45.14〜45.16・46.12〜46.21・48.9〜48.11 を加えた。design.md の章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11: 読取の確認の経路・原本の指紋の応答・区分「端数調整」（2026-11-21 の追補）」の Data Models・D13〜D20・D22・Testing Strategy のバックエンドを行う
 
-- [ ] 123.1 受領見積書に読取の確認の経路の列を、明細行の区分に端数調整の値を足す
+- [x] 123.1 受領見積書に読取の確認の経路の列を、明細行の区分に端数調整の値を足す
   - design.md の同章の Data Models のとおり、`schema.prisma` に enum `ReceivedQuotationReadingRoute`（`SCREEN`・`LEDGER_IMPORT`・`ARCHIBENCH`）と列 `readingConfirmationRoute`（null 可）を足し、区分の enum に `ROUNDING` を足す。migration `20261121000000_received_quotation_reading_route_and_rounding` を作り、CHECK（未確認は経路を持たない）を SQL で足す。区分の値は `ALTER TYPE ... ADD VALUE` で足し、同じ migration の中で使わない。埋め戻しは行わない
   - backend の区分の一覧（`LINE_ITEM_CATEGORIES`）の末尾に `ROUNDING` を足し、経路の値の一覧を置く。台帳の Excel の書き出しの区分の表示名に「端数調整」を足す（区分の全部を鍵に持つ表のため、足さないと型が通らない。D20）。見積カードの取り込みの対応表には足さない
   - 検証の単体に、区分 `ROUNDING` が通り、端数調整の行の金額が正・負・0 のどれも通る主張を足す（45.14。検証そのものは足さない）。サービスの単体に、端数調整の行が合計に入り別途の行が入らない主張を足す（45.15）

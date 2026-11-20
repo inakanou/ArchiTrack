@@ -4642,6 +4642,50 @@ describe('ReceivedQuotationService', () => {
         expect(result.totalAmount).toBe(1000);
       });
 
+      /**
+       * @requirement estimate-request/REQ-45.15: The システム shall 区分が端数調整の明細行の金額を、構造化データ入力エリアの合計金額（受入基準5）に含める
+       */
+      it('合計は区分が端数調整の行を正も負も足し込み、別途の行は除く（45.15）', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          storedQuotation({
+            lineItems: [
+              storedLine({ id: 'li-1', sortOrder: 0, amount: 100000, category: 'DIRECT' }),
+              storedLine({ id: 'li-2', sortOrder: 1, amount: 300000, category: 'EXCLUDED' }),
+              storedLine({ id: 'li-3', sortOrder: 2, amount: 12, category: 'ROUNDING' }),
+              storedLine({ id: 'li-4', sortOrder: 3, amount: -512, category: 'ROUNDING' }),
+            ],
+          }) as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(result!.totalAmount).toBe(100000 + 12 - 512);
+        expect(result!.lineItems.map((line) => line.category)).toEqual([
+          'DIRECT',
+          'EXCLUDED',
+          'ROUNDING',
+          'ROUNDING',
+        ]);
+      });
+
+      it('作成の結果の合計も端数調整の行を含み、別途の行を除き、区分を ROUNDING のまま保存する（45.15）', async () => {
+        const txClient = setupCreateTx();
+
+        const { quotation: result } = await createWithLines([
+          { name: '直接', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 },
+          { name: '別途', sortOrder: 1, amount: 50000, category: 'EXCLUDED' },
+          { name: '端数調整', sortOrder: 2, amount: -3, category: 'ROUNDING' },
+        ]);
+
+        const saved = txClient.receivedQuotationLineItem.createMany.mock.calls[0]![0]
+          .data as Array<{
+          category: string;
+          amount: number | null;
+        }>;
+        expect(saved[2]).toMatchObject({ category: 'ROUNDING', amount: -3 });
+        expect(result.totalAmount).toBe(997);
+      });
+
       it('区分の入力が無い明細行は直接工事として保存して返す', async () => {
         const txClient = setupCreateTx();
 

@@ -1674,6 +1674,182 @@ describe('Received Quotation & Status API Integration Tests', () => {
   });
 
   /**
+   * 読取の確認の経路の列の CHECK と、明細行の区分「端数調整」（Task 123.1）
+   *
+   * 適用済みの DB で、migration `20261121000000_received_quotation_reading_route_and_rounding` の
+   * CHECK（未確認は経路を持たない）と、区分の値 ROUNDING の保存・読み戻し・合計を主張する。
+   * CHECK の主張はトランザクションの中で行い、最後に例外で巻き戻す。
+   *
+   * 対象の受入基準は estimate-request の 45.1・45.14・45.15・46.12
+   * （design: 「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の章の Data Models、D20）
+   */
+  describe('読取の確認の経路の CHECK と区分「端数調整」（Task 123.1）', () => {
+    const ROLLBACK = '検証の後に巻き戻す';
+    const CHECK_NAME = /received_quotations_reading_route_check/;
+
+    /** トランザクションの中で検証し、最後に巻き戻す */
+    const inRolledBackTransaction = async (
+      verify: (tx: Parameters<Parameters<PrismaClient['$transaction']>[0]>[0]) => Promise<void>
+    ): Promise<void> => {
+      await expect(
+        prisma.$transaction(
+          async (tx) => {
+            await verify(tx);
+            throw new Error(ROLLBACK);
+          },
+          { timeout: 30_000 }
+        )
+      ).rejects.toThrow(ROLLBACK);
+    };
+
+    const newId = (label: string) =>
+      `route-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    beforeEach(async () => {
+      await prisma.receivedQuotation.deleteMany({
+        where: { estimateRequestId: testEstimateRequestId },
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.12: The システム shall 確認済みの受領見積書ごとに、読取の確認の経路（画面・台帳の取り込み・ArchiBench のいずれか）を保持し、未確認の受領見積書には経路を持たせない
+     */
+    it('確認済みの行は経路 null でも 3 つの経路のどれでも保存でき、未確認の行は経路 null で保存できる（46.12）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        // 追補の前の確認済み（経路 null）は許す
+        const legacyId = newId('legacy');
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt", "reading_status")
+          VALUES (${legacyId}, ${testEstimateRequestId}, ${testProjectId}, '業者', '経路の無い確認済み', DATE '2026-11-21', CURRENT_TIMESTAMP, 'CONFIRMED')`;
+        // 未確認は経路 null（列の既定）で入る
+        const unconfirmedId = newId('unconfirmed');
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt")
+          VALUES (${unconfirmedId}, ${testEstimateRequestId}, ${testProjectId}, '業者', '未確認', DATE '2026-11-21', CURRENT_TIMESTAMP)`;
+
+        const stored = await tx.$queryRaw<
+          Array<{ id: string; reading_status: string; route: string | null }>
+        >`SELECT "id", "reading_status"::text AS "reading_status", "reading_confirmation_route"::text AS "route"
+          FROM "received_quotations" WHERE "id" IN (${legacyId}, ${unconfirmedId}) ORDER BY "reading_status"::text`;
+        expect(stored).toEqual([
+          { id: legacyId, reading_status: 'CONFIRMED', route: null },
+          { id: unconfirmedId, reading_status: 'UNCONFIRMED', route: null },
+        ]);
+
+        // 確認済みの行は 3 つの経路のどれも持てる
+        for (const route of ['SCREEN', 'LEDGER_IMPORT', 'ARCHIBENCH']) {
+          await tx.$executeRawUnsafe(
+            `UPDATE "received_quotations" SET "reading_confirmation_route" = '${route}' WHERE "id" = $1`,
+            legacyId
+          );
+          const rows = await tx.$queryRaw<Array<{ route: string | null }>>`
+            SELECT "reading_confirmation_route"::text AS "route" FROM "received_quotations" WHERE "id" = ${legacyId}`;
+          expect(rows).toEqual([{ route }]);
+        }
+      });
+    });
+
+    it('未確認の行へ経路を添えて作ると CHECK で失敗する（46.12）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        await expect(
+          tx.$executeRaw`
+            INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt", "reading_status", "reading_confirmation_route")
+            VALUES (${newId('insert')}, ${testEstimateRequestId}, ${testProjectId}, '業者', '未確認に経路', DATE '2026-11-21', CURRENT_TIMESTAMP, 'UNCONFIRMED', 'SCREEN')`
+        ).rejects.toThrow(CHECK_NAME);
+      });
+    });
+
+    it('未確認の既存の行へ経路を書くと CHECK で失敗する（46.12）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        const id = newId('update');
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt")
+          VALUES (${id}, ${testEstimateRequestId}, ${testProjectId}, '業者', '未確認', DATE '2026-11-21', CURRENT_TIMESTAMP)`;
+        await expect(
+          tx.$executeRaw`
+            UPDATE "received_quotations" SET "reading_confirmation_route" = 'ARCHIBENCH' WHERE "id" = ${id}`
+        ).rejects.toThrow(CHECK_NAME);
+      });
+    });
+
+    it('経路を持つ確認済みの行を、経路を残したまま未確認へ戻すと CHECK で失敗する（46.12）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        const id = newId('revert');
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt", "reading_status", "reading_confirmation_route")
+          VALUES (${id}, ${testEstimateRequestId}, ${testProjectId}, '業者', '確認済み', DATE '2026-11-21', CURRENT_TIMESTAMP, 'CONFIRMED', 'LEDGER_IMPORT')`;
+        await expect(
+          tx.$executeRaw`
+            UPDATE "received_quotations" SET "reading_status" = 'UNCONFIRMED' WHERE "id" = ${id}`
+        ).rejects.toThrow(CHECK_NAME);
+      });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-45.1: The システム shall 受領見積書の明細行ごとに、区分（直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途・端数調整のいずれか）を保持し、既定を直接工事とする（2026-11-20 改訂）
+     * @requirement estimate-request/REQ-45.14: The システム shall 区分が端数調整の明細行の金額として、正の値・負の値・0 のいずれも受け付ける
+     * @requirement estimate-request/REQ-45.15: The システム shall 区分が端数調整の明細行の金額を、構造化データ入力エリアの合計金額（受入基準5）に含める
+     */
+    it('区分が端数調整の明細行（正・負・0 の金額）を API で保存して読み戻せ、応答の合計に端数調整が入り別途が入らない（45.1、45.14、45.15）', async () => {
+      const lineItems = [
+        { name: '直接工事の行', sortOrder: 0, quantity: 1, unitPrice: 100000, amount: 100000 },
+        { name: '別途の行', sortOrder: 1, amount: 300000, category: 'EXCLUDED' },
+        { name: '端数調整（正）', sortOrder: 2, amount: 12, category: 'ROUNDING' },
+        { name: '端数調整（負）', sortOrder: 3, amount: -512, category: 'ROUNDING' },
+        { name: '端数調整（0）', sortOrder: 4, amount: 0, category: 'ROUNDING' },
+      ];
+      const expectedLines = [
+        { name: '直接工事の行', category: 'DIRECT', amount: 100000 },
+        { name: '別途の行', category: 'EXCLUDED', amount: 300000 },
+        { name: '端数調整（正）', category: 'ROUNDING', amount: 12 },
+        { name: '端数調整（負）', category: 'ROUNDING', amount: -512 },
+        { name: '端数調整（0）', category: 'ROUNDING', amount: 0 },
+      ];
+      const expectedTotal = 100000 + 12 - 512;
+
+      const created = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', '端数調整の受領見積書')
+        .field('submittedAt', '2026-11-21T00:00:00.000Z')
+        .field('lineItems', JSON.stringify(lineItems));
+
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect(
+        (created.body.lineItems as Array<{ name: string; category: string; amount: number }>).map(
+          ({ name, category, amount }) => ({ name, category, amount })
+        )
+      ).toEqual(expectedLines);
+      expect(created.body.totalAmount).toBe(expectedTotal);
+
+      // DB に区分 ROUNDING と送った金額のまま入っている
+      const rows = await prisma.receivedQuotationLineItem.findMany({
+        where: { receivedQuotationId: created.body.id as string },
+        orderBy: { sortOrder: 'asc' },
+      });
+      expect(
+        rows.map((row) => ({
+          name: row.name,
+          category: row.category,
+          amount: row.amount === null ? null : Number(row.amount),
+        }))
+      ).toEqual(expectedLines);
+
+      // 読み戻しでも同じ区分・金額・合計が返る
+      const found = await request(app)
+        .get(`/api/quotations/${created.body.id}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(found.status).toBe(200);
+      expect(
+        (found.body.lineItems as Array<{ name: string; category: string; amount: number }>).map(
+          ({ name, category, amount }) => ({ name, category, amount })
+        )
+      ).toEqual(expectedLines);
+      expect(found.body.totalAmount).toBe(expectedTotal);
+    });
+  });
+
+  /**
    * 業者名と取引先の照合（タスク113.2）
    *
    * design の Requirements 43-50 の章の D4 を実際の DB で確かめる。照合が論理削除と種別（協力業者）で
