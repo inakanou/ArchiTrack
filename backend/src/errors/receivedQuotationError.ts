@@ -7,6 +7,8 @@
  * - 11.9: ファイルサイズバリデーション
  * - 11.10: バリデーションエラー表示
  * - 11.16: 楽観的排他制御エラー
+ *
+ * Requirements (estimate-request):
  * - 46.16: ArchiBench の入口の確認の日時の誤り
  *
  * @module errors/receivedQuotationError

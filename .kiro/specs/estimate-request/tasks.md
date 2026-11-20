@@ -2884,7 +2884,7 @@
   - _Requirements: 45.1, 45.6, 45.14, 45.15, 45.16, 46.12, 46.13, 46.17, 46.18, 46.19, 46.20, 46.21, 48.9, 48.10_
   - _Depends: 124.2_
 
-- [ ] 125.2 除外の登録と spec の関門を通し、steering を今の形に合わせる
+- [x] 125.2 除外の登録と spec の関門を通し、steering を今の形に合わせる
   - E2E で観測できない 46.14（取り込んだ受領見積書は本機能の画面に出ない）、46.15・46.16（入口は claude-connector がまだ持たない）、48.11（範囲外の応答に値が無いこと）について、`check:req-coverage` が統合の被覆の印を本番に到達する被覆として数えるかを確かめ、数えられないものだけを `e2e/requirement-exclusions.json` に代替の検証（タスク123.2〜123.4 の統合）つきで登録し、件数の宣言を実数に合わせる（タスク120.3 の先例）
   - 受入基準の逐語（「経路の記録なし」ほか）が実装に入っていることを `check:criterion-literals` で確かめる
   - `check:req-coverage`・`check:req-exclusions`・`check:trace-coverage`・`check:criterion-literals`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流す。鮮度の宣言（除外の件数ほか）が動けば、帰属つきで貼り直す
@@ -2892,3 +2892,13 @@
   - estimate-request の 45.14〜45.16・46.12〜46.21・48.9〜48.11 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
   - _Requirements: 46.14, 46.15, 46.16, 48.11_
   - _Depends: 125.1_
+
+**タスク123〜125の記録（2026-11-21）**:
+
+- 123.1〜125.2 を /kiro-impl の自律モードで実装した（各タスクは独立の見直しで承認。124.1 は 1 回の差し戻し〔一覧の札が入力なしで要約を出さないことの単体の不足〕の後に承認）
+- 123.2: 日時として読めない値（Invalid Date）の確認の日時も欠けとして拒む。確認の日時の検証はファイルの形式・大きさの検証より前に置く。画面の 2 つの登録の経路が共用する入力の組み立ては画面の入口を固定で入れるため、claude-connector の入口は自分で入口を組み立てる
+- 123.4: HTTP の応答の `fileSha256`・409 の既存の ID・範囲外の 404（48.11）の統合の主張は `estimate-request-project-scope.api.integration.test.ts` に置いた。同じファイル名の差し替えで保存したファイルが消える既存の不具合を見つけた（未修正。Implementation Notes に記録）
+- 124.2: 区分の一覧は単価台帳の修正の画面と共有のため、そちらの区分の選択にも端数調整が出る（D20 の帰結）
+- 125.1: `received-quotation-ledger.spec.ts` に 6 本を足し、既存の主張 3 か所を改訂後の形（選択肢と小計が 8 つ、確認の要約に経路）へ合わせた。関係する E2E 414 本が再試行なしで緑
+- 125.2: 46.14・46.15・46.16・48.11 は 4 件とも除外に登録していない。`check:req-coverage` が統合の印を本番に到達する被覆として数えたため（除外の総数は 135 件のまま）。46.15・46.16 の統合はサービスを直接呼ぶ（HTTP の入口は claude-connector がまだ持たない。入口からの結線の E2E は claude-connector が持つ）
+- 125.2: 着手時に `check:req-coverage` が赤だった（眠る名乗り 5024 件 > 上限 5023 件）。タスク123.2 が `receivedQuotationError.ts` の機能名を欠く `Requirements:` の下へ足した 46.16 の 1 行を、`Requirements (estimate-request):` の見出しの下へ移して通した。上限は動かしていない。鮮度の錨 2 件（肯定側から指す参照 2457 → 2474、自機能で解決できる見出し 612 → 622）を site-survey の design.md へ帰属つきで貼り直した。逐語の裁定の台帳（26 件）と steering（structure.md・tech.md・product.md）は変える記述が無かった
