@@ -3403,6 +3403,203 @@ describe('ReceivedQuotationForm', () => {
       });
     });
 
+    // ------------------------------------------------------------------------
+    // タスク124.2: 区分「端数調整」（design の D20。45.1・45.6・45.14〜45.16）
+    // ------------------------------------------------------------------------
+    describe('区分「端数調整」（45.1・45.6・45.14〜45.16）', () => {
+      /** 画面の明細行の区分の選択欄の値を、行の順に読む */
+      const categoryValues = () =>
+        (screen.getAllByRole('combobox', { name: /^行\d+ 区分$/ }) as HTMLSelectElement[]).map(
+          (select) => select.value
+        );
+      const submittedLineItems = () =>
+        lastSubmitted().lineItems as { name: string; category: string; amount?: number }[];
+
+      it('端数調整を選んで正の金額を入れた行は、値引きの文言を出さずに ROUNDING で保存の入力に入る', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName('端数調整');
+        await userEvent.selectOptions(
+          screen.getByRole('combobox', { name: '行1 区分' }),
+          '端数調整'
+        );
+        await userEvent.type(screen.getByRole('textbox', { name: '行1 金額' }), '30');
+
+        // 小計と合計（別途を除く）に数えられる
+        expect(screen.getByTestId('category-subtotal-ROUNDING')).toHaveTextContent('30');
+        expect(screen.getByTestId('total-amount')).toHaveTextContent('30');
+
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(submittedLineItems()).toEqual([
+          expect.objectContaining({ name: '端数調整', category: 'ROUNDING', amount: 30 }),
+        ]);
+        expect(screen.queryByTestId('line-item-errors-0')).not.toBeInTheDocument();
+        expect(
+          screen.queryByText(LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE)
+        ).not.toBeInTheDocument();
+      });
+
+      it('保存済みの端数調整の行（正の額と負の額）は、小計と合計に入り、編集して保存しても ROUNDING のまま送る', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              lineItems: [
+                savedLine(),
+                savedLine({
+                  id: 'li-plus',
+                  sortOrder: 1,
+                  name: '端数調整（切り上げ）',
+                  category: 'ROUNDING',
+                  quantity: null,
+                  unitPrice: null,
+                  amount: 30,
+                }),
+                savedLine({
+                  id: 'li-minus',
+                  sortOrder: 2,
+                  name: '端数調整（切り捨て）',
+                  category: 'ROUNDING',
+                  quantity: null,
+                  unitPrice: null,
+                  amount: -80,
+                }),
+                savedLine({
+                  id: 'li-excluded',
+                  sortOrder: 3,
+                  name: '別途の明細',
+                  category: 'EXCLUDED',
+                  quantity: 1,
+                  unitPrice: 7000,
+                  amount: 7000,
+                }),
+              ],
+              totalAmount: 49950,
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        expect(categoryValues()).toEqual(['DIRECT', 'ROUNDING', 'ROUNDING', 'EXCLUDED']);
+        expect(screen.getByTestId('category-subtotal-ROUNDING')).toHaveTextContent('-50');
+        // 50,000 + 30 - 80。別途の 7,000 だけを除く
+        expect(screen.getByTestId('total-amount')).toHaveTextContent('49,950');
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(submittedLineItems()).toEqual([
+          expect.objectContaining({ name: '既存の明細', category: 'DIRECT', amount: 50000 }),
+          expect.objectContaining({
+            name: '端数調整（切り上げ）',
+            category: 'ROUNDING',
+            amount: 30,
+          }),
+          expect.objectContaining({
+            name: '端数調整（切り捨て）',
+            category: 'ROUNDING',
+            amount: -80,
+          }),
+          expect.objectContaining({ name: '別途の明細', category: 'EXCLUDED', amount: 7000 }),
+        ]);
+        expect(screen.queryByRole('list', { name: /のエラー$/ })).not.toBeInTheDocument();
+      });
+
+      it('OCR・データパースの一括取り込みの行の区分は直接工事で、端数調整にならない（45.3・45.16）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+        const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [validFile], writable: false });
+        fireEvent.change(fileInput);
+
+        fireEvent.click(await screen.findByTestId('mock-import-button'));
+
+        await waitFor(() => {
+          expect(screen.getByRole('textbox', { name: '行1 名称' })).toHaveValue('テスト品目');
+        });
+        expect(categoryValues()).toEqual(['DIRECT']);
+        expect(screen.getByTestId('category-subtotal-DIRECT')).toHaveTextContent('10,000');
+        expect(screen.getByTestId('category-subtotal-ROUNDING')).toHaveTextContent('0');
+
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(submittedLineItems()).toEqual([
+          expect.objectContaining({ name: 'テスト品目', category: 'DIRECT' }),
+        ]);
+      });
+
+      it('項目選択からの一括転記の行の区分はすべて直接工事で、端数調整にならない（45.3・45.16）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+            selectedItems={[
+              {
+                customCategory: '躯体',
+                workType: '鉄筋',
+                name: '鉄筋A',
+                specification: 'SD295',
+                unit: 'kg',
+                quantity: 100,
+                remarks: '',
+              },
+              {
+                customCategory: '',
+                workType: '',
+                name: '端数調整',
+                specification: '',
+                unit: '式',
+                quantity: 1,
+                remarks: '',
+              },
+            ]}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /項目選択から転記/ }));
+
+        await waitFor(() => {
+          expect(screen.getByText(/2件.*転記/)).toBeInTheDocument();
+        });
+        // 名称が「端数調整」の項目も、転記の行の区分は直接工事のまま（区分を名称から推し量らない）
+        expect(categoryValues()).toEqual(['DIRECT', 'DIRECT']);
+
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(submittedLineItems()).toEqual([
+          expect.objectContaining({ name: '鉄筋A', category: 'DIRECT' }),
+          expect.objectContaining({ name: '端数調整', category: 'DIRECT' }),
+        ]);
+      });
+    });
+
     describe('NET 金額の自動入力（34.2）', () => {
       it('取り込みの NET 金額の自動入力は区分が別途の行を除いた合計を使う', async () => {
         render(

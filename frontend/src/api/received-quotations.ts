@@ -26,7 +26,10 @@ import { apiClient, ApiError } from './client';
 // ============================================================================
 
 /**
- * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途の順
+ * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途・端数調整の順
+ *
+ * タスク124.2（design.md の D20）: 末尾（別途の後）に端数調整 `ROUNDING` を足した。
+ * 端数調整の金額は正・負・0 のどれも受け（45.14）、合計（別途を除く）に入る（45.15）
  */
 export const LINE_ITEM_CATEGORIES = [
   'DIRECT',
@@ -36,6 +39,7 @@ export const LINE_ITEM_CATEGORIES = [
   'DISCOUNT',
   'LEGAL_WELFARE',
   'EXCLUDED',
+  'ROUNDING',
 ] as const;
 
 /** 明細行の区分（45.1） */

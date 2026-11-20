@@ -2865,7 +2865,7 @@
   - _Boundary: ReadingRouteLabels, LedgerInfoSection, ReceivedQuotationLedgerIndicators, ReceivedQuotationForm, ReceivedQuotationList, ProjectReceivedQuotationListPage_
   - _Depends: 123.4_
 
-- [ ] 124.2 明細行の区分の選択と小計に端数調整を足す
+- [x] 124.2 明細行の区分の選択と小計に端数調整を足す
   - frontend の区分の一覧（`LINE_ITEM_CATEGORIES`）の末尾に `ROUNDING` を、表示名の表に「端数調整」を足す（D20）。124.1 と同じ API の型のファイルを変えるため、124.1 の後に行う
   - `LineItemEditor` の単体に、区分の選択肢に端数調整があること、小計が 8 つで端数調整の小計が出ること、端数調整の正と負の金額が合計（別途を除く）に入ること、端数調整の行に値引きの文言が出ないことの主張を足す。`ReceivedQuotationForm` の単体に、OCR・データパースの一括取り込みと項目選択からの一括転記の行の区分が直接工事である主張を足す（45.16）。既存の「小計は 7 つ」の主張は 8 つへ改める（主張を弱めない）
   - 単体で、端数調整を選んだ行が保存の入力に `ROUNDING` で入り、小計と合計に数えられる状態になる

@@ -265,6 +265,45 @@ describe('validateLineItemsForSave', () => {
     });
   });
 
+  it('端数調整の行は金額が正・負・0 のどれでも止めない（45.14。値引きの検証は値引きの行だけを見る）', () => {
+    expect(
+      validateLineItemsForSave([
+        formItem({ id: 'plus', category: 'ROUNDING', amount: 30 }),
+        formItem({ id: 'minus', category: 'ROUNDING', amount: -80 }),
+        formItem({ id: 'zero', category: 'ROUNDING', amount: 0 }),
+        // 金額が空で数量×単価が正の行も止めない
+        formItem({ id: 'calc', category: 'ROUNDING', quantity: '1', unitPrice: '500' }),
+        // 対照: 同じ額の値引きの行は止める
+        formItem({ id: 'discount', category: 'DISCOUNT', amount: 30 }),
+      ])
+    ).toEqual({
+      discount: [messages.DISCOUNT_AMOUNT_POSITIVE],
+    });
+  });
+
+  it('端数調整の行は保存の入力に区分 ROUNDING と金額をそのまま入れる（45.1・45.14）', () => {
+    expect(
+      convertToLineItemInput([
+        formItem({ id: 'plus', name: '端数調整', category: 'ROUNDING', amount: 30 }),
+        formItem({ id: 'minus', name: '端数処理', category: 'ROUNDING', amount: -80 }),
+      ])
+    ).toEqual([
+      expect.objectContaining({ name: '端数調整', category: 'ROUNDING', amount: 30, sortOrder: 0 }),
+      expect.objectContaining({
+        name: '端数処理',
+        category: 'ROUNDING',
+        amount: -80,
+        sortOrder: 1,
+      }),
+    ]);
+  });
+
+  it('サーバーの端数調整の行はフォームの値でも区分 ROUNDING のまま読む（45.1）', () => {
+    const [row] = convertToLineItemFormData([serverItem({ category: 'ROUNDING', amount: -80 })]);
+    expect(row?.category).toBe('ROUNDING');
+    expect(row?.amount).toBe(-80);
+  });
+
   it('換算は 4 つすべてあるかすべて無く、数量は 0 より大きい（45.9）', () => {
     const complete = {
       conversionQuantity: '2',
