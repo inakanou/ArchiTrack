@@ -384,10 +384,11 @@ async function reloadProjectQuotationList(
  * 画面の保存の要求（multipart）の本文に欄を足し、受領見積書名を書き換えてから送る
  *
  * 足した本文がサーバーへ届いたことは、書き換えた受領見積書名で保存されたことで確かめる（足した欄は
- * サーバーが落とすため、それだけでは届いたかを観測できない）。書き換えられなかった要求はそのまま通し、
- * 戻り値の配列に入らない（呼び出し側が件数を主張して失敗させる）。
+ * サーバーが落とすため、それだけでは届いたかを観測できない）。対象のメソッドの要求で書き換えの前提
+ * （本文・multipart の境界・受領見積書名）が欠けたときは、書き換えずに送り、欠けた理由を `missing` に
+ * 入れる。呼び出し側は `sent` の件数と `missing` が空であることを主張して失敗させる。
  *
- * @returns 書き換えて送った本文（送るたびに足される）
+ * @returns 書き換えて送った本文と、書き換えの前提が欠けた理由（どちらも送るたびに足される）
  */
 async function addFieldsToSaveRequests(
   page: Page,
@@ -395,36 +396,53 @@ async function addFieldsToSaveRequests(
   method: 'POST' | 'PUT',
   rename: { from: string; to: string },
   fields: Readonly<Record<string, string>>
-): Promise<string[]> {
-  const sentBodies: string[] = [];
+): Promise<{ sent: string[]; missing: string[] }> {
+  const sent: string[] = [];
+  const missing: string[] = [];
   await page.route(urlPattern, async (route) => {
     const req = route.request();
-    const body = req.postData();
-    const contentType = (await req.headerValue('content-type')) ?? '';
-    const boundary = /boundary=(.+)$/.exec(contentType)?.[1];
-    const closing = `--${boundary}--`;
-    if (
-      req.method() !== method ||
-      body === null ||
-      boundary === undefined ||
-      !body.includes(closing) ||
-      !body.includes(rename.from)
-    ) {
+    // 同じ URL への別のメソッドの要求（一覧・詳細の取得）は書き換えの対象ではないため、そのまま通す。
+    // 対象の要求の件数は呼び出し側が sent で主張する
+    if (req.method() !== method) {
       await route.continue();
       return;
     }
-    const parts = Object.entries(fields)
-      .map(
-        ([name, value]) =>
-          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
-      )
-      .join('');
-    const at = body.lastIndexOf(closing);
-    const tampered = (body.slice(0, at) + parts + body.slice(at)).replace(rename.from, rename.to);
-    sentBodies.push(tampered);
+    const body = req.postData() ?? '';
+    const contentType = (await req.headerValue('content-type')) ?? '';
+    const boundary = /boundary=(.+)$/.exec(contentType)?.[1] ?? '';
+    const closing = `--${boundary}--`;
+    const reasons = [
+      body === '' ? '本文が無い' : null,
+      boundary === '' ? 'multipart の境界が無い' : null,
+      body.includes(closing) ? null : '本文に閉じの境界が無い',
+      body.includes(rename.from) ? null : `本文に受領見積書名「${rename.from}」が無い`,
+    ].filter((reason): reason is string => reason !== null);
+    missing.push(...reasons);
+    // 前提が欠けたときは書き換えずに送る（missing が空でないことで呼び出し側が失敗する）
+    const tampered =
+      reasons.length > 0 ? body : buildTamperedBody(body, boundary, closing, rename, fields);
+    sent.push(tampered);
     await route.continue({ postData: tampered });
   });
-  return sentBodies;
+  return { sent, missing };
+}
+
+/** multipart の本文の閉じの境界の前へ欄を足し、受領見積書名を書き換える */
+function buildTamperedBody(
+  body: string,
+  boundary: string,
+  closing: string,
+  rename: { from: string; to: string },
+  fields: Readonly<Record<string, string>>
+): string {
+  const parts = Object.entries(fields)
+    .map(
+      ([name, value]) =>
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+    )
+    .join('');
+  const at = body.lastIndexOf(closing);
+  return (body.slice(0, at) + parts + body.slice(at)).replace(rename.from, rename.to);
 }
 
 /** Node 側で画面と同じ書式（ja-JP の年月日と時分）の日時の文字を作る */
@@ -2098,7 +2116,8 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     const afterCreate = new Date();
     await page.unroute(createPattern);
     // 足した欄を含む本文を 1 回だけ送った（確認済みの指定とともに）
-    expect(createBodies).toHaveLength(1);
+    expect(createBodies.missing).toEqual([]);
+    expect(createBodies.sent).toHaveLength(1);
     for (const fragment of [
       'name="readingConfirmationRoute"\r\n\r\nARCHIBENCH',
       'name="route"\r\n\r\nARCHIBENCH',
@@ -2106,7 +2125,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
       `name="readingConfirmedAt"\r\n\r\n${forgedConfirmedAt}`,
       'name="readingStatus"\r\n\r\nCONFIRMED',
     ]) {
-      expect(createBodies[0]).toContain(fragment);
+      expect(createBodies.sent[0]).toContain(fragment);
     }
     expect(
       ((await createResponse.json()) as { readingConfirmationRoute: unknown })
@@ -2155,9 +2174,10 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await expectFormClosed(page);
     const afterUpdate = new Date();
     await page.unroute(updatePattern);
-    expect(updateBodies).toHaveLength(1);
-    expect(updateBodies[0]).toContain('name="readingConfirmationRoute"\r\n\r\nARCHIBENCH');
-    expect(updateBodies[0]).toContain('name="readingStatus"\r\n\r\nCONFIRMED');
+    expect(updateBodies.missing).toEqual([]);
+    expect(updateBodies.sent).toHaveLength(1);
+    expect(updateBodies.sent[0]).toContain('name="readingConfirmationRoute"\r\n\r\nARCHIBENCH');
+    expect(updateBodies.sent[0]).toContain('name="readingStatus"\r\n\r\nCONFIRMED');
     expect(
       ((await updateResponse.json()) as { readingConfirmationRoute: unknown })
         .readingConfirmationRoute
