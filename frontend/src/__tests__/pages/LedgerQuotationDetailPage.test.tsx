@@ -259,6 +259,28 @@ describe('LedgerQuotationDetailPage（unit-price-ledger タスク4.4・4.5）', 
       expect(infoValue('原本のパス')).toBe('2026/旧庁舎/見積.pdf');
     });
 
+    it('区分が端数調整の明細行は、区分の欄に「端数調整」と出す（estimate-request の 45.1）', async () => {
+      mocks.getQuotation.mockResolvedValue(
+        detail({
+          lineItems: [
+            lineItem({
+              category: 'ROUNDING',
+              name: '端数調整',
+              quantity: null,
+              unitPrice: null,
+              amount: -200,
+            }),
+          ],
+        })
+      );
+      renderPage();
+      const table = await waitForLineItemTable();
+
+      const rows = within(table).getAllByRole('row').slice(1);
+      expect(rows).toHaveLength(1);
+      expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('端数調整');
+    });
+
     it('明細行を、区分・条件・換算・参考の印と理由・分類キー・数量表の行のキーとともに出す', async () => {
       mocks.getQuotation.mockResolvedValue(
         detail({

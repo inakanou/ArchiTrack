@@ -1744,10 +1744,10 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
         // 確認済みの行は 3 つの経路のどれも持てる
         for (const route of ['SCREEN', 'LEDGER_IMPORT', 'ARCHIBENCH']) {
-          await tx.$executeRawUnsafe(
-            `UPDATE "received_quotations" SET "reading_confirmation_route" = '${route}' WHERE "id" = $1`,
-            legacyId
-          );
+          await tx.$executeRaw`
+            UPDATE "received_quotations"
+            SET "reading_confirmation_route" = ${route}::"ReceivedQuotationReadingRoute"
+            WHERE "id" = ${legacyId}`;
           const rows = await tx.$queryRaw<Array<{ route: string | null }>>`
             SELECT "reading_confirmation_route"::text AS "route" FROM "received_quotations" WHERE "id" = ${legacyId}`;
           expect(rows).toEqual([{ route }]);

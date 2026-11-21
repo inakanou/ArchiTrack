@@ -1956,6 +1956,57 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       }
     });
 
+    it('同じファイル名のファイルで 2 度続けて差し替えても、保存したファイルは残り、中身と指紋が最後のファイルに一致し、差し替え前のファイルは取り除かれる（2026-11-21 の不具合の是正）', async () => {
+      const root = process.env.LOCAL_STORAGE_PATH;
+      expect(root, '前提: ローカルストレージのパス').toBeTruthy();
+      // 同じ案件の他の試験の原本と重ならない中身にする（同じ原本は 48.3 で 409 になる）
+      const contents = ['first', 'second', 'third'].map((label) =>
+        Buffer.from(`%PDF-1.4 ${STAMP}-same-name-${label}`)
+      );
+      const created = await post(
+        sales,
+        projectUrl(target.projectId),
+        fields('same-name'),
+        contents[0]!
+      );
+      expect(created.status).toBe(201);
+      const id = String(created.body.id);
+      const pathOf = async (): Promise<string> => {
+        const row = await prisma.receivedQuotation.findUniqueOrThrow({
+          where: { id },
+          select: { filePath: true },
+        });
+        expect(row.filePath, '前提: 受領見積書がファイルを持つ').toBeTruthy();
+        return row.filePath ?? '';
+      };
+
+      let updatedAt = String(created.body.updatedAt);
+      let previousPath = await pathOf();
+      for (const content of contents.slice(1)) {
+        const response = await request(app)
+          .put(`/api/quotations/${id}`)
+          .set(...auth(sales))
+          .field('expectedUpdatedAt', updatedAt)
+          .attach('file', content, { filename: 'er1234.pdf', contentType: 'application/pdf' });
+        expect(response.status).toBe(200);
+        updatedAt = String(response.body.updatedAt);
+
+        const storedPath = await pathOf();
+        expect(storedPath).not.toBe(previousPath);
+        expect(fs.existsSync(path.join(root ?? '', storedPath))).toBe(true);
+        expect(await storedFileSha256(id)).toBe(sha256Of(content));
+        expect(response.body.fileSha256).toBe(sha256Of(content));
+        expect(response.body.fileName).toBe('er1234.pdf');
+        expect(fs.existsSync(path.join(root ?? '', previousPath))).toBe(false);
+        previousPath = storedPath;
+      }
+
+      const preview = await request(app)
+        .get(`/api/quotations/${id}/preview`)
+        .set(...auth(sales));
+      expect(preview.status).toBe(200);
+    });
+
     /**
      * @requirement estimate-request/REQ-48.9
      */
@@ -1999,7 +2050,8 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         .set(...auth(sales))
         .expect(200);
       expect(detail.body.fileSha256).toBe(stored);
-      expect(detail.body).toHaveProperty('readingConfirmationRoute');
+      // 確認済みで登録してからファイルを差し替えたため、未確認に戻り経路は無い（46.18）
+      expect(detail.body).toHaveProperty('readingConfirmationRoute', null);
 
       const noFileDetail = await request(app)
         .get(`/api/quotations/${createdWithoutFile.body.id}`)
@@ -2027,7 +2079,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         .set(...auth(sales))
         .expect(200);
       expect(byId(underRequest.body, requestId).fileSha256).toBe(replaced);
-      expect(byId(underRequest.body, requestId)).toHaveProperty('readingConfirmationRoute');
+      expect(byId(underRequest.body, requestId)).toHaveProperty('readingConfirmationRoute', null);
       expect(byId(underRequest.body, noFileId)).toHaveProperty('fileSha256', null);
 
       const requested = await request(app)
@@ -2035,7 +2087,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         .set(...auth(sales))
         .expect(200);
       expect(byId(requested.body, requestId).fileSha256).toBe(replaced);
-      expect(byId(requested.body, requestId)).toHaveProperty('readingConfirmationRoute');
+      expect(byId(requested.body, requestId)).toHaveProperty('readingConfirmationRoute', null);
       expect(byId(requested.body, noFileId)).toHaveProperty('fileSha256', null);
 
       const all = await request(app)
@@ -2138,6 +2190,12 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         fields('outsider-duplicate'),
         PROJECT_FILE
       ).expect(404);
+      const duplicatePostUnderRequest = await post(
+        outsider,
+        requestUrl(),
+        fields('outsider-duplicate-request'),
+        REPLACED_FILE
+      ).expect(404);
       const duplicatePut = await request(app)
         .put(`/api/quotations/${requestId}`)
         .set(...auth(outsider))
@@ -2146,7 +2204,15 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         .expect(404);
 
       const hashes = [sha256Of(FIRST_FILE), sha256Of(REPLACED_FILE), sha256Of(PROJECT_FILE)];
-      for (const response of [detail, underRequest, requested, all, duplicatePost, duplicatePut]) {
+      for (const response of [
+        detail,
+        underRequest,
+        requested,
+        all,
+        duplicatePost,
+        duplicatePostUnderRequest,
+        duplicatePut,
+      ]) {
         expect(response.body).not.toHaveProperty('fileSha256');
         expect(response.body).not.toHaveProperty('existing');
         expect(response.body).not.toHaveProperty('id');
@@ -2160,7 +2226,13 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         expect(exposed).not.toContain(projectContextId);
       }
       // 要求の経路が ID を持たない応答は、本文の全体に受領見積書の ID が無い
-      for (const response of [underRequest, requested, all, duplicatePost]) {
+      for (const response of [
+        underRequest,
+        requested,
+        all,
+        duplicatePost,
+        duplicatePostUnderRequest,
+      ]) {
         const whole = JSON.stringify(response.body);
         expect(whole).not.toContain(requestId);
         expect(whole).not.toContain(projectContextId);
