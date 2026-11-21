@@ -9,20 +9,22 @@
  * `toLedgerInfoInput` で保存の入力へ直す。検証の文言はサーバーの検証と同じ文言にそろえる。
  *
  * 根拠: 46.1, 46.2, 46.3, 46.6, 46.7, 46.9, 48.2（estimate-request のタスク117.3。design の同章の LedgerInfoSection）
+ * タスク124.1: 確認の要約に読取の確認の経路を出す（46.19, 46.20）
  */
 
 import { useCallback, useId, useState, type ChangeEvent, type CSSProperties } from 'react';
 import type {
   ConstructionKind,
   QuotationAdoption,
+  ReadingConfirmationRoute,
   ReadingStatus,
 } from '../../api/received-quotations';
-import { formatDateTime } from '../../utils/formatters';
 import {
   ADOPTION_LABELS,
   CONSTRUCTION_KIND_LABELS,
   LEDGER_INFO_MAX_LENGTHS,
   READING_STATUS_LABELS,
+  formatReadingConfirmationSummary,
   validateLedgerInfo,
   type LedgerInfoErrors,
   type LedgerInfoFormData,
@@ -70,6 +72,12 @@ export interface LedgerInfoSectionProps {
    * 名前が分かる呼び出し元（例: 確認者がログイン中の利用者のとき）が渡す。無ければ「—」と表示する
    */
   readingConfirmedByName?: string | null;
+  /**
+   * 保存済みの読取の確認の経路（受領見積書の `readingConfirmationRoute`。46.19）。
+   * null は追補の前の確認済みで、「経路の記録なし」と出す（46.20）。
+   * 渡さない呼び出し元（単価台帳の画面）では、経路に触れない従来の表示のままにする
+   */
+  readingConfirmationRoute?: ReadingConfirmationRoute | null;
   /** 外から渡す誤り（サーバーの検証の誤りなど）。部品の検証の誤りより優先する */
   errors?: LedgerInfoErrors;
   /** 欄を操作できなくする（開閉は操作できる） */
@@ -175,6 +183,7 @@ export function LedgerInfoSection({
   onChange,
   readingConfirmedAt = null,
   readingConfirmedByName = null,
+  readingConfirmationRoute,
   errors: externalErrors,
   disabled = false,
 }: LedgerInfoSectionProps) {
@@ -270,9 +279,11 @@ export function LedgerInfoSection({
     return (
       <p data-testid="ledger-reading-confirmation" style={styles.confirmation}>
         {readingConfirmedAt
-          ? `確認者: ${readingConfirmedByName || '—'}　確認日時: ${formatDateTime(
-              readingConfirmedAt.toISOString()
-            )}`
+          ? formatReadingConfirmationSummary({
+              confirmedByName: readingConfirmedByName,
+              confirmedAt: readingConfirmedAt,
+              route: readingConfirmationRoute,
+            })
           : '保存すると確認者と日時を記録します'}
       </p>
     );

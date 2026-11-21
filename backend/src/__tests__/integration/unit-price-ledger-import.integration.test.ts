@@ -399,6 +399,38 @@ describe('見積カードの取り込み（統合・実 DB）', () => {
         expect(row.readingConfirmedAt).toBeNull();
       }
     });
+
+    /**
+     * @requirement estimate-request/REQ-46.14
+     */
+    it('確認済みのカードの受領見積書は経路が台帳の取り込み、未確認のカードの受領見積書は経路を持たない', async () => {
+      const done = nextCardId('route-done');
+      const doneNow = nextCardId('route-done-now');
+      const notYet = nextCardId('route-not');
+
+      await service.importCards(
+        [
+          jsonFile('d.json', validCard(done)),
+          jsonFile('w.json', validCard(doneNow, { 読取: { 方法: 'PDF文字', 確認: '済' } })),
+          jsonFile(
+            'n.json',
+            validCard(notYet, {
+              読取: { 方法: 'PDF文字', 日時: '2026-10-02T10:00:00+09:00', 確認: '未' },
+            })
+          ),
+        ],
+        actorId
+      );
+
+      for (const id of [done, doneNow]) {
+        const row = await singleLive(id);
+        expect(row.readingStatus).toBe('CONFIRMED');
+        expect(row.readingConfirmationRoute).toBe('LEDGER_IMPORT');
+      }
+      const unconfirmed = await singleLive(notYet);
+      expect(unconfirmed.readingStatus).toBe('UNCONFIRMED');
+      expect(unconfirmed.readingConfirmationRoute).toBeNull();
+    });
   });
 
   describe('取り込み済みの飛ばし（2.14）', () => {

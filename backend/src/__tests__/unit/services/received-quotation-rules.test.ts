@@ -192,6 +192,7 @@ describe('received-quotation-rules', () => {
       readingStatus: 'UNCONFIRMED',
       readingConfirmedById: null,
       readingConfirmedAt: null,
+      readingConfirmationRoute: null,
     };
 
     for (const reconfirm of ['writeStatus', 'omit'] as const) {
@@ -212,6 +213,7 @@ describe('received-quotation-rules', () => {
             readingStatus: 'CONFIRMED',
             readingConfirmedById: ACTOR_ID,
             readingConfirmedAt: now,
+            readingConfirmationRoute: 'SCREEN',
           };
           expect(
             decideReadingConfirmation('UNCONFIRMED', 'CONFIRMED', false, ACTOR_ID, options)
@@ -251,6 +253,98 @@ describe('received-quotation-rules', () => {
         decideReadingConfirmation('CONFIRMED', 'CONFIRMED', false, ACTOR_ID, { reconfirm: 'omit' })
       ).toEqual({});
     });
+
+    describe('読取の確認の経路（46.12・46.13・46.15・46.18。タスク123.2）', () => {
+      const archibenchAt = new Date('2026-11-16T09:30:00.000Z');
+
+      /**
+       * @requirement estimate-request/REQ-46.13
+       */
+      it('新しく確認済みにするとき、経路と日時を渡さなければ経路を画面、日時を今とする', () => {
+        for (const reconfirm of ['writeStatus', 'omit'] as const) {
+          for (const previous of [null, 'UNCONFIRMED'] as const) {
+            expect(
+              decideReadingConfirmation(previous, 'CONFIRMED', false, ACTOR_ID, { reconfirm })
+            ).toEqual({
+              readingStatus: 'CONFIRMED',
+              readingConfirmedById: ACTOR_ID,
+              readingConfirmedAt: now,
+              readingConfirmationRoute: 'SCREEN',
+            });
+          }
+        }
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.15
+       */
+      it('新しく確認済みにするとき、渡された経路と日時を書き、確認者は操作した利用者とする', () => {
+        expect(
+          decideReadingConfirmation(null, 'CONFIRMED', false, ACTOR_ID, {
+            reconfirm: 'writeStatus',
+            newConfirmation: { route: 'ARCHIBENCH', confirmedAt: archibenchAt },
+          })
+        ).toEqual({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: ACTOR_ID,
+          readingConfirmedAt: archibenchAt,
+          readingConfirmationRoute: 'ARCHIBENCH',
+        });
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.12
+       */
+      it('確認済みの送り直しは経路に触れず、渡された経路と日時も書かない（追補の前の確認済みの null も保つ）', () => {
+        const newConfirmation = { route: 'ARCHIBENCH', confirmedAt: archibenchAt } as const;
+        expect(
+          decideReadingConfirmation('CONFIRMED', 'CONFIRMED', false, ACTOR_ID, {
+            reconfirm: 'writeStatus',
+            newConfirmation,
+          })
+        ).toEqual({ readingStatus: 'CONFIRMED' });
+        expect(
+          decideReadingConfirmation('CONFIRMED', 'CONFIRMED', false, ACTOR_ID, {
+            reconfirm: 'omit',
+            newConfirmation,
+          })
+        ).toEqual({});
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.18
+       */
+      it('内容の変化で未確認へ戻すとき、経路を null にする（確認済みと経路を渡していても戻す）', () => {
+        const written = decideReadingConfirmation('CONFIRMED', 'CONFIRMED', true, ACTOR_ID, {
+          reconfirm: 'writeStatus',
+          newConfirmation: { route: 'ARCHIBENCH', confirmedAt: archibenchAt },
+        });
+        expect(written).toEqual(unconfirmed);
+        expect(written.readingConfirmationRoute).toBeNull();
+      });
+
+      /**
+       * @requirement estimate-request/REQ-46.18
+       * @requirement estimate-request/REQ-46.12
+       */
+      it('未確認の送信で、経路を null にする（保存前が確認済みでも未確認でも）', () => {
+        for (const previous of ['CONFIRMED', 'UNCONFIRMED', null] as const) {
+          const written = decideReadingConfirmation(previous, 'UNCONFIRMED', false, ACTOR_ID, {
+            reconfirm: 'omit',
+          });
+          expect(written).toEqual(unconfirmed);
+          expect(written.readingConfirmationRoute).toBeNull();
+        }
+      });
+
+      it('読取の確認を送らず内容も変わらなければ、経路の列を書かない', () => {
+        expect(
+          decideReadingConfirmation('CONFIRMED', undefined, false, ACTOR_ID, {
+            reconfirm: 'writeStatus',
+          })
+        ).not.toHaveProperty('readingConfirmationRoute');
+      });
+    });
   });
 
   describe('ledgerAuditFields（46.11）', () => {
@@ -266,6 +360,7 @@ describe('received-quotation-rules', () => {
         distanceKm: new Prisma.Decimal('12.5'),
         adoption: 'ADOPTED',
         readingStatus: 'CONFIRMED',
+        readingConfirmationRoute: 'ARCHIBENCH',
         quoteDiscriminator: '',
         constructionPrice: 1000,
         confirmedAmount: 900,
@@ -281,8 +376,32 @@ describe('received-quotation-rules', () => {
         distanceKm: 12.5,
         adoption: 'ADOPTED',
         readingStatus: 'CONFIRMED',
+        readingConfirmationRoute: 'ARCHIBENCH',
         quoteDiscriminator: '',
       });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.21
+     */
+    it('読取の確認の経路を入れ、経路の無い行（未確認・追補の前の確認済み）は null を入れる', () => {
+      const source = {
+        vendorName: '山田工務店',
+        quoteNumber: null,
+        overallConditions: null,
+        siteLocation: null,
+        constructionKind: null,
+        useType: null,
+        workConditions: null,
+        distanceKm: null,
+        adoption: 'UNKNOWN',
+        readingStatus: 'CONFIRMED',
+        quoteDiscriminator: '',
+      };
+      for (const route of ['SCREEN', 'LEDGER_IMPORT', 'ARCHIBENCH', null] as const) {
+        const fields = ledgerAuditFields({ ...source, readingConfirmationRoute: route });
+        expect(fields).toHaveProperty('readingConfirmationRoute', route);
+      }
     });
 
     it('距離が無ければ null にする', () => {
@@ -297,6 +416,7 @@ describe('received-quotation-rules', () => {
         distanceKm: null,
         adoption: 'UNKNOWN',
         readingStatus: 'UNCONFIRMED',
+        readingConfirmationRoute: null,
         quoteDiscriminator: '',
       });
       expect(fields.distanceKm).toBeNull();

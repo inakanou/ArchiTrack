@@ -26,7 +26,10 @@ import { apiClient, ApiError } from './client';
 // ============================================================================
 
 /**
- * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途の順
+ * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途・端数調整の順
+ *
+ * タスク124.2（design.md の D20）: 末尾（別途の後）に端数調整 `ROUNDING` を足した。
+ * 端数調整の金額は正・負・0 のどれも受け（45.14）、合計（別途を除く）に入る（45.15）
  */
 export const LINE_ITEM_CATEGORIES = [
   'DIRECT',
@@ -36,6 +39,7 @@ export const LINE_ITEM_CATEGORIES = [
   'DISCOUNT',
   'LEGAL_WELFARE',
   'EXCLUDED',
+  'ROUNDING',
 ] as const;
 
 /** 明細行の区分（45.1） */
@@ -121,6 +125,12 @@ export type QuotationAdoption = 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
 /** 読取の確認の状態（46.6） */
 export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
 
+/**
+ * 読取の確認の経路（46.12。画面・台帳の取り込み・ArchiBench）。
+ * 未確認と、追補の前に確認済みになった受領見積書は経路を持たない（null。46.20）
+ */
+export type ReadingConfirmationRoute = 'SCREEN' | 'LEDGER_IMPORT' | 'ARCHIBENCH';
+
 /** 読取の確認をした利用者（46.7。タスク117.4）。表示名は利用者の表示名 */
 export interface ReadingConfirmer {
   id: string;
@@ -168,6 +178,8 @@ export interface ReceivedQuotationInfo {
   fileName: string | null;
   fileMimeType: string | null;
   fileSize: number | null;
+  /** 原本の指紋（sha256 の 16 進の小文字 64 文字。48.9）。ファイルの無い受領見積書は null */
+  fileSha256: string | null;
   lineItems: LineItemInfo[];
   /** 区分が別途の行を除いた金額の合計（45.5） */
   totalAmount: number | null;
@@ -193,6 +205,8 @@ export interface ReceivedQuotationInfo {
   readingConfirmedAt: Date | null;
   /** 読取の確認をした利用者の ID と表示名（46.7。タスク117.4）。確認者がいない・消えたときは null */
   readingConfirmedBy: ReadingConfirmer | null;
+  /** 読取の確認の経路（46.12・46.19）。未確認と、追補の前の確認済みは null（46.20） */
+  readingConfirmationRoute: ReadingConfirmationRoute | null;
   quoteDiscriminator: string;
   /** 協力業者名（プロジェクト単位取得時のみ。サーバーは業者名の値を入れる。D2） */
   tradingPartnerName?: string | null;
@@ -254,8 +268,12 @@ export const DUPLICATE_ORIGINAL_CODE = 'DUPLICATE_ORIGINAL';
 /** 受領見積書の楽観的排他の 409 の `code` */
 export const RECEIVED_QUOTATION_CONFLICT_CODE = 'RECEIVED_QUOTATION_CONFLICT';
 
-/** 二重登録の 409 が示す既存の受領見積書（48.3。受領見積書名・業者名・提出日） */
+/**
+ * 二重登録の 409 が示す既存の受領見積書（48.3。受領見積書名・業者名・提出日）と、その ID（48.10）。
+ * ID は API を使う側が既存の受領見積書を特定するためのもので、画面には表示しない
+ */
 export interface DuplicateOriginalExisting {
+  id: string;
   name: string;
   vendorName: string;
   submittedAt: Date;
@@ -300,12 +318,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** 二重登録の本文の `existing` を読む（形が違えば null） */
 function parseDuplicateExisting(value: unknown): DuplicateOriginalExisting | null {
   if (!isRecord(value)) return null;
-  const { name, vendorName, submittedAt } = value;
+  const { id, name, vendorName, submittedAt } = value;
+  if (typeof id !== 'string') return null;
   if (typeof name !== 'string' || typeof vendorName !== 'string') return null;
   if (typeof submittedAt !== 'string') return null;
   const date = new Date(submittedAt);
   if (Number.isNaN(date.getTime())) return null;
-  return { name, vendorName, submittedAt: date };
+  return { id, name, vendorName, submittedAt: date };
 }
 
 /** 応答の受領見積書の日時の欄を Date にする */

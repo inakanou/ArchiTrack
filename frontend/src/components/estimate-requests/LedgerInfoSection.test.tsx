@@ -3,6 +3,9 @@
  *
  * estimate-request のタスク117.3。見積の情報・案件の条件・採否・確定金額・読取の確認・
  * 見積の区別を入力でき、欄が既定で折りたたまれていることを確かめる（要件 46.1〜46.3・46.6・46.7・46.9・48.2）。
+ *
+ * タスク124.1: 確認の要約の文字（確認者・日時・経路）を作る関数と、欄への経路の表示を確かめる
+ * （要件 46.19・46.20。design の章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の D21）。
  */
 
 import { useState } from 'react';
@@ -15,7 +18,9 @@ import {
   type LedgerInfoSectionProps,
 } from './LedgerInfoSection';
 import {
+  READING_CONFIRMATION_ROUTE_LABELS,
   createLedgerInfoFormData,
+  formatReadingConfirmationSummary,
   toLedgerInfoInput,
   validateLedgerInfo,
   type LedgerInfoFormData,
@@ -298,6 +303,131 @@ describe('LedgerInfoSection', () => {
 
       await user.selectOptions(screen.getByRole('combobox', { name: '読取の確認' }), '未確認');
       expect(screen.queryByTestId('ledger-reading-confirmation')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('読取の確認の経路（タスク124.1。46.19・46.20）', () => {
+    const confirmedAt = new Date(2026, 10, 8, 10, 30);
+    const confirmedInitial = createLedgerInfoFormData({
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+      readingStatus: 'CONFIRMED',
+    });
+
+    it('経路の表示名は 画面・台帳の取り込み・ArchiBench の三つ', () => {
+      expect(READING_CONFIRMATION_ROUTE_LABELS).toEqual({
+        SCREEN: '画面',
+        LEDGER_IMPORT: '台帳の取り込み',
+        ARCHIBENCH: 'ArchiBench',
+      });
+    });
+
+    it('要約の文字は、経路があれば確認者・日時に続けて経路の表示名を出す', () => {
+      expect(
+        formatReadingConfirmationSummary({
+          confirmedByName: '山田 太郎',
+          confirmedAt,
+          route: 'SCREEN',
+        })
+      ).toBe('確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路: 画面');
+      expect(
+        formatReadingConfirmationSummary({
+          confirmedByName: '山田 太郎',
+          confirmedAt,
+          route: 'LEDGER_IMPORT',
+        })
+      ).toBe('確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路: 台帳の取り込み');
+      expect(
+        formatReadingConfirmationSummary({
+          confirmedByName: '山田 太郎',
+          confirmedAt,
+          route: 'ARCHIBENCH',
+        })
+      ).toBe('確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路: ArchiBench');
+    });
+
+    it('要約の文字は、経路が null なら経路の記録が無いことを出す', () => {
+      expect(
+        formatReadingConfirmationSummary({
+          confirmedByName: '山田 太郎',
+          confirmedAt,
+          route: null,
+        })
+      ).toBe('確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路の記録なし');
+    });
+
+    it('要約の文字は、経路を渡さなければ従来の文字のまま', () => {
+      expect(formatReadingConfirmationSummary({ confirmedByName: '山田 太郎', confirmedAt })).toBe(
+        '確認者: 山田 太郎　確認日時: 2026/11/08 10:30'
+      );
+    });
+
+    it('要約の文字は、確認者の名前を引けないとき「—」を出す', () => {
+      expect(
+        formatReadingConfirmationSummary({ confirmedByName: null, confirmedAt, route: 'SCREEN' })
+      ).toBe('確認者: —　確認日時: 2026/11/08 10:30　経路: 画面');
+    });
+
+    it('要約の文字は、確認の日時の記録が無いとき日時を「—」で出す', () => {
+      expect(
+        formatReadingConfirmationSummary({
+          confirmedByName: '山田 太郎',
+          confirmedAt: null,
+          route: 'SCREEN',
+        })
+      ).toBe('確認者: 山田 太郎　確認日時: —　経路: 画面');
+    });
+
+    it('確認済みで経路のある受領見積書は、確認者・日時とともに経路を表示する', async () => {
+      await renderExpanded({
+        initial: confirmedInitial,
+        readingConfirmedAt: confirmedAt,
+        readingConfirmedByName: '山田 太郎',
+        readingConfirmationRoute: 'ARCHIBENCH',
+      });
+
+      expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+        '確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路: ArchiBench'
+      );
+    });
+
+    it('確認済みで経路が null の受領見積書は、経路の記録が無いことを表示する', async () => {
+      await renderExpanded({
+        initial: confirmedInitial,
+        readingConfirmedAt: confirmedAt,
+        readingConfirmedByName: '山田 太郎',
+        readingConfirmationRoute: null,
+      });
+
+      expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+        '確認者: 山田 太郎　確認日時: 2026/11/08 10:30　経路の記録なし'
+      );
+    });
+
+    it('経路を渡さない呼び出し元（台帳の画面）では従来の表示のまま', async () => {
+      await renderExpanded({
+        initial: confirmedInitial,
+        readingConfirmedAt: confirmedAt,
+        readingConfirmedByName: '山田 太郎',
+      });
+
+      expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+        '確認者: 山田 太郎　確認日時: 2026/11/08 10:30'
+      );
+    });
+
+    it('未確認では経路を渡しても確認の要約を出さない', async () => {
+      await renderExpanded({ readingConfirmationRoute: null });
+
+      expect(screen.queryByTestId('ledger-reading-confirmation')).not.toBeInTheDocument();
+    });
+
+    it('保存前に確認済みへ変えたときの案内は、経路を渡しても変わらない', async () => {
+      const { user } = await renderExpanded({ readingConfirmationRoute: null });
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '読取の確認' }), '確認済み');
+      expect(screen.getByTestId('ledger-reading-confirmation').textContent).toBe(
+        '保存すると確認者と日時を記録します'
+      );
     });
   });
 

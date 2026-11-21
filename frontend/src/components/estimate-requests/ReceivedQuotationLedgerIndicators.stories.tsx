@@ -3,6 +3,7 @@
  *
  * 受領見積書の一覧に出す台帳の表示（参考の印・読取の確認）を、
  * 参考の印の有無 × 読取の確認の状態の組み合わせで示す。
+ * 確認済みの札の横の確認者・確認日時・経路の表示（タスク124.1）も示す。
  */
 
 import type { Meta, StoryObj } from '@storybook/react';
@@ -67,6 +68,36 @@ export const WithReferenceConfirmed: Story = {
   args: {
     lineItems: [{ isReference: true }, { isReference: false }],
     readingStatus: 'CONFIRMED',
+  },
+};
+
+/**
+ * 読取が確認済みで、確認者・確認日時・経路を札の横に表示（46.19）
+ */
+export const ConfirmedWithRoute: Story = {
+  args: {
+    lineItems: [{ isReference: false }],
+    readingStatus: 'CONFIRMED',
+    readingConfirmation: {
+      confirmedByName: '山田 太郎',
+      confirmedAt: new Date('2025-01-20T10:30:00+09:00'),
+      route: 'ARCHIBENCH',
+    },
+  },
+};
+
+/**
+ * 経路を記録する前に確認済みになった受領見積書（経路の記録が無いことを表示。46.20）
+ */
+export const ConfirmedWithoutRouteRecord: Story = {
+  args: {
+    lineItems: [{ isReference: true }],
+    readingStatus: 'CONFIRMED',
+    readingConfirmation: {
+      confirmedByName: '山田 太郎',
+      confirmedAt: new Date('2025-01-20T10:30:00+09:00'),
+      route: null,
+    },
   },
 };
 

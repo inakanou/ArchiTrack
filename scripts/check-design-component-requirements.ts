@@ -344,9 +344,13 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // タスク122 の起票、2026-11-14）。利用者の判断で足した章「Requirement 9.3・9.7・51.4: 見積依頼の宛先と
     // 内訳書を作成の後に変えないことと、論理削除された内訳書の応答」が部品表の 2 行と詳細節の Requirements 欄
     // 1 つを足したため、締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 61,
-    minTableDeclarations: 87,
-    minDetailDeclarations: 61,
+    // minPairs 61 → 75 / minTableDeclarations 87 → 101 / minDetailDeclarations 61 → 62（estimate-request の
+    // 追補の設計、2026-11-21）。章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11: 読取の確認の経路・
+    // 原本の指紋の応答・区分「端数調整」」が部品表の 14 行と詳細節の Requirements 欄 1 つを足したため、
+    // 締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 75,
+    minTableDeclarations: 101,
+    minDetailDeclarations: 62,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'execution-budget-management': {

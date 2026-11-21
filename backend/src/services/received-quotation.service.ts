@@ -59,7 +59,7 @@
  * @module services/received-quotation
  */
 
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { RECEIVED_QUOTATION_TARGET_TYPE } from '../types/audit-log.types.js';
@@ -72,6 +72,7 @@ import {
   FileSizeLimitExceededError,
   FileOrLineItemsRequiredError,
   DuplicateOriginalError,
+  ReadingConfirmedAtInvalidError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
@@ -94,6 +95,7 @@ import {
   toScaled,
   type LineItemInput,
   type ReadingConfirmationOptions,
+  type ReadingConfirmationRoute,
   type ReadingStatus,
   type VendorAssignment,
 } from './received-quotation-rules.js';
@@ -253,6 +255,19 @@ export type QuotationContext =
   | { readonly kind: 'estimateRequest'; readonly estimateRequestId: string }
   | { readonly kind: 'project'; readonly projectId: string };
 
+/**
+ * 受領見積書の作成の入口（46.13・46.15・46.17。design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」
+ * の章の D15、タスク123.2）
+ *
+ * - screen: 本機能の画面の登録（見積依頼の配下・案件の配下）。確認済みの経路は画面になる
+ * - archibench: claude-connector の登録。確認済みを送るときは確認の日時を添える（D16）
+ *
+ * 要求の本文の検証（zod）には欄を置かず、呼び出し元のコードが決める（画面の利用者が経路を偽れないように）
+ */
+export type QuotationOrigin =
+  | { readonly kind: 'screen' }
+  | { readonly kind: 'archibench'; readonly readingConfirmedAt: Date | null };
+
 /** 案件の配下の一覧の対象（D2。既定の requested は見積依頼に紐づくものだけ） */
 export interface FindByProjectIdOptions {
   readonly include: 'requested' | 'all';
@@ -304,10 +319,15 @@ export interface CreateReceivedQuotationInput extends LedgerFieldsInput {
   netAmount?: number | null;
   file?: FileInfo;
   lineItems?: LineItemInput[];
+  /**
+   * 作成の入口（D15。タスク123.2）。必須にして、後から足す入口が確認済みを黙って画面として記録しないようにする
+   */
+  readonly origin: QuotationOrigin;
 }
 
 /**
- * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）
+ * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）。更新は入口の区別を持たず、新しく確認済みにすれば
+ * 経路は画面になる（更新の入口は画面だけ。タスク123.2）
  */
 export interface UpdateReceivedQuotationInput extends LedgerFieldsInput {
   /** 業者名（44.1）。案件の文脈だけで使い、見積依頼の文脈では無視する（44.3。タスク113.2） */
@@ -369,7 +389,11 @@ export interface ReceivedQuotationInfo {
   readingConfirmedAt: Date | null;
   /** 確認者の ID と表示名（46.7。タスク117.4）。確認者がいない・利用者が消えたときは null */
   readingConfirmedBy: ReadingConfirmer | null;
+  /** 読取の確認の経路（46.12。タスク123.4）。未確認と、経路の記録の無い確認済みは null */
+  readingConfirmationRoute: ReadingConfirmationRoute | null;
   quoteDiscriminator: string;
+  /** 原本の指紋（48.9。タスク123.4）。sha256 の 16 進の小文字 64 文字。ファイルの無いものは null */
+  fileSha256: string | null;
   lineItems: LineItemInfo[];
   /** 区分が別途の行を除いた金額の合計（45.5） */
   totalAmount: number | null;
@@ -448,27 +472,40 @@ export class ReceivedQuotationService {
   /**
    * ファイルパスを生成する
    *
-   * 見積依頼に紐づくものは従来の格納先、見積依頼に紐づかないものは案件の格納先とする（D3。タスク113.1）
+   * 見積依頼に紐づくものは従来の格納先、見積依頼に紐づかないものは案件の格納先とする（D3。タスク113.1）。
+   * `variant` を渡すと、受領見積書の ID とファイル名の間にその区画を挟む（同じファイル名での差し替え）
    */
   private generateFilePath(
     owner: { estimateRequestId: string | null; projectId: string },
     quotationId: string,
-    fileName: string
+    fileName: string,
+    variant?: string
   ): string {
-    return owner.estimateRequestId !== null
-      ? `quotations/${owner.estimateRequestId}/${quotationId}/${fileName}`
-      : `quotations/projects/${owner.projectId}/${quotationId}/${fileName}`;
+    const base =
+      owner.estimateRequestId !== null
+        ? `quotations/${owner.estimateRequestId}/${quotationId}`
+        : `quotations/projects/${owner.projectId}/${quotationId}`;
+    return variant !== undefined ? `${base}/${variant}/${fileName}` : `${base}/${fileName}`;
   }
 
   /**
    * ファイルをアップロードする
+   *
+   * `currentFilePath`（差し替え前の格納先）と同じ格納先になるときは、一意の区画を挟んだ別の格納先へ送る。
+   * 同じキーへ上書きすると、確定の前に差し替え前のファイルを失い、確定の後の旧ファイルの取り除きが
+   * 新しいファイルを消してしまうためである（2026-11-21 の不具合の是正）
    */
   private async uploadFile(
     owner: { estimateRequestId: string | null; projectId: string },
     quotationId: string,
-    file: FileInfo
+    file: FileInfo,
+    currentFilePath: string | null = null
   ): Promise<string> {
-    const filePath = this.generateFilePath(owner, quotationId, file.originalName);
+    const defaultPath = this.generateFilePath(owner, quotationId, file.originalName);
+    const filePath =
+      defaultPath === currentFilePath
+        ? this.generateFilePath(owner, quotationId, file.originalName, randomUUID())
+        : defaultPath;
     await this.storageProvider.upload(filePath, file.buffer, {
       contentType: file.mimeType,
     });
@@ -502,7 +539,8 @@ export class ReceivedQuotationService {
    *
    * 呼び出し元のトランザクションの中で案件の勧告ロックを取り、同じ案件の論理削除されていない（論理削除された
    * 見積依頼の配下のものも除く）自分以外の受領見積書で、同じ指紋のものを読む。見積の区別も同じものがあれば
-   * `DuplicateOriginalError` を投げる。他の案件は読まない
+   * `DuplicateOriginalError` を投げる。他の案件は読まない。誤りが示す既存の受領見積書は、同じ組のうち
+   * 最も早く作られたもので、その ID も持つ（48.10。2026-11-21 の追補の章の D19）
    *
    * @returns 同じ指紋で見積の区別が違う他の受領見積書の数
    */
@@ -526,18 +564,58 @@ export class ReceivedQuotationService {
         ...(params.excludeId !== null ? { id: { not: params.excludeId } } : {}),
       },
       orderBy: { createdAt: 'asc' },
-      select: { name: true, vendorName: true, submittedAt: true, quoteDiscriminator: true },
+      select: {
+        id: true,
+        name: true,
+        vendorName: true,
+        submittedAt: true,
+        quoteDiscriminator: true,
+      },
     });
 
     const same = others.find((other) => other.quoteDiscriminator === params.quoteDiscriminator);
     if (same) {
       throw new DuplicateOriginalError({
+        id: same.id,
         name: same.name,
         vendorName: same.vendorName,
         submittedAt: same.submittedAt.toISOString(),
       });
     }
     return others.filter((other) => other.quoteDiscriminator !== params.quoteDiscriminator).length;
+  }
+
+  /**
+   * 作成の読取の確認の決め方を、入口から決める（D15・D16。タスク123.2）
+   *
+   * - 画面の入口: 共有の規則の既定のまま（新しく確認済みにすれば経路は画面、日時は今）
+   * - ArchiBench の入口で確認済みが送られた: 確認の日時が欠けるか、受け付けた時刻より後なら拒む（46.16）。
+   *   通れば経路を ArchiBench、日時を送られた値にする（46.15。確認者は規則が操作した利用者にする）
+   * - ArchiBench の入口で確認済みが送られない: 確認の日時は読まない（未確認で保存する。46.12）
+   *
+   * @param acceptedAt - サービスが作成を受け付けた時刻
+   * @throws ReadingConfirmedAtInvalidError 確認の日時が欠けるか、受け付けた時刻より後のとき
+   */
+  private resolveCreateConfirmationOptions(
+    input: Pick<CreateReceivedQuotationInput, 'origin' | 'readingStatus'>,
+    acceptedAt: Date
+  ): ReadingConfirmationOptions {
+    const { origin } = input;
+    if (origin.kind !== 'archibench' || input.readingStatus !== 'CONFIRMED') {
+      return READING_CONFIRMATION_OPTIONS;
+    }
+    const confirmedAt = origin.readingConfirmedAt;
+    if (
+      confirmedAt === null ||
+      Number.isNaN(confirmedAt.getTime()) ||
+      confirmedAt.getTime() > acceptedAt.getTime()
+    ) {
+      throw new ReadingConfirmedAtInvalidError();
+    }
+    return {
+      ...READING_CONFIRMATION_OPTIONS,
+      newConfirmation: { route: 'ARCHIBENCH', confirmedAt },
+    };
   }
 
   /**
@@ -744,6 +822,7 @@ export class ReceivedQuotationService {
    * @param input - 作成入力
    * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @returns 作成された受領見積書情報（明細行・合計金額を含む）と、同じ原本で区別の違う他の受領見積書の数
+   * @throws ReadingConfirmedAtInvalidError ArchiBench の入口の確認済みの登録で、確認の日時が欠けるか受け付けた時刻より後の場合（46.16）
    * @throws DuplicateOriginalError 同じ案件に原本の指紋と見積の区別が同じ受領見積書がある場合（48.3）
    * @throws EstimateRequestNotFoundError 見積依頼の文脈で見積依頼が存在しない場合
    * @throws ProjectNotFoundError 案件の文脈で案件が存在しないか論理削除済みの場合
@@ -757,6 +836,11 @@ export class ReceivedQuotationService {
     input: CreateReceivedQuotationInput,
     actorId: string
   ): Promise<SaveResult> {
+    // 0. 作成を受け付けた時刻（1 回だけ取る）と、入口ごとの読取の確認の決め方（D15・D16。タスク123.2）。
+    // 確認の日時の誤りは、二重登録の判定・レコードの作成・ファイルの送信より前に拒む（46.16）
+    const acceptedAt = new Date();
+    const confirmationOptions = this.resolveCreateConfirmationOptions(input, acceptedAt);
+
     // 1. ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -808,13 +892,13 @@ export class ReceivedQuotationService {
           // 台帳の項目（タスク113.3）。見積の区別は送られなければ空（48.2）
           ...this.pickLedgerColumns(input),
           quoteDiscriminator,
-          // 読取の確認（D9）。作成は保存前を未確認とみる
+          // 読取の確認（D9）。作成は保存前を未確認とみる。経路と日時は入口で決まる（D13・D15）
           ...decideReadingConfirmation(
             null,
             input.readingStatus,
             false,
             actorId,
-            READING_CONFIRMATION_OPTIONS
+            confirmationOptions
           ),
         },
         include: {
@@ -1089,177 +1173,190 @@ export class ReceivedQuotationService {
     const newFileSha256 =
       input.file && !input.removeFile ? this.computeFileSha256(input.file) : null;
 
-    return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 1. 受領見積書の存在確認
-      const quotation = await tx.receivedQuotation.findUnique({
-        where: { id },
-      });
-
-      // 案件の無い受領見積書は不在として扱う（43.14。タスク113.1）
-      if (!quotation || quotation.deletedAt !== null || quotation.projectId === null) {
-        throw new ReceivedQuotationNotFoundError(id);
-      }
-      const owner = {
-        estimateRequestId: quotation.estimateRequestId,
-        projectId: quotation.projectId,
-      };
-
-      // 2. 楽観的排他制御
-      if (quotation.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
-        throw new ReceivedQuotationConflictError({
-          expectedUpdatedAt: expectedUpdatedAt.toISOString(),
-          actualUpdatedAt: quotation.updatedAt.toISOString(),
-        });
-      }
-
-      // 3. 更新データの準備（Task 61.2: netAmount追加）。文脈（見積依頼・案件）は変えない（43.10）
-      // 台帳の項目は送られた欄だけを書き換える（タスク113.3）
-      const updateData: Prisma.ReceivedQuotationUncheckedUpdateInput = {
-        ...this.pickLedgerColumns(input),
-      };
-
-      if (input.name !== undefined) {
-        updateData.name = input.name.trim();
-      }
-      if (input.submittedAt !== undefined) {
-        updateData.submittedAt = input.submittedAt;
-      }
-      if (input.netAmount !== undefined) {
-        updateData.netAmount = input.netAmount;
-      }
-
-      // 業者名と取引先の紐づけ（D4。タスク113.2）。ファイルを送る前に決め、拒むときは何も変えない
-      const vendor = await this.resolveVendorForUpdate(tx, quotation, input);
-      if (vendor !== null) {
-        updateData.vendorName = vendor.vendorName;
-        updateData.tradingPartnerId = vendor.tradingPartnerId;
-      }
-
-      // 読取の確認（D9）。保存前が確認済みのときだけ、明細行・NET 金額・ファイルの変化を判定する
-      const contentChanged =
-        quotation.readingStatus === 'CONFIRMED' &&
-        (await this.hasReadContentChanged(tx, quotation, input, correctedLineItems));
-      Object.assign(
-        updateData,
-        decideReadingConfirmation(
-          quotation.readingStatus,
-          input.readingStatus,
-          contentChanged,
-          actorId,
-          READING_CONFIRMATION_OPTIONS
-        )
-      );
-
-      // 3.5 同じ案件の二重登録の判定（D6。タスク113.4）。ファイルを送る前に置き、拒むときは何も変えない。
-      // 保存後の指紋と見積の区別で、ファイルを持つ受領見積書の更新のたびに判定する（48.3・48.5）。ファイルの
-      // 無いもの・ファイルを外す更新は判定しない（48.6）
-      const savedFileSha256 = input.removeFile ? null : (newFileSha256 ?? quotation.fileSha256);
-      const savedDiscriminator = input.quoteDiscriminator ?? quotation.quoteDiscriminator;
-      const sharedOriginalCount =
-        savedFileSha256 !== null
-          ? await this.checkDuplicateOriginal(tx, {
-              projectId: quotation.projectId,
-              fileSha256: savedFileSha256,
-              quoteDiscriminator: savedDiscriminator,
-              excludeId: id,
-            })
-          : 0;
-
-      // 4. ファイル更新処理
-      const oldFilePath = quotation.filePath;
-      let newFilePath: string | null = null;
-
-      if (input.removeFile) {
-        // ファイル削除要求
-        updateData.filePath = null;
-        updateData.fileName = null;
-        updateData.fileMimeType = null;
-        updateData.fileSize = null;
-        updateData.fileSha256 = null;
-      } else if (input.file) {
-        // 新しいファイルのアップロード（格納先は文脈で決まる。D3）
-        newFilePath = await this.uploadFile(owner, id, input.file);
-        updateData.filePath = newFilePath;
-        updateData.fileName = input.file.originalName;
-        updateData.fileMimeType = input.file.mimeType;
-        updateData.fileSize = input.file.size;
-        updateData.fileSha256 = newFileSha256;
-      }
-
-      // 5. 明細行の全量置換（DELETE + INSERT）(Task 21.1)
-      // Task 61.2: netAmountは受領見積書レベルに移動したため、明細行には含めない
-      if (correctedLineItems !== undefined) {
-        // 既存明細行を全削除
-        await tx.receivedQuotationLineItem.deleteMany({
-          where: { receivedQuotationId: id },
+    const { result, staleFilePath } = await this.prisma.$transaction(
+      async (tx: PrismaTransactionClient) => {
+        // 1. 受領見積書の存在確認
+        const quotation = await tx.receivedQuotation.findUnique({
+          where: { id },
         });
 
-        // 新しい明細行を一括作成
-        if (correctedLineItems.length > 0) {
-          await tx.receivedQuotationLineItem.createMany({
-            data: correctedLineItems.map((item) => ({
-              receivedQuotationId: id,
-              ...toLineItemRow(item),
-            })),
+        // 案件の無い受領見積書は不在として扱う（43.14。タスク113.1）
+        if (!quotation || quotation.deletedAt !== null || quotation.projectId === null) {
+          throw new ReceivedQuotationNotFoundError(id);
+        }
+        const owner = {
+          estimateRequestId: quotation.estimateRequestId,
+          projectId: quotation.projectId,
+        };
+
+        // 2. 楽観的排他制御
+        if (quotation.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+          throw new ReceivedQuotationConflictError({
+            expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+            actualUpdatedAt: quotation.updatedAt.toISOString(),
           });
         }
+
+        // 3. 更新データの準備（Task 61.2: netAmount追加）。文脈（見積依頼・案件）は変えない（43.10）
+        // 台帳の項目は送られた欄だけを書き換える（タスク113.3）
+        const updateData: Prisma.ReceivedQuotationUncheckedUpdateInput = {
+          ...this.pickLedgerColumns(input),
+        };
+
+        if (input.name !== undefined) {
+          updateData.name = input.name.trim();
+        }
+        if (input.submittedAt !== undefined) {
+          updateData.submittedAt = input.submittedAt;
+        }
+        if (input.netAmount !== undefined) {
+          updateData.netAmount = input.netAmount;
+        }
+
+        // 業者名と取引先の紐づけ（D4。タスク113.2）。ファイルを送る前に決め、拒むときは何も変えない
+        const vendor = await this.resolveVendorForUpdate(tx, quotation, input);
+        if (vendor !== null) {
+          updateData.vendorName = vendor.vendorName;
+          updateData.tradingPartnerId = vendor.tradingPartnerId;
+        }
+
+        // 読取の確認（D9）。保存前が確認済みのときだけ、明細行・NET 金額・ファイルの変化を判定する
+        const contentChanged =
+          quotation.readingStatus === 'CONFIRMED' &&
+          (await this.hasReadContentChanged(tx, quotation, input, correctedLineItems));
+        Object.assign(
+          updateData,
+          decideReadingConfirmation(
+            quotation.readingStatus,
+            input.readingStatus,
+            contentChanged,
+            actorId,
+            READING_CONFIRMATION_OPTIONS
+          )
+        );
+
+        // 3.5 同じ案件の二重登録の判定（D6。タスク113.4）。ファイルを送る前に置き、拒むときは何も変えない。
+        // 保存後の指紋と見積の区別で、ファイルを持つ受領見積書の更新のたびに判定する（48.3・48.5）。ファイルの
+        // 無いもの・ファイルを外す更新は判定しない（48.6）
+        const savedFileSha256 = input.removeFile ? null : (newFileSha256 ?? quotation.fileSha256);
+        const savedDiscriminator = input.quoteDiscriminator ?? quotation.quoteDiscriminator;
+        const sharedOriginalCount =
+          savedFileSha256 !== null
+            ? await this.checkDuplicateOriginal(tx, {
+                projectId: quotation.projectId,
+                fileSha256: savedFileSha256,
+                quoteDiscriminator: savedDiscriminator,
+                excludeId: id,
+              })
+            : 0;
+
+        // 4. ファイル更新処理
+        const oldFilePath = quotation.filePath;
+        let newFilePath: string | null = null;
+
+        if (input.removeFile) {
+          // ファイル削除要求
+          updateData.filePath = null;
+          updateData.fileName = null;
+          updateData.fileMimeType = null;
+          updateData.fileSize = null;
+          updateData.fileSha256 = null;
+        } else if (input.file) {
+          // 新しいファイルのアップロード（格納先は文脈で決まる。D3）
+          newFilePath = await this.uploadFile(owner, id, input.file, oldFilePath);
+          updateData.filePath = newFilePath;
+          updateData.fileName = input.file.originalName;
+          updateData.fileMimeType = input.file.mimeType;
+          updateData.fileSize = input.file.size;
+          updateData.fileSha256 = newFileSha256;
+        }
+
+        // 5. 明細行の全量置換（DELETE + INSERT）(Task 21.1)
+        // Task 61.2: netAmountは受領見積書レベルに移動したため、明細行には含めない
+        if (correctedLineItems !== undefined) {
+          // 既存明細行を全削除
+          await tx.receivedQuotationLineItem.deleteMany({
+            where: { receivedQuotationId: id },
+          });
+
+          // 新しい明細行を一括作成
+          if (correctedLineItems.length > 0) {
+            await tx.receivedQuotationLineItem.createMany({
+              data: correctedLineItems.map((item) => ({
+                receivedQuotationId: id,
+                ...toLineItemRow(item),
+              })),
+            });
+          }
+        }
+
+        // 6. 受領見積書本体を更新（明細行を含めて取得）
+        const updatedQuotation = await tx.receivedQuotation.update({
+          where: { id },
+          data: updateData,
+          include: {
+            lineItems: {
+              orderBy: { sortOrder: 'asc' },
+            },
+            readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
+          },
+        });
+
+        // 6.5 監査ログの記録（Requirement 14.7、タスク111.1）。本体の更新の後、差し替え前のファイルを
+        // ストレージから取り除く（手順 7）前に置き、記録の失敗で差し替え前のファイルを失わない。
+        // 協力業者の金額（netAmount・明細行の中身）とファイルの格納先は社外秘のため入れない
+        await this.auditLogService.createLog(
+          {
+            action: 'RECEIVED_QUOTATION_UPDATED',
+            actorId,
+            targetType: RECEIVED_QUOTATION_TARGET_TYPE,
+            targetId: id,
+            before: {
+              name: quotation.name,
+              submittedAt: quotation.submittedAt.toISOString(),
+              fileName: quotation.fileName,
+              ...ledgerAuditFields(quotation),
+            },
+            after: {
+              name: updatedQuotation.name,
+              submittedAt: updatedQuotation.submittedAt.toISOString(),
+              fileName: updatedQuotation.fileName,
+              ...ledgerAuditFields(updatedQuotation),
+              // 工事価格・確定金額は値を入れず変更の有無だけ（46.11）
+              constructionPriceChanged:
+                toScaled(quotation.constructionPrice, 0) !==
+                toScaled(updatedQuotation.constructionPrice, 0),
+              confirmedAmountChanged:
+                toScaled(quotation.confirmedAmount, 0) !==
+                toScaled(updatedQuotation.confirmedAmount, 0),
+            },
+          },
+          tx
+        );
+
+        const lineItemInfos = (updatedQuotation.lineItems || []).map((li) =>
+          this.toLineItemInfo(li)
+        );
+        return {
+          result: {
+            quotation: this.toReceivedQuotationInfoWithLineItems(updatedQuotation, lineItemInfos),
+            sharedOriginalCount,
+          },
+          // 7. で取り除く旧ファイル（新しいファイルがアップロードされた場合またはファイル削除要求）。
+          // 新しい格納先と同じものは取り除かない
+          staleFilePath:
+            oldFilePath && (newFilePath || input.removeFile) && oldFilePath !== newFilePath
+              ? oldFilePath
+              : null,
+        };
       }
+    );
 
-      // 6. 受領見積書本体を更新（明細行を含めて取得）
-      const updatedQuotation = await tx.receivedQuotation.update({
-        where: { id },
-        data: updateData,
-        include: {
-          lineItems: {
-            orderBy: { sortOrder: 'asc' },
-          },
-          readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
-        },
-      });
-
-      // 6.5 監査ログの記録（Requirement 14.7、タスク111.1）。本体の更新の後、差し替え前のファイルを
-      // ストレージから取り除く（手順 7）前に置き、記録の失敗で差し替え前のファイルを失わない。
-      // 協力業者の金額（netAmount・明細行の中身）とファイルの格納先は社外秘のため入れない
-      await this.auditLogService.createLog(
-        {
-          action: 'RECEIVED_QUOTATION_UPDATED',
-          actorId,
-          targetType: RECEIVED_QUOTATION_TARGET_TYPE,
-          targetId: id,
-          before: {
-            name: quotation.name,
-            submittedAt: quotation.submittedAt.toISOString(),
-            fileName: quotation.fileName,
-            ...ledgerAuditFields(quotation),
-          },
-          after: {
-            name: updatedQuotation.name,
-            submittedAt: updatedQuotation.submittedAt.toISOString(),
-            fileName: updatedQuotation.fileName,
-            ...ledgerAuditFields(updatedQuotation),
-            // 工事価格・確定金額は値を入れず変更の有無だけ（46.11）
-            constructionPriceChanged:
-              toScaled(quotation.constructionPrice, 0) !==
-              toScaled(updatedQuotation.constructionPrice, 0),
-            confirmedAmountChanged:
-              toScaled(quotation.confirmedAmount, 0) !==
-              toScaled(updatedQuotation.confirmedAmount, 0),
-          },
-        },
-        tx
-      );
-
-      // 7. 旧ファイルの削除（新しいファイルがアップロードされた場合またはファイル削除要求）
-      if (oldFilePath && (newFilePath || input.removeFile)) {
-        await this.deleteFile(oldFilePath);
-      }
-
-      const lineItemInfos = (updatedQuotation.lineItems || []).map((li) => this.toLineItemInfo(li));
-      return {
-        quotation: this.toReceivedQuotationInfoWithLineItems(updatedQuotation, lineItemInfos),
-        sharedOriginalCount,
-      };
-    });
+    // 7. 旧ファイルの削除は、トランザクションが確定した後に行う（確定に失敗したときに旧ファイルを失わない）
+    if (staleFilePath) {
+      await this.deleteFile(staleFilePath);
+    }
+    return result;
   }
 
   /**
@@ -1450,6 +1547,9 @@ export class ReceivedQuotationService {
   /**
    * データベースの結果をReceivedQuotationInfoに変換（明細行・合計金額を含む）
    * Task 61.2: netAmountを受領見積書レベルに追加
+   *
+   * 作成・更新・詳細・見積依頼の配下の一覧・案件の配下の一覧がこの変換を通るため、原本の指紋と読取の
+   * 確認の経路はここで入れる（48.9。2026-11-21 の追補の章の D18、タスク123.4）
    */
   private toReceivedQuotationInfoWithLineItems(
     quotation: {
@@ -1478,7 +1578,9 @@ export class ReceivedQuotationService {
       readingConfirmedById: string | null;
       readingConfirmedAt: Date | null;
       readingConfirmedBy?: ReadingConfirmer | null;
+      readingConfirmationRoute: ReadingConfirmationRoute | null;
       quoteDiscriminator: string;
+      fileSha256: string | null;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -1514,7 +1616,9 @@ export class ReceivedQuotationService {
             displayName: quotation.readingConfirmedBy.displayName,
           }
         : null,
+      readingConfirmationRoute: quotation.readingConfirmationRoute,
       quoteDiscriminator: quotation.quoteDiscriminator,
+      fileSha256: quotation.fileSha256,
       lineItems,
       totalAmount: this.calculateTotalAmount(lineItems),
       createdAt: quotation.createdAt,

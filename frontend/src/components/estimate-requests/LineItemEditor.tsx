@@ -167,6 +167,8 @@ export const LINE_ITEM_CATEGORY_LABELS: Readonly<Record<LineItemCategory, string
   DISCOUNT: '値引き',
   LEGAL_WELFARE: '法定福利費',
   EXCLUDED: '別途',
+  // タスク124.2（D20）: 区分の選択肢と 8 つ目の小計は、この表と区分の一覧の巡回から出る（45.1・45.6）
+  ROUNDING: '端数調整',
 };
 
 /** 明細行の文字の欄の上限（design.md の Data Models の長さ） */
@@ -222,6 +224,7 @@ export function calculateAmount(quantity: string, unitPrice: string): number | n
  */
 export function calculateTotalAmount(items: LineItemFormData[]): number {
   // Task 117.2: 区分が別途（EXCLUDED）の行は合計に入れない（D5）
+  // タスク124.2: 除くのは別途だけで、端数調整（ROUNDING）の正・負の額は合計に入る（45.15）
   return items.reduce(
     (sum, item) => (item.category === 'EXCLUDED' ? sum : sum + (item.amount ?? 0)),
     0
@@ -234,7 +237,7 @@ export function calculateTotalAmount(items: LineItemFormData[]): number {
  * 区分の項目を持たない行は直接工事として数える。
  *
  * @param items - 明細行データ配列
- * @returns 7 つの区分それぞれの金額の和
+ * @returns 8 つの区分（端数調整を含む。45.6）それぞれの金額の和
  */
 export function calculateCategorySubtotals(
   items: LineItemFormData[]

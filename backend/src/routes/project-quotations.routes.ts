@@ -99,7 +99,7 @@ function getService(): ReceivedQuotationService {
  *         description: all を指定すると見積依頼の無い受領見積書も返す
  *     responses:
  *       200:
- *         description: 受領見積書の一覧（tradingPartnerName は業者名の値。estimateRequestName は見積依頼の名前で、見積依頼の無いものは null）
+ *         description: 受領見積書の一覧（tradingPartnerName は業者名の値。estimateRequestName は見積依頼の名前で、見積依頼の無いものは null。fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -149,7 +149,7 @@ router.get(
  * /api/projects/{projectId}/quotations:
  *   post:
  *     summary: 見積依頼に紐づかない受領見積書の登録
- *     description: 案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404
+ *     description: 案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる
  *     tags:
  *       - Received Quotations
  *     security:
@@ -196,7 +196,7 @@ router.get(
  *                 format: binary
  *     responses:
  *       201:
- *         description: 登録成功（本文は受領見積書と sharedOriginalCount）
+ *         description: 登録成功（本文は受領見積書と sharedOriginalCount。fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       400:
  *         description: バリデーションエラー（業者名の未入力を含む）
  *       401:
@@ -206,7 +206,7 @@ router.get(
  *       404:
  *         description: 案件が見つからない（範囲外を含む）
  *       409:
- *         description: 同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の name・vendorName・submittedAt）
+ *         description: 同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の id・name・vendorName・submittedAt）
  *       413:
  *         description: ファイルサイズ上限超過
  *       415:
@@ -235,7 +235,8 @@ router.post(
         parsed.lineItems
       );
 
-      // 案件の文脈で作る（業者名の必須〔43.8〕と取引先の照合〔44.5〜44.7〕はサービスが行う）
+      // 案件の文脈で作る（業者名の必須〔43.8〕と取引先の照合〔44.5〜44.7〕はサービスが行う）。
+      // 作成の入口は画面（toCreateQuotationInput が入れる。46.13・46.17、タスク123.2）
       const { quotation, sharedOriginalCount } = await getService().create(
         { kind: 'project', projectId },
         input,

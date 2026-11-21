@@ -23,7 +23,7 @@
  * 台帳の項目と同じ原本の応答（タスク114.1、design の Requirements 43-50 の章の D3・D6）:
  * 登録・更新は台帳の項目・業者名・取引先の ID をサービスへ渡し、成功の応答に同じ原本で区別の違う他の
  * 受領見積書の数（`sharedOriginalCount`）を足す。同じ原本・同じ区別の二重登録は 409 `DUPLICATE_ORIGINAL`
- * にし、既存の受領見積書の名前・業者名・提出日を本文の `existing` に入れる。ファイルの受信・明細行の読み取り・
+ * にし、既存の受領見積書の ID・名前・業者名・提出日を本文の `existing` に入れる。ファイルの受信・明細行の読み取り・
  * 保存の誤りの応答は案件の配下の登録（project-quotations.routes.ts）と共有する
  *
  * Task 13.2: 受領見積書エンドポイントの実装
@@ -152,7 +152,8 @@ export function readMultipartLineItems(
 
 /**
  * 同じ原本の二重登録（48.3）を 409 `DUPLICATE_ORIGINAL` で応答する。
- * 本文は既存の受領見積書の名前・業者名・提出日（ISO 8601）を `existing` に持つ。他の案件の情報は含めない（48.7）
+ * 本文は既存の受領見積書の ID（48.10）・名前・業者名・提出日（ISO 8601）を `existing` に持つ。
+ * 他の案件の情報は含めない（48.7）
  */
 function respondDuplicateOriginal(error: DuplicateOriginalError, res: Response): void {
   res.status(409).json({
@@ -162,6 +163,7 @@ function respondDuplicateOriginal(error: DuplicateOriginalError, res: Response):
     detail: error.message,
     code: 'DUPLICATE_ORIGINAL',
     existing: {
+      id: error.existing.id,
       name: error.existing.name,
       vendorName: error.existing.vendorName,
       submittedAt: error.existing.submittedAt,
@@ -222,8 +224,11 @@ export function respondQuotationSaveError(error: unknown, res: Response): boolea
 }
 
 /**
- * 登録の本文（検証済み）と受け取ったファイル・明細行を、サービスの作成の入力にする。
+ * 画面の登録の本文（検証済み）と受け取ったファイル・明細行を、サービスの作成の入力にする。
  * 台帳の項目・業者名・取引先の ID はそのまま渡す（文脈ごとの扱いはサービスが決める。44.3・44.5）
+ *
+ * 作成の入口は常に画面とする（46.13・46.17。タスク123.2）。入口と読取の確認の経路は要求の本文から受けない
+ * （検証のスキーマに欄が無く、本文に添えてあっても落ちる）。本文の後に置き、本文の値で上書きさせない
  */
 export function toCreateQuotationInput(
   body: CreateReceivedQuotationBody,
@@ -235,6 +240,7 @@ export function toCreateQuotationInput(
     submittedAt: new Date(body.submittedAt),
     file: toQuotationFileInfo(file),
     lineItems,
+    origin: { kind: 'screen' } as const,
   };
 }
 
@@ -283,10 +289,10 @@ export function toCreateQuotationInput(
  *                 description: 明細行（JSON 文字列）
  *               quoteNumber:
  *                 type: string
- *                 description: 台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）
+ *                 description: 台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）。読取の確認の経路は受け付けず、readingStatus を CONFIRMED にした登録の経路は画面（SCREEN）になる
  *     responses:
  *       201:
- *         description: 受領見積書作成成功（本文は受領見積書と sharedOriginalCount〔同じ原本で見積の区別が違う他の受領見積書の数〕）
+ *         description: 受領見積書作成成功（本文は受領見積書と sharedOriginalCount〔同じ原本で見積の区別が違う他の受領見積書の数〕。fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -296,7 +302,7 @@ export function toCreateQuotationInput(
  *       404:
  *         description: 見積依頼が見つからない
  *       409:
- *         description: 同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の name・vendorName・submittedAt）
+ *         description: 同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の id・name・vendorName・submittedAt）
  *       413:
  *         description: ファイルサイズ上限超過
  *       415:
@@ -323,7 +329,8 @@ router.post(
         return;
       }
 
-      // 台帳の項目・業者名・取引先の ID も渡す（見積依頼の文脈では業者名と取引先をサービスが写す。44.3、タスク114.1）
+      // 台帳の項目・業者名・取引先の ID も渡す（見積依頼の文脈では業者名と取引先をサービスが写す。44.3、タスク114.1）。
+      // 作成の入口は画面（toCreateQuotationInput が入れる。46.13・46.17、タスク123.2）
       const input = toCreateQuotationInput(
         req.validatedBody as CreateReceivedQuotationBody,
         req.file,
@@ -388,7 +395,7 @@ router.post(
  *         description: 見積依頼ID
  *     responses:
  *       200:
- *         description: 受領見積書一覧
+ *         description: 受領見積書一覧（各行は fileSha256 と readingConfirmationRoute を持つ。fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -443,7 +450,7 @@ router.get(
  *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     responses:
  *       200:
- *         description: 受領見積書詳細
+ *         description: 受領見積書詳細（fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -537,7 +544,7 @@ router.get(
  *                 description: 業者名（見積依頼に紐づかない受領見積書だけで使う）。台帳の項目と tradingPartnerId も登録と同じく受ける
  *     responses:
  *       200:
- *         description: 受領見積書更新成功（本文は受領見積書と sharedOriginalCount）
+ *         description: 受領見積書更新成功（本文は受領見積書と sharedOriginalCount。fileSha256 は原本の指紋〔sha256 の 16 進の小文字 64 文字。ファイルの無いものは null〕、readingConfirmationRoute は読取の確認の経路〔SCREEN・LEDGER_IMPORT・ARCHIBENCH。未確認と経路の記録の無い確認済みは null〕）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -547,7 +554,7 @@ router.get(
  *       404:
  *         description: 受領見積書が見つからない
  *       409:
- *         description: 楽観的排他制御エラー（RECEIVED_QUOTATION_CONFLICT）、または同じ原本・同じ見積の区別（DUPLICATE_ORIGINAL）
+ *         description: 楽観的排他制御エラー（RECEIVED_QUOTATION_CONFLICT）、または同じ原本・同じ見積の区別（DUPLICATE_ORIGINAL。existing に既存の id・name・vendorName・submittedAt）
  *       413:
  *         description: ファイルサイズ上限超過
  *       415:

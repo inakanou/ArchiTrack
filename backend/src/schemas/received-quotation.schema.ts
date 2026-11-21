@@ -430,7 +430,7 @@ export const LINE_ITEM_VALIDATION_MESSAGES = {
 } as const;
 
 /**
- * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途
+ * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途・端数調整
  */
 export const LINE_ITEM_CATEGORIES = [
   'DIRECT',
@@ -440,8 +440,16 @@ export const LINE_ITEM_CATEGORIES = [
   'DISCOUNT',
   'LEGAL_WELFARE',
   'EXCLUDED',
+  'ROUNDING',
 ] as const;
 export type LineItemCategory = (typeof LINE_ITEM_CATEGORIES)[number];
+
+/**
+ * 読取の確認の経路（46.12）。表示は画面・台帳の取り込み・ArchiBench。
+ * 経路は呼び出し元のコードが決め、要求の本文の検証には欄を置かない（46.17）
+ */
+export const RECEIVED_QUOTATION_READING_ROUTES = ['SCREEN', 'LEDGER_IMPORT', 'ARCHIBENCH'] as const;
+export type ReceivedQuotationReadingRoute = (typeof RECEIVED_QUOTATION_READING_ROUTES)[number];
 
 /**
  * 明細行の換算（45.8）。4 つは全部あるか全部無い（45.9）

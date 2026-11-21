@@ -772,3 +772,24 @@ Light Discovery（Extension）を適用。design.md「見積依頼文のメー�
 - **調べたもの**: `backend/src/routes/estimate-requests.routes.ts`（作成の経路は `requireBodyItemizedStatementProjectScope` を通る）、`backend/src/middleware/estimate-request-project-scope.middleware.ts`（経路の案件と内訳書の案件の食い違いを不在と同じ 404 にする。42.10）、`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`（範囲内の他のプロジェクトの内訳書の作成が 404 になる試験）、`backend/src/services/estimate-request.service.ts`（`create` は内訳書の `projectId` を読むが比べない）、`backend/src/schemas/estimate-request.schema.ts`（更新は内訳書を受け付けない）
 - **結論**: 51.1・51.2 の振る舞いは経路の層で 2026-11-04 からある。サービスの層の確認（D15）と印の付け直しで明文化する。主な作業は 51.3 の確かめる手順
 - **使った skill**: kiro-spec-design
+
+## 2026-11-21: 追補（45.14〜45.16・46.12〜46.21・48.9〜48.11）の設計の調べもの
+
+- **調べものの種類**: 既存の仕組みの拡張（light）。新しい依存は無い。HEAD `1cb01c50` を読むだけで調べた
+- **使った手引き**: kiro-spec-design の design-discovery-light・design-synthesis・design-review-gate。roadmap の「2026-11-17 の決定（ArchiBench#9）」
+- **分かったこと**:
+  - 読取の確認の遷移は共有の規則 `decideReadingConfirmation` が決め、受領見積書の保存と台帳の修正が戻り値を保存の列へ広げている。台帳の取り込みだけは規則を通らず、確認の列を自分で組み立てる
+  - 応答の形は `fileSha256` を持たない。409 の `existing` と判定の照会は ID を持たない
+  - 区分の一覧は backend と frontend に 1 つずつあり、画面の選択と小計は一覧を巡回する。値引きの検証・別途を除く合計・似た単価の検索・按分は区分を名指しで扱うため、新しい区分を足しても振る舞いが変わらない。区分の全部を鍵に持つ表は、画面の表示名と台帳の Excel の書き出しの表示名の 2 つ
+  - claude-connector は brief だけで、登録の入口は無い
+- **まとめ（3 つの見方）**:
+  - 一般化: 経路は「確認の 4 つ目の列」であり、状態・確認者・日時と同じ分岐で決まる。規則の戻り値に入れれば、3 つの呼び出し元の記録と消去が 1 か所で揃う（D13）
+  - 作るか使うか: 新しい部品もライブラリも要らない。既存の規則・応答の変換・表示名の表へ足す
+  - 削る: ArchiBench の登録用の別のメソッド、経路を拒む検証、埋め戻しのスクリプトを作らない（D15・D16・46.20）
+- **決めたこと**: design.md の同じ日付の章の D13〜D22
+- **利用者に知らせる判断**: 台帳の修正の画面（unit-price-ledger）で人が確認済みにしたときの経路は「画面」とした（D14。要件の 3 つの経路のうち「台帳の取り込み」は取り込みの処理を指すと読んだ）
+- **リスク**:
+  - ArchiBench の端末の時計が進んでいると、確認の日時が「受け付けた時刻より後」になり登録が拒まれる（46.16 は猶予を置かない）。猶予の要否は claude-connector の要件で決める
+  - 台帳の Excel の書き出しは「端数調整」を書くが、見積カードの取り込みは unit-price-ledger の追補までその文字を読めない。追補までの間、端数調整の行を持つ受領見積書の書き出しを取り込み直す往復は成り立たない
+  - 応答の必須の欄が 2 つ増えるため、frontend の試験の部品と Storybook の記述の追随が広い
+- **設計の見直しの関門**: 追補の受入基準 18 件（45.1・45.6・45.14〜45.16・46.12〜46.21・48.9〜48.11）がすべて追跡表にあり、境界の 4 節とファイルの計画が埋まっている。`check:design-refs`・`check:design-code-refs`・`check:design-path-refs`・`check:design-component-reqs`（下限を実測へ上げた）・`check:trace-coverage`・`check:design-measurement-freshness` が緑

@@ -1025,45 +1025,47 @@ model EstimateRequestItem {
  * - 28.10: NET金額のDB永続化
  */
 model ReceivedQuotation {
-  id                   String                             @id @default(uuid())
+  id                       String                             @id @default(uuid())
   // 見積依頼は任意（14.1）。見積依頼に紐づくものは案件も持つ（CHECK は migration の SQL。design の D1）
-  estimateRequestId    String?
-  projectId            String?                            @map("project_id") // 案件（見積依頼に紐づくものは見積依頼の案件を写す。D1）
-  vendorName           String                             @map("vendor_name") @db.VarChar(200) // 業者名（44.1）
-  tradingPartnerId     String?                            @map("trading_partner_id") // 取引先（44.2〜44.7）
-  name                 String // 受領見積書名（必須、最大200文字）
-  submittedAt          DateTime                           @db.Date // 提出日
+  estimateRequestId        String?
+  projectId                String?                            @map("project_id") // 案件（見積依頼に紐づくものは見積依頼の案件を写す。D1）
+  vendorName               String                             @map("vendor_name") @db.VarChar(200) // 業者名（44.1）
+  tradingPartnerId         String?                            @map("trading_partner_id") // 取引先（44.2〜44.7）
+  name                     String // 受領見積書名（必須、最大200文字）
+  submittedAt              DateTime                           @db.Date // 提出日
   // contentType列を廃止: ファイルと明細行の共存を許可 (Task 20.2)
-  filePath             String? // R2オブジェクトパス（ファイルアップロード時）
-  fileName             String? // 元ファイル名
-  fileMimeType         String? // MIMEタイプ
-  fileSize             Int? // ファイルサイズ（バイト）
-  fileSha256           String?                            @map("file_sha256") @db.Char(64) // 原本の指紋（sha256 の 16 進の小文字。48.1、48.6）
-  netAmount            Decimal?                           @map("net_amount") @db.Decimal(15, 2) // NET金額（受領見積書1件につき1つ、任意入力） (28.4, 28.10)
+  filePath                 String? // R2オブジェクトパス（ファイルアップロード時）
+  fileName                 String? // 元ファイル名
+  fileMimeType             String? // MIMEタイプ
+  fileSize                 Int? // ファイルサイズ（バイト）
+  fileSha256               String?                            @map("file_sha256") @db.Char(64) // 原本の指紋（sha256 の 16 進の小文字。48.1、48.6）
+  netAmount                Decimal?                           @map("net_amount") @db.Decimal(15, 2) // NET金額（受領見積書1件につき1つ、任意入力） (28.4, 28.10)
   // 見積の情報（46.1〜46.3）
-  quoteNumber          String?                            @map("quote_number") @db.VarChar(100)
-  overallConditions    String?                            @map("overall_conditions") @db.VarChar(2000)
-  siteLocation         String?                            @map("site_location") @db.VarChar(100)
-  constructionKind     ReceivedQuotationConstructionKind? @map("construction_kind")
-  useType              String?                            @map("use_type") @db.VarChar(100)
-  constructionPrice    Decimal?                           @map("construction_price") @db.Decimal(15, 0)
-  workConditions       String?                            @map("work_conditions") @db.VarChar(200)
-  distanceKm           Decimal?                           @map("distance_km") @db.Decimal(6, 1)
-  adoption             ReceivedQuotationAdoption          @default(UNKNOWN)
-  confirmedAmount      Decimal?                           @map("confirmed_amount") @db.Decimal(15, 0)
+  quoteNumber              String?                            @map("quote_number") @db.VarChar(100)
+  overallConditions        String?                            @map("overall_conditions") @db.VarChar(2000)
+  siteLocation             String?                            @map("site_location") @db.VarChar(100)
+  constructionKind         ReceivedQuotationConstructionKind? @map("construction_kind")
+  useType                  String?                            @map("use_type") @db.VarChar(100)
+  constructionPrice        Decimal?                           @map("construction_price") @db.Decimal(15, 0)
+  workConditions           String?                            @map("work_conditions") @db.VarChar(200)
+  distanceKm               Decimal?                           @map("distance_km") @db.Decimal(6, 1)
+  adoption                 ReceivedQuotationAdoption          @default(UNKNOWN)
+  confirmedAmount          Decimal?                           @map("confirmed_amount") @db.Decimal(15, 0)
   // 読取の確認（46.6〜46.8）
-  readingStatus        ReceivedQuotationReadingStatus     @default(UNCONFIRMED) @map("reading_status")
-  readingConfirmedById String?                            @map("reading_confirmed_by_id")
-  readingConfirmedAt   DateTime?                          @map("reading_confirmed_at")
-  quoteDiscriminator   String                             @default("") @map("quote_discriminator") @db.VarChar(100) // 見積の区別（48.2）
+  readingStatus            ReceivedQuotationReadingStatus     @default(UNCONFIRMED) @map("reading_status")
+  readingConfirmedById     String?                            @map("reading_confirmed_by_id")
+  readingConfirmedAt       DateTime?                          @map("reading_confirmed_at")
+  // 読取の確認の経路（46.12）。未確認は持たない（CHECK は migration の SQL で追加）。追補の前の確認済みは null（46.20）
+  readingConfirmationRoute ReceivedQuotationReadingRoute?     @map("reading_confirmation_route")
+  quoteDiscriminator       String                             @default("") @map("quote_discriminator") @db.VarChar(100) // 見積の区別（48.2）
   // 単価台帳（unit-price-ledger）。どれも任意（案件の受領見積書では空）
   // ledgerCardId は論理削除されていない行の中で一意（2.14）。部分一意索引は migration の SQL で追加
-  ledgerCardId         String?                            @map("ledger_card_id") @db.VarChar(200) // カードの ID
-  ledgerSourcePath     String?                            @map("ledger_source_path") @db.VarChar(1000) // 原本のパス（Drive の 01_案件 からの相対）
-  ledgerProjectName    String?                            @map("ledger_project_name") @db.VarChar(255) // 案件名（案件の無い受領見積書）
-  createdAt            DateTime                           @default(now())
-  updatedAt            DateTime                           @updatedAt
-  deletedAt            DateTime? // 論理削除
+  ledgerCardId             String?                            @map("ledger_card_id") @db.VarChar(200) // カードの ID
+  ledgerSourcePath         String?                            @map("ledger_source_path") @db.VarChar(1000) // 原本のパス（Drive の 01_案件 からの相対）
+  ledgerProjectName        String?                            @map("ledger_project_name") @db.VarChar(255) // 案件名（案件の無い受領見積書）
+  createdAt                DateTime                           @default(now())
+  updatedAt                DateTime                           @updatedAt
+  deletedAt                DateTime? // 論理削除
 
   estimateRequest    EstimateRequest?            @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
   project            Project?                    @relation(fields: [projectId], references: [id], onDelete: Restrict)
@@ -1098,6 +1100,13 @@ enum ReceivedQuotationReadingStatus {
   CONFIRMED // 確認済み
 }
 
+/// 読取の確認の経路（46.12）
+enum ReceivedQuotationReadingRoute {
+  SCREEN // 画面
+  LEDGER_IMPORT // 台帳の取り込み
+  ARCHIBENCH // ArchiBench
+}
+
 /// 明細行の区分（45.1）
 enum ReceivedQuotationLineCategory {
   DIRECT // 直接工事
@@ -1107,6 +1116,7 @@ enum ReceivedQuotationLineCategory {
   DISCOUNT // 値引き
   LEGAL_WELFARE // 法定福利費
   EXCLUDED // 別途
+  ROUNDING // 端数調整
 }
 
 /**

@@ -575,10 +575,15 @@ export function ReceivedQuotationList({
                       )}
                     </span>
                   )}
-                  {/* タスク117.5: 参考の印と読取の確認の表示 (46.10) */}
+                  {/* タスク117.5: 参考の印と読取の確認の表示 (46.10)。タスク124.1: 確認者・日時・経路 (46.19・46.20) */}
                   <ReceivedQuotationLedgerIndicators
                     lineItems={quotation.lineItems}
                     readingStatus={quotation.readingStatus}
+                    readingConfirmation={{
+                      confirmedByName: quotation.readingConfirmedBy?.displayName ?? null,
+                      confirmedAt: quotation.readingConfirmedAt,
+                      route: quotation.readingConfirmationRoute,
+                    }}
                   />
                 </div>
               </div>

@@ -32,6 +32,8 @@ import {
   calculateTotalAmount,
   calculateCategorySubtotals,
 } from './LineItemEditor';
+import { LINE_ITEM_SAVE_VALIDATION_MESSAGES } from './received-quotation-form-messages';
+import { validateLineItemsForSave } from './received-quotation-line-items';
 
 // ============================================================================
 // テストヘルパー
@@ -925,7 +927,7 @@ describe('LineItemEditor', () => {
       });
     });
 
-    it('区分の選択欄は日本語の 7 つの選択肢を持ち、既定で直接工事を選んでいる', () => {
+    it('区分の選択欄は日本語の 8 つの選択肢を持ち（末尾が端数調整）、既定で直接工事を選んでいる', () => {
       render(<LineItemEditor {...getDefaultProps()} />);
 
       const select = screen.getByRole('combobox', { name: '行1 区分' });
@@ -941,7 +943,19 @@ describe('LineItemEditor', () => {
         '値引き',
         '法定福利費',
         '別途',
+        '端数調整',
       ]);
+      expect(options).toHaveLength(8);
+    });
+
+    it('区分で端数調整を選ぶと行の区分が ROUNDING になる（45.1）', async () => {
+      const user = userEvent.setup();
+      const onLineItemsChange = vi.fn();
+      render(<LineItemEditor {...getDefaultProps({ onLineItemsChange })} />);
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '行1 区分' }), '端数調整');
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.category).toBe('ROUNDING');
     });
 
     it('区分の項目を持たない行も直接工事として表示する', () => {
@@ -1007,8 +1021,10 @@ describe('LineItemEditor', () => {
       expect(calculateTotalAmount(items())).toBe(2100);
     });
 
-    it('calculateCategorySubtotals は 7 つの区分ごとの金額の和を返す', () => {
-      expect(calculateCategorySubtotals(items())).toEqual({
+    it('calculateCategorySubtotals は 8 つの区分ごとの金額の和を返す', () => {
+      const subtotals = calculateCategorySubtotals(items());
+      expect(Object.keys(subtotals)).toHaveLength(8);
+      expect(subtotals).toEqual({
         DIRECT: 2000,
         OVERHEAD: 300,
         TRAVEL: 0,
@@ -1016,6 +1032,7 @@ describe('LineItemEditor', () => {
         DISCOUNT: -200,
         LEGAL_WELFARE: 0,
         EXCLUDED: 5000,
+        ROUNDING: 0,
       });
     });
 
@@ -1026,7 +1043,7 @@ describe('LineItemEditor', () => {
       expect(screen.getByText('（別途を除く）')).toBeInTheDocument();
     });
 
-    it('フッターに 7 つの区分の小計をラベルと額で表示する', () => {
+    it('フッターに 8 つの区分の小計をラベルと額で表示する', () => {
       render(<LineItemEditor {...getDefaultProps({ lineItems: items() })} />);
 
       const subtotals = screen.getByRole('list', { name: '区分ごとの小計' });
@@ -1041,7 +1058,9 @@ describe('LineItemEditor', () => {
         '値引き-200',
         '法定福利費0',
         '別途5,000',
+        '端数調整0',
       ]);
+      expect(rows).toHaveLength(8);
     });
 
     it('区分を別途へ変えると合計からその行の額が外れる', async () => {
@@ -1060,6 +1079,132 @@ describe('LineItemEditor', () => {
 
       expect(screen.getByTestId('total-amount')).toHaveTextContent('1,000');
       expect(screen.getByTestId('category-subtotal-EXCLUDED')).toHaveTextContent('400');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 124.2: 区分「端数調整」（design.md の D20。45.1・45.6・45.14〜45.16）
+  // --------------------------------------------------------------------------
+
+  describe('区分「端数調整」の小計と合計 (Task 124.2)', () => {
+    // 端数調整の行は正の額（切り上げ）と負の額（切り捨て）の両方を持つ
+    const items = () => [
+      createLineItem({ name: '内装工事', quantity: '1', unitPrice: '1000', amount: 1000 }),
+      createLineItem({ name: '端数調整（切り上げ）', category: 'ROUNDING', amount: 30 }),
+      createLineItem({ name: '端数調整（切り捨て）', category: 'ROUNDING', amount: -80 }),
+      createLineItem({
+        name: '別途工事',
+        category: 'EXCLUDED',
+        quantity: '1',
+        unitPrice: '5000',
+        amount: 5000,
+      }),
+    ];
+
+    it('calculateTotalAmount は端数調整の正の額も負の額も合計に入れ、別途だけを除く（45.15）', () => {
+      expect(calculateTotalAmount(items())).toBe(950);
+      expect(calculateTotalAmount([createLineItem({ category: 'ROUNDING', amount: 30 })])).toBe(30);
+      expect(calculateTotalAmount([createLineItem({ category: 'ROUNDING', amount: -80 })])).toBe(
+        -80
+      );
+      expect(calculateTotalAmount([createLineItem({ category: 'ROUNDING', amount: 0 })])).toBe(0);
+    });
+
+    it('calculateCategorySubtotals は端数調整の小計に正と負の額の和を返す（45.6）', () => {
+      expect(calculateCategorySubtotals(items())).toEqual({
+        DIRECT: 1000,
+        OVERHEAD: 0,
+        TRAVEL: 0,
+        WASTE: 0,
+        DISCOUNT: 0,
+        LEGAL_WELFARE: 0,
+        EXCLUDED: 5000,
+        ROUNDING: -50,
+      });
+    });
+
+    it('フッターに端数調整の小計を出し、合計（別途を除く）に端数調整を入れる（45.6・45.15）', () => {
+      render(<LineItemEditor {...getDefaultProps({ lineItems: items() })} />);
+
+      const subtotals = screen.getByRole('list', { name: '区分ごとの小計' });
+      const rows = within(subtotals)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent);
+      expect(rows).toHaveLength(8);
+      expect(rows[7]).toBe('端数調整-50');
+      expect(screen.getByTestId('category-subtotal-ROUNDING')).toHaveTextContent('-50');
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('950');
+      // 端数調整の行は区分の選択欄に端数調整を選んだ形で出る
+      expect(screen.getByRole('combobox', { name: '行2 区分' })).toHaveValue('ROUNDING');
+      expect(screen.getByRole('combobox', { name: '行3 区分' })).toHaveValue('ROUNDING');
+    });
+
+    it('区分を端数調整へ変えても合計は変わらず、端数調整の小計へ額が移る（45.15）', async () => {
+      const user = userEvent.setup();
+      function Harness() {
+        const [rows, setRows] = useState<LineItemFormData[]>([
+          createLineItem({ quantity: '1', unitPrice: '1000', amount: 1000 }),
+          createLineItem({ unitPrice: '', amount: 30 }),
+        ]);
+        return <LineItemEditor lineItems={rows} onLineItemsChange={setRows} />;
+      }
+      render(<Harness />);
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('1,030');
+      expect(screen.getByTestId('category-subtotal-DIRECT')).toHaveTextContent('1,030');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '行2 区分' }), '端数調整');
+
+      expect(screen.getByTestId('total-amount')).toHaveTextContent('1,030');
+      expect(screen.getByTestId('category-subtotal-DIRECT')).toHaveTextContent('1,000');
+      expect(screen.getByTestId('category-subtotal-ROUNDING')).toHaveTextContent('30');
+    });
+
+    it('端数調整の行は単価が空なら金額を直接入力でき、正の額も負の額も行に持たせる（45.14）', () => {
+      const onLineItemsChange = vi.fn();
+      const item = createLineItem({ category: 'ROUNDING', unitPrice: '', amount: null });
+      render(<LineItemEditor {...getDefaultProps({ lineItems: [item], onLineItemsChange })} />);
+
+      const amountInput = screen.getByRole('textbox', { name: '行1 金額' });
+      fireEvent.change(amountInput, { target: { value: '30' } });
+      fireEvent.change(amountInput, { target: { value: '-80' } });
+
+      expect(getCallItems(onLineItemsChange, 0)[0]?.amount).toBe(30);
+      expect(getCallItems(onLineItemsChange, 1)[0]?.amount).toBe(-80);
+      expect(getCallItems(onLineItemsChange, 1)[0]?.category).toBe('ROUNDING');
+    });
+
+    it('保存の前の検証の結果を渡しても、金額が正の端数調整の行には値引きの文言が出ない（45.14）', () => {
+      const lineItems = [
+        createLineItem({ name: '端数調整（切り上げ）', category: 'ROUNDING', amount: 30 }),
+        createLineItem({ name: '端数調整（切り捨て）', category: 'ROUNDING', amount: -80 }),
+        createLineItem({ name: '端数調整（0）', category: 'ROUNDING', amount: 0 }),
+        createLineItem({ name: '値引き', category: 'DISCOUNT', amount: 100 }),
+      ];
+      render(
+        <LineItemEditor
+          {...getDefaultProps({
+            lineItems,
+            lineItemErrors: validateLineItemsForSave(lineItems),
+          })}
+        />
+      );
+
+      // 値引きの行（4 行目）だけに文言が出る。検証そのものが働いていることの対照
+      expect(screen.getByRole('list', { name: '行4のエラー' })).toHaveTextContent(
+        LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE
+      );
+      expect(screen.queryByRole('list', { name: '行1のエラー' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('list', { name: '行2のエラー' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('list', { name: '行3のエラー' })).not.toBeInTheDocument();
+      expect(
+        screen.getAllByText(LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE)
+      ).toHaveLength(1);
+    });
+
+    it('新しい行・取り込みと転記の行に使う既定の区分は端数調整ではなく直接工事である（45.16）', () => {
+      expect(createEmptyLineItem().category).toBe('DIRECT');
+      expect(createLineItemLedgerDefaults().category).toBe('DIRECT');
+      expect(createLineItemLedgerDefaults().category).not.toBe('ROUNDING');
     });
   });
 

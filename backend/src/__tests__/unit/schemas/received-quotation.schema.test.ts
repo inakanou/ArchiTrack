@@ -24,6 +24,8 @@ import {
   LINE_ITEM_VALIDATION_MESSAGES,
   lineItemSchema,
   parseLineItemsFromMultipart,
+  LINE_ITEM_CATEGORIES,
+  RECEIVED_QUOTATION_READING_ROUTES,
 } from '../../../schemas/received-quotation.schema.js';
 
 describe('received-quotation.schema', () => {
@@ -1020,6 +1022,54 @@ describe('received-quotation.schema の台帳の項目（タスク112.2）', () 
         expect(r.success && r.data.category).toBe(category);
       }
       expect(lineItemSchema.safeParse({ ...baseLine, category: 'OTHER' }).success).toBe(false);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-45.1: The システム shall 受領見積書の明細行ごとに、区分（直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途・端数調整のいずれか）を保持し、既定を直接工事とする（2026-11-20 改訂）
+     */
+    it('区分の一覧は別途の後の末尾に端数調整（ROUNDING）を持ち、検証は ROUNDING を通すこと（45.1、D20）', () => {
+      expect([...LINE_ITEM_CATEGORIES]).toEqual([
+        'DIRECT',
+        'OVERHEAD',
+        'TRAVEL',
+        'WASTE',
+        'DISCOUNT',
+        'LEGAL_WELFARE',
+        'EXCLUDED',
+        'ROUNDING',
+      ]);
+      const r = lineItemSchema.safeParse({ ...baseLine, category: 'ROUNDING' });
+      expect(r.success && r.data.category).toBe('ROUNDING');
+      // 区分を送らない行の既定は直接工事のまま
+      const omitted = lineItemSchema.safeParse(baseLine);
+      expect(omitted.success && omitted.data.category).toBe('DIRECT');
+    });
+
+    /**
+     * @requirement estimate-request/REQ-45.14: The システム shall 区分が端数調整の明細行の金額として、正の値・負の値・0 のいずれも受け付ける
+     */
+    it.each([
+      ['正の値', 3],
+      ['負の値', -7],
+      ['0', 0],
+    ])('端数調整の行の金額は%sを通し、送られた金額を保つこと（45.14）', (_label, amount) => {
+      const lines = parseLines([
+        baseLine,
+        { name: '端数調整', sortOrder: 1, category: 'ROUNDING', amount },
+      ]);
+      expect(lines).toHaveLength(2);
+      expect(lines![1]).toMatchObject({ category: 'ROUNDING', amount });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.12: The システム shall 確認済みの受領見積書ごとに、読取の確認の経路（画面・台帳の取り込み・ArchiBench のいずれか）を保持し、未確認の受領見積書には経路を持たせない
+     */
+    it('読取の確認の経路の値の一覧は画面・台帳の取り込み・ArchiBench の 3 つであること（46.12）', () => {
+      expect([...RECEIVED_QUOTATION_READING_ROUTES]).toEqual([
+        'SCREEN',
+        'LEDGER_IMPORT',
+        'ARCHIBENCH',
+      ]);
     });
 
     it.each([

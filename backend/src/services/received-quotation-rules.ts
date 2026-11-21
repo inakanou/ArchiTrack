@@ -6,8 +6,8 @@
  * 処理で、台帳の側に同じ処理を書き写していた。タスク6.6 でここへ集め、両方から使う。
  *
  * - 明細行：金額の補い（45.12）・保存の形（区分の既定は直接工事。45.3）・比較の鍵（46.8 の「明細行の変更」）
- * - 読取の確認の遷移（46.6〜46.8）
- * - 監査ログに前後を入れる台帳の項目（46.11。工事価格・確定金額は入れない）
+ * - 読取の確認の遷移（46.6〜46.8）と、読取の確認の経路（46.12・46.13・46.15・46.18）
+ * - 監査ログに前後を入れる台帳の項目（46.11・46.21。工事価格・確定金額は入れない）
  * - 業者名と取引先の紐づけ（44.5〜44.8。台帳の取り込みの照合 2.10・2.11 も同じ規則）
  *
  * 呼び出し元ごとの違いは引数で表し、どちらの書き込みも共通にする前と同じにする（読取の確認の
@@ -19,6 +19,8 @@
  * - 45.3・45.12: 区分の既定は直接工事。送られた金額は保持する
  * - 46.6〜46.8: 読取の確認の遷移（確認者と日時、明細行の変更で未確認に戻す）
  * - 46.11: 監査ログの台帳の項目（工事価格・確定金額は入れない）
+ * - 46.12・46.13・46.15・46.18: 読取の確認の経路（確認済みにするときに書き、未確認へ戻すときに消す）
+ * - 46.21: 監査ログの台帳の項目に経路を入れる
  *
  * Requirements (unit-price-ledger):
  * - 2.10・2.11: 取り込みの取引先の照合（名前が完全に一致する協力業者が 1 件のときだけ紐づける）
@@ -34,6 +36,7 @@ import {
   RECEIVED_QUOTATION_VALIDATION_MESSAGES,
   type LineItemCategory,
   type LineItemConversion,
+  type ReceivedQuotationReadingRoute,
 } from '../schemas/received-quotation.schema.js';
 
 // ============================================================================
@@ -222,11 +225,15 @@ export function haveLineItemsChanged(
 /** 読取の確認の状態（46.6） */
 export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
 
+/** 読取の確認の経路（46.12。画面・台帳の取り込み・ArchiBench） */
+export type ReadingConfirmationRoute = ReceivedQuotationReadingRoute;
+
 /** 読取の確認で書き込む列（変えない列は持たない） */
 export interface ReadingConfirmationWrite {
   readingStatus?: ReadingStatus;
   readingConfirmedById?: string | null;
   readingConfirmedAt?: Date | null;
+  readingConfirmationRoute?: ReadingConfirmationRoute | null;
 }
 
 /** 読取の確認の決め方の呼び出し元ごとの違い */
@@ -237,16 +244,22 @@ export interface ReadingConfirmationOptions {
    * （`'omit'`）。共通にする前のそれぞれの書き込みのとおり
    */
   reconfirm: 'writeStatus' | 'omit';
+  /** 新しく確認済みにするときの経路と日時。省くと経路は画面、日時は今（46.13・46.15） */
+  newConfirmation?: { readonly route: ReadingConfirmationRoute; readonly confirmedAt: Date };
 }
 
 /**
- * 読取の確認の遷移を決める（46.6〜46.8）
+ * 読取の確認の遷移と経路を決める（46.6〜46.8・46.12・46.13・46.15・46.18）
  *
- * 1. 保存前が確認済みで、読み取った内容（明細行など）が変わる → 未確認に戻し、確認者と日時を消す
+ * 1. 保存前が確認済みで、読み取った内容（明細行など）が変わる → 未確認に戻し、確認者と日時と経路を消す
  *    （同じ保存で確認済みを送っていても戻す）
- * 2. 確認済みを送り、保存前が未確認（作成を含む。`null`） → 確認済み、確認者は操作した利用者、日時は今
- * 3. それ以外は入力のとおり（未確認を送れば確認者と日時を消す。確認済みを送り直しても確認者と日時は保つ。
- *    送らなければ変えない）
+ * 2. 確認済みを送り、保存前が未確認（作成を含む。`null`） → 確認済み、確認者は操作した利用者。経路と日時は
+ *    `options.newConfirmation` のとおりで、省かれたら経路は画面、日時は今
+ * 3. それ以外は入力のとおり（未確認を送れば確認者と日時と経路を消す。確認済みを送り直しても確認者と日時と
+ *    経路は保つ〔経路の記録の無い確認済みの null もそのまま〕。送らなければ変えない）
+ *
+ * 経路をここで決めるのは、未確認へ戻す分岐のどれかで消し忘れて「未確認は経路を持たない」に反しないようにする
+ * ためである（呼び出し元は戻り値を保存の列へ広げるだけでよい）
  *
  * @param previousStatus - 保存前の状態。作成は `null`
  * @param requested - 送られた状態（送らなければ undefined）
@@ -266,6 +279,7 @@ export function decideReadingConfirmation(
     readingStatus: 'UNCONFIRMED' as const,
     readingConfirmedById: null,
     readingConfirmedAt: null,
+    readingConfirmationRoute: null,
   };
   if (previousStatus === 'CONFIRMED' && contentChanged) {
     return unconfirmed;
@@ -277,7 +291,8 @@ export function decideReadingConfirmation(
     return {
       readingStatus: 'CONFIRMED',
       readingConfirmedById: actorId,
-      readingConfirmedAt: new Date(),
+      readingConfirmedAt: options.newConfirmation?.confirmedAt ?? new Date(),
+      readingConfirmationRoute: options.newConfirmation?.route ?? 'SCREEN',
     };
   }
   if (requested === 'UNCONFIRMED') {
@@ -302,11 +317,13 @@ export interface LedgerAuditSource {
   distanceKm: unknown;
   adoption: string;
   readingStatus: string;
+  /** 読取の確認の経路（46.21）。未確認と、経路の記録の無い確認済みは null */
+  readingConfirmationRoute: string | null;
   quoteDiscriminator: string;
 }
 
 /**
- * 監査ログに前後を入れる台帳の項目（46.11）。工事価格・確定金額は入れない
+ * 監査ログに前後を入れる台帳の項目（46.11・46.21）。工事価格・確定金額は入れない
  */
 export function ledgerAuditFields(
   quotation: LedgerAuditSource
@@ -322,6 +339,7 @@ export function ledgerAuditFields(
     distanceKm: toNumberOrNull(quotation.distanceKm),
     adoption: quotation.adoption,
     readingStatus: quotation.readingStatus,
+    readingConfirmationRoute: quotation.readingConfirmationRoute,
     quoteDiscriminator: quotation.quoteDiscriminator,
   };
 }

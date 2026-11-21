@@ -8,6 +8,9 @@
  * - 11.10: バリデーションエラー表示
  * - 11.16: 楽観的排他制御エラー
  *
+ * Requirements (estimate-request):
+ * - 46.16: ArchiBench の入口の確認の日時の誤り
+ *
  * @module errors/receivedQuotationError
  */
 import { ApiError, NotFoundError } from './apiError.js';
@@ -143,14 +146,42 @@ export class FileOrLineItemsRequiredError extends ApiError {
 }
 
 /**
+ * 確認の日時の誤りの文言（estimate-request の Requirement 46.16）
+ */
+export const READING_CONFIRMED_AT_INVALID_MESSAGE =
+  '確認の日時が正しくありません（欠けているか、受け付けた時刻より後です）';
+
+/**
+ * ArchiBench の入口の確認済みの登録で、確認の日時が欠けているか、受け付けた時刻より後であるエラー
+ * 400 Bad Request（`code: 'READING_CONFIRMED_AT_INVALID'`）
+ *
+ * design の「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の章の D16、タスク123.2。
+ * このエラーではデータもストレージも変えない（46.16）
+ */
+export class ReadingConfirmedAtInvalidError extends ApiError {
+  constructor() {
+    super(
+      400,
+      READING_CONFIRMED_AT_INVALID_MESSAGE,
+      'READING_CONFIRMED_AT_INVALID',
+      undefined,
+      PROBLEM_TYPES.VALIDATION_ERROR
+    );
+    this.name = 'ReadingConfirmedAtInvalidError';
+  }
+}
+
+/**
  * 同じ原本の二重登録の誤りの文言（estimate-request の Requirement 48.3）
  */
 export const DUPLICATE_ORIGINAL_MESSAGE = '同じ原本の受領見積書が既に登録されています';
 
 /**
- * 同じ原本の二重登録の誤りが示す既存の受領見積書（48.3）。提出日は ISO 8601 の文字列
+ * 同じ原本の二重登録の誤りが示す既存の受領見積書（48.3）。提出日は ISO 8601 の文字列。
+ * `id` は既存の受領見積書の ID（48.10。タスク123.4）
  */
 export interface DuplicateOriginalExisting {
+  id: string;
   name: string;
   vendorName: string;
   submittedAt: string;
@@ -160,7 +191,8 @@ export interface DuplicateOriginalExisting {
  * 同じ案件に、原本の指紋と見積の区別がともに同じ受領見積書が既にあるエラー
  * 409 Conflict（`code: 'DUPLICATE_ORIGINAL'`）
  *
- * design の Requirements 43-50 の章の D6、タスク113.4。既存の受領見積書の名前・業者名・提出日を持つ。
+ * design の Requirements 43-50 の章の D6、タスク113.4。既存の受領見積書の ID・名前・業者名・提出日を持つ
+ * （ID は 2026-11-21 の追補の章の D19、48.10）。
  * 同じ案件の受領見積書だけを示し、他の案件の受領見積書の有無は含めない（48.7）
  */
 export class DuplicateOriginalError extends ApiError {

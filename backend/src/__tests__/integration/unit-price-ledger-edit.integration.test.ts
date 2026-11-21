@@ -465,6 +465,57 @@ describe('案件の無い受領見積書の修正と削除（統合・実 DB）'
     });
 
     /**
+     * 台帳の修正の画面で確認済みにしたものは、人が画面で確かめたものとして経路を画面にし、未確認へ戻すと消す
+     * （estimate-request の design の D13・D14）
+     *
+     * @requirement estimate-request/REQ-46.13
+     * @requirement estimate-request/REQ-46.18
+     */
+    it('未確認を確認済みにしたとき読取の確認の経路を画面として保存し、明細行を変えて未確認に戻ると経路を消す', async () => {
+      const seeded = await createLedgerQuotation('route');
+      await prisma.receivedQuotation.update({
+        where: { id: seeded.id },
+        data: {
+          readingStatus: 'UNCONFIRMED',
+          readingConfirmedById: null,
+          readingConfirmedAt: null,
+          readingConfirmationRoute: null,
+        },
+      });
+      const unconfirmed = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: seeded.id },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+
+      await service.updateQuotation(
+        seeded.id,
+        buildInput(unconfirmed, { readingStatus: 'CONFIRMED' }),
+        actorId
+      );
+
+      const confirmed = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: seeded.id },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+      expect(confirmed.readingStatus).toBe('CONFIRMED');
+      expect(confirmed.readingConfirmationRoute).toBe('SCREEN');
+
+      const lines = sameLineItems(confirmed);
+      lines[0] = { ...lines[0]!, unitPrice: 12, amount: 1200 };
+      await service.updateQuotation(
+        seeded.id,
+        buildInput(confirmed, { lineItems: lines, readingStatus: 'CONFIRMED' }),
+        actorId
+      );
+
+      const reverted = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: seeded.id },
+      });
+      expect(reverted.readingStatus).toBe('UNCONFIRMED');
+      expect(reverted.readingConfirmationRoute).toBeNull();
+    });
+
+    /**
      * @requirement unit-price-ledger/REQ-5.4
      */
     it('確認済みの見積の明細行を変えたら、未確認に戻し確認者と日時を消す（確認済みを送っても戻す）', async () => {

@@ -7,6 +7,7 @@
  * @requirement estimate-request/REQ-43.7 案件の配下の登録の要求（見積依頼に紐づかない受領見積書）
  * @requirement estimate-request/REQ-48.3 同じ原本の二重登録の 409 を既存の受領見積書とともに判別する
  * @requirement estimate-request/REQ-48.4 同じ原本の他の受領見積書の件数を保存の結果として受ける
+ * @requirement estimate-request/REQ-48.10 二重登録の 409 の既存の受領見積書の ID を読む（タスク124.1）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,6 +24,7 @@ import {
 } from '../../api/received-quotations';
 import type {
   LineItemInput,
+  ReadingConfirmationRoute,
   ReceivedQuotationInfo,
   ReceivedQuotationSaveResult,
 } from '../../api/received-quotations';
@@ -111,6 +113,7 @@ const DUPLICATE_BODY = {
   detail: '（重複の詳細の文）',
   code: 'DUPLICATE_ORIGINAL',
   existing: {
+    id: 'q-existing',
     name: '先の受領見積書',
     vendorName: '佐藤電気',
     submittedAt: '2026-10-30T00:00:00.000Z',
@@ -315,6 +318,7 @@ describe('received-quotations API client: 台帳の項目と案件の配下の�
       expect(dup.statusCode).toBe(409);
       expect(dup.code).toBe('DUPLICATE_ORIGINAL');
       expect(dup.message).toBe('（重複の詳細の文）');
+      expect(dup.existing?.id).toBe('q-existing');
       expect(dup.existing?.name).toBe('先の受領見積書');
       expect(dup.existing?.vendorName).toBe('佐藤電気');
       expect(dup.existing?.submittedAt).toBeInstanceOf(Date);
@@ -335,6 +339,36 @@ describe('received-quotations API client: 台帳の項目と案件の配下の�
       expect(isDuplicateOriginalError(error)).toBe(true);
       expect((error as DuplicateOriginalError).existing).toBeNull();
     });
+
+    it.each([
+      [
+        'id が無い',
+        { name: '先の受領見積書', vendorName: '佐藤電気', submittedAt: '2026-10-30T00:00:00.000Z' },
+      ],
+      [
+        'id が文字でない',
+        {
+          id: 12,
+          name: '先の受領見積書',
+          vendorName: '佐藤電気',
+          submittedAt: '2026-10-30T00:00:00.000Z',
+        },
+      ],
+    ])(
+      '409 DUPLICATE_ORIGINAL の existing の %s ときは形の壊れとして existing を null とする（48.10）',
+      async (_label, existing) => {
+        mockFetch.mockResolvedValueOnce(jsonResponse(409, { ...DUPLICATE_BODY, existing }));
+
+        const error = await createReceivedQuotation('er-1', {
+          name: '受領見積書A',
+          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+          lineItems: [ledgerLine],
+        }).catch((e: unknown) => e);
+
+        expect(isDuplicateOriginalError(error)).toBe(true);
+        expect((error as DuplicateOriginalError).existing).toBeNull();
+      }
+    );
   });
 
   describe('createProjectReceivedQuotation（案件の配下）', () => {
@@ -499,6 +533,23 @@ describe('received-quotations API client: 台帳の項目と案件の配下の�
 
       expect(result.readingStatus).toBe('UNCONFIRMED');
       expect(result.readingConfirmedAt).toBeNull();
+    });
+
+    it('詳細の応答の原本の指紋と読取の確認の経路を型つきで返す（タスク124.1）', async () => {
+      const sha = 'a'.repeat(64);
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          quotationJson({ fileSha256: sha, readingConfirmationRoute: 'LEDGER_IMPORT' })
+        )
+      );
+
+      const result: ReceivedQuotationInfo = await getReceivedQuotation('q-1');
+      const fileSha256: string | null = result.fileSha256;
+      const route: ReadingConfirmationRoute | null = result.readingConfirmationRoute;
+
+      expect(fileSha256).toBe(sha);
+      expect(route).toBe('LEDGER_IMPORT');
     });
 
     it('案件の配下の一覧は include を指定しなければ従来の経路のまま呼ぶ', async () => {

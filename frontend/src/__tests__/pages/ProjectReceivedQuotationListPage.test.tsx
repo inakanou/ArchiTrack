@@ -2,6 +2,7 @@
  * @fileoverview 案件の受領見積書の一覧の画面の単体テスト（estimate-request のタスク118.1）
  *
  * 受入基準 43.1〜43.6・43.9・43.11・43.13・43.15・46.10 と 48.4 の知らせを観測する。
+ * タスク124.1: 確認済みの行の確認者・日時・経路の表示（46.19・46.20）を観測する。
  * 受入基準の逐語は本番コードの文言の定数から読む（試験の名前や注記に逐語を書かない）。
  * フォームの中身（業者名・明細行・台帳の情報）は ReceivedQuotationForm の単体が確かめるため、
  * ここではフォームを最小の代役に置き換え、画面が渡す文脈と保存の配線を確かめる。
@@ -28,6 +29,12 @@ import {
   RECEIVED_QUOTATION_LEDGER_DEFAULTS,
 } from '../../test-support/received-quotation-fixtures';
 import { formatSharedOriginalNotice } from '../../components/estimate-requests/received-quotation-form-messages';
+import {
+  READING_CONFIRMATION_ROUTE_LABELS,
+  READING_ROUTE_NOT_RECORDED_TEXT,
+  formatReadingConfirmationSummary,
+} from '../../components/estimate-requests/ledger-info-form';
+import { READING_STATUS_INDICATOR_TEXT } from '../../components/estimate-requests/received-quotation-ledger-indicators';
 import { RECEIVED_QUOTATION_NOT_FOUND_MESSAGE } from '../../utils/estimateRequestNotFound';
 import type { ReceivedQuotationFormProps } from '../../components/estimate-requests/ReceivedQuotationForm';
 import type { ReceivedQuotationListNavigationState } from '../../components/projects/ReceivedQuotationSectionCard';
@@ -246,6 +253,62 @@ describe('ProjectReceivedQuotationListPage', () => {
       const req = within(await findRow('依頼からの見積書'));
       expect(req.getByTestId('received-quotation-reference-indicator')).toBeInTheDocument();
       expect(req.getByTestId('received-quotation-reading-status')).toHaveTextContent('確認済み');
+    });
+
+    it('確認済みの行に確認者・日時・経路を出し、未確認の行には出さない（タスク124.1）', async () => {
+      const confirmedAt = new Date(2026, 10, 8, 10, 30);
+      vi.mocked(receivedQuotationApi.getReceivedQuotationsByProject).mockResolvedValue([
+        ownQuotation,
+        quotation({
+          id: 'rq-route',
+          name: '経路のある見積書',
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: 'user-1',
+          readingConfirmedAt: confirmedAt,
+          readingConfirmedBy: { id: 'user-1', displayName: '確認 太郎' },
+          readingConfirmationRoute: 'ARCHIBENCH',
+        }),
+        quotation({
+          id: 'rq-no-route',
+          name: '追補の前の見積書',
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: 'user-1',
+          readingConfirmedAt: confirmedAt,
+          readingConfirmedBy: { id: 'user-1', displayName: '確認 太郎' },
+          readingConfirmationRoute: null,
+        }),
+      ]);
+      renderPage();
+
+      const withRoute = within(await findRow('経路のある見積書'));
+      expect(withRoute.getByTestId('received-quotation-reading-status').textContent).toBe(
+        READING_STATUS_INDICATOR_TEXT.CONFIRMED
+      );
+      expect(withRoute.getByTestId('received-quotation-reading-confirmation').textContent).toBe(
+        formatReadingConfirmationSummary({
+          confirmedByName: '確認 太郎',
+          confirmedAt,
+          route: 'ARCHIBENCH',
+        })
+      );
+      expect(withRoute.getByTestId('received-quotation-reading-confirmation')).toHaveTextContent(
+        `経路: ${READING_CONFIRMATION_ROUTE_LABELS.ARCHIBENCH}`
+      );
+
+      const noRoute = within(await findRow('追補の前の見積書'));
+      expect(noRoute.getByTestId('received-quotation-reading-confirmation').textContent).toBe(
+        formatReadingConfirmationSummary({
+          confirmedByName: '確認 太郎',
+          confirmedAt,
+          route: null,
+        })
+      );
+      expect(noRoute.getByTestId('received-quotation-reading-confirmation')).toHaveTextContent(
+        READING_ROUTE_NOT_RECORDED_TEXT
+      );
+
+      const own = within(await findRow('自前の見積書'));
+      expect(own.queryByTestId('received-quotation-reading-confirmation')).toBeNull();
     });
 
     it('受領見積書が無いときは空の旨を出す（43.3）', async () => {

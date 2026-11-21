@@ -14,6 +14,18 @@
  * - 同じファイルの二度目の登録の拒否と、見積の区別を変えた登録の知らせ
  * - 画面以外の経路で入った金額・数量表の行のキーが画面の保存で保たれること
  *
+ * estimate-request タスク125.1。design.md の章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11: 読取の確認の経路・
+ * 原本の指紋の応答・区分「端数調整」（2026-11-21 の追補）」の Testing Strategy の E2E の 1〜7。
+ *
+ * - 画面で確認済みにした受領見積書の経路（「経路: 画面」）が確認者・日時とともにフォームと一覧に出て、
+ *   明細行を変えて保存すると消えること。要求の本文へ経路の欄を足しても画面になること
+ * - 追補の前の確認済み（経路が空）が「経路の記録なし」と出ること、監査ログの画面の前後に経路が入ること
+ * - 登録・更新・一覧の応答の `fileSha256` と、二重登録の 409 の `existing.id`
+ * - 区分「端数調整」の正・負・0 の行の保存と小計・合計、一括転記の行が直接工事であること
+ *
+ * E2E で確かめないもの（同章）: 46.14（取り込んだ受領見積書は本機能の画面に出ない）、46.15・46.16（入口は
+ * claude-connector がまだ持たない）、48.11（範囲外の応答。統合で確かめる）。
+ *
  * 被覆する受入基準は各テストの `@requirement` の印が名乗る（印の無い受入基準は名乗らない）。
  *
  * 検証に使う案件・取引先・見積依頼・受領見積書はテストの中で作り（名前の接頭辞 `NAME_PREFIX`）、利用者は
@@ -337,6 +349,107 @@ function countRequests(page: Page, method: string, pathname: string): Request[] 
     }
   });
   return seen;
+}
+
+/** 一覧の行・一覧の項目の中の、読取の確認の要約（確認者・日時・経路）の要素 */
+const READING_CONFIRMATION_TEST_ID = 'received-quotation-reading-confirmation';
+
+/** 一覧の応答の受領見積書のうち、主張に使う欄 */
+interface ListedQuotation {
+  id: string;
+  fileSha256: string | null;
+  readingConfirmationRoute: string | null;
+}
+
+/**
+ * 案件の受領見積書の一覧の画面を開き直し、一覧の取得の応答の本文を返す（200 でなければ失敗）
+ *
+ * 開き直す前のページが保存の後に一覧を取り直していると、その応答を先に受けることがある。その応答の本文は
+ * 開き直しで捨てられて読めないため、開き直しを始めた後に送られた要求の応答だけを待つ
+ */
+async function reloadProjectQuotationList(
+  page: Page,
+  projectId: string
+): Promise<ListedQuotation[]> {
+  const navigationStartedAt = Date.now();
+  const loaded = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'GET' &&
+      new URL(r.url()).pathname === `/api/projects/${projectId}/quotations` &&
+      r.request().timing().startTime >= navigationStartedAt,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(`/projects/${projectId}/quotations`);
+  const response = await loaded;
+  expect(response.status()).toBe(200);
+  const body: unknown = await response.json();
+  expect(Array.isArray(body), '一覧の応答は配列').toBe(true);
+  return body as ListedQuotation[];
+}
+
+/**
+ * 画面の保存の要求（multipart）の本文に欄を足し、受領見積書名を書き換えてから送る
+ *
+ * 足した本文がサーバーへ届いたことは、書き換えた受領見積書名で保存されたことで確かめる（足した欄は
+ * サーバーが落とすため、それだけでは届いたかを観測できない）。対象のメソッドの要求で書き換えの前提
+ * （本文・multipart の境界・受領見積書名）が欠けたときは、書き換えずに送り、欠けた理由を `missing` に
+ * 入れる。呼び出し側は `sent` の件数と `missing` が空であることを主張して失敗させる。
+ *
+ * @returns 書き換えて送った本文と、書き換えの前提が欠けた理由（どちらも送るたびに足される）
+ */
+async function addFieldsToSaveRequests(
+  page: Page,
+  urlPattern: string,
+  method: 'POST' | 'PUT',
+  rename: { from: string; to: string },
+  fields: Readonly<Record<string, string>>
+): Promise<{ sent: string[]; missing: string[] }> {
+  const sent: string[] = [];
+  const missing: string[] = [];
+  await page.route(urlPattern, async (route) => {
+    const req = route.request();
+    // 同じ URL への別のメソッドの要求（一覧・詳細の取得）は書き換えの対象ではないため、そのまま通す。
+    // 対象の要求の件数は呼び出し側が sent で主張する
+    if (req.method() !== method) {
+      await route.continue();
+      return;
+    }
+    const body = req.postData() ?? '';
+    const contentType = (await req.headerValue('content-type')) ?? '';
+    const boundary = /boundary=(.+)$/.exec(contentType)?.[1] ?? '';
+    const closing = `--${boundary}--`;
+    const reasons = [
+      body === '' ? '本文が無い' : null,
+      boundary === '' ? 'multipart の境界が無い' : null,
+      body.includes(closing) ? null : '本文に閉じの境界が無い',
+      body.includes(rename.from) ? null : `本文に受領見積書名「${rename.from}」が無い`,
+    ].filter((reason): reason is string => reason !== null);
+    missing.push(...reasons);
+    // 前提が欠けたときは書き換えずに送る（missing が空でないことで呼び出し側が失敗する）
+    const tampered =
+      reasons.length > 0 ? body : buildTamperedBody(body, boundary, closing, rename, fields);
+    sent.push(tampered);
+    await route.continue({ postData: tampered });
+  });
+  return { sent, missing };
+}
+
+/** multipart の本文の閉じの境界の前へ欄を足し、受領見積書名を書き換える */
+function buildTamperedBody(
+  body: string,
+  boundary: string,
+  closing: string,
+  rename: { from: string; to: string },
+  fields: Readonly<Record<string, string>>
+): string {
+  const parts = Object.entries(fields)
+    .map(
+      ([name, value]) =>
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+    )
+    .join('');
+  const at = body.lastIndexOf(closing);
+  return (body.slice(0, at) + parts + body.slice(at)).replace(rename.from, rename.to);
 }
 
 /** Node 側で画面と同じ書式（ja-JP の年月日と時分）の日時の文字を作る */
@@ -799,7 +912,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await vendorInput(page).fill('明細行の検証の業者');
     await vendorInput(page).press('Escape');
 
-    // 新しい行の区分の既定は直接工事。区分の選択欄は 7 つの区分を持つ
+    // 新しい行の区分の既定は直接工事。区分の選択欄は 8 つの区分を持つ（45.1 の 2026-11-20 改訂で端数調整）
     await expect(lineField(page, 1, '区分')).toHaveValue('DIRECT');
     await expect(lineField(page, 1, '区分').locator('option')).toHaveText([
       '直接工事',
@@ -809,6 +922,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
       '値引き',
       '法定福利費',
       '別途',
+      '端数調整',
     ]);
 
     await lineField(page, 1, '名称').fill('直接の行');
@@ -845,6 +959,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
       DISCOUNT: '0',
       LEGAL_WELFARE: '0',
       EXCLUDED: '300',
+      ROUNDING: '0',
     };
     for (const [category, amount] of Object.entries(expectedSubtotals)) {
       await expect(page.getByTestId(`category-subtotal-${category}`)).toHaveText(amount);
@@ -1167,7 +1282,7 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     await expect(page.getByLabel('確定金額（円）', { exact: true })).toHaveValue('1100000');
     await expect(page.getByLabel('読取の確認', { exact: true })).toHaveValue('CONFIRMED');
     await expect(page.getByTestId('ledger-reading-confirmation')).toHaveText(
-      `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(confirmedAt!)}`
+      `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(confirmedAt!)}　経路: 画面`
     );
 
     // 明細行を変えずに台帳の情報だけを変えて保存: 確認済みと確認者・日時は保たれ、監査の記録は金額を含めない
@@ -1806,5 +1921,748 @@ test.describe('受領見積書の台帳の項目と案件の受領見積書の�
     const created = await findOwnQuotation(project.id, reauthName);
     await expect(listRow(page, created.id)).toBeVisible();
     expect(await ownQuotationNames(project.id)).toEqual([existingName, reauthName].sort());
+  });
+
+  // ==========================================================================
+  // 読取の確認の経路・原本の指紋の応答・区分「端数調整」（タスク125.1。2026-11-21 の追補）
+  // ==========================================================================
+
+  /**
+   * design の同章の Testing Strategy の E2E の 1。
+   *
+   * @requirement estimate-request/REQ-46.12
+   * @requirement estimate-request/REQ-46.13
+   * @requirement estimate-request/REQ-46.18
+   * @requirement estimate-request/REQ-46.19
+   */
+  test('画面で確認済みにして保存すると「経路: 画面」が確認者・日時とともにフォームと一覧に出て、明細行を変えて保存すると未確認に戻り経路の表示が消える', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const project = await createProject(owner, 'route');
+    const prisma = getPrismaClient();
+    const routeColumns = {
+      readingStatus: true,
+      readingConfirmedById: true,
+      readingConfirmedAt: true,
+      readingConfirmationRoute: true,
+    } as const;
+
+    await loginAsUser(page, owner);
+    expect(await openProjectQuotations(page, project.id)).toBe(200);
+    await expectListPage(page);
+
+    // 未確認で登録する: 未確認の受領見積書は経路を持たず、一覧に確認の要約を出さない
+    const quotationName = `${NAME_PREFIX}経路の記録`;
+    await openRegisterForm(page);
+    await page.locator('#quotation-name').fill(quotationName);
+    await vendorInput(page).fill('経路の検証の業者');
+    await vendorInput(page).press('Escape');
+    await lineField(page, 1, '名称').fill('経路の行');
+    await lineField(page, 1, '数量').fill('1');
+    await lineField(page, 1, '単価').fill('1000');
+    const createResponse = await submitProjectCreate(page, project.id);
+    expect(createResponse.status()).toBe(201);
+    expect(
+      ((await createResponse.json()) as { readingConfirmationRoute: unknown })
+        .readingConfirmationRoute
+    ).toBeNull();
+    await expectFormClosed(page);
+    const created = await findOwnQuotation(project.id, quotationName);
+    expect({
+      readingStatus: created.readingStatus,
+      readingConfirmationRoute: created.readingConfirmationRoute,
+    }).toEqual({ readingStatus: 'UNCONFIRMED', readingConfirmationRoute: null });
+    const row = listRow(page, created.id);
+    await expect(row.getByTestId('received-quotation-reading-status')).toHaveText('読取: 未確認');
+    await expect(row.getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveCount(0);
+
+    // 画面で確認済みにして保存する: 経路は画面、確認者は操作した利用者、日時は保存の時刻
+    await openEditForm(page, quotationName);
+    await ledgerHeader(page).click();
+    await page.getByLabel('読取の確認', { exact: true }).selectOption({ label: '確認済み' });
+    await expect(page.getByTestId('ledger-reading-confirmation')).toHaveText(
+      '保存すると確認者と日時を記録します'
+    );
+    const beforeConfirm = new Date();
+    const confirmResponse = await submitUpdate(page, created.id);
+    expect(confirmResponse.status()).toBe(200);
+    expect(
+      ((await confirmResponse.json()) as { readingConfirmationRoute: unknown })
+        .readingConfirmationRoute
+    ).toBe('SCREEN');
+    await expectFormClosed(page);
+    const afterConfirm = new Date();
+    const confirmed = await prisma.receivedQuotation.findUniqueOrThrow({
+      where: { id: created.id },
+      select: routeColumns,
+    });
+    expect({
+      readingStatus: confirmed.readingStatus,
+      readingConfirmedById: confirmed.readingConfirmedById,
+      readingConfirmationRoute: confirmed.readingConfirmationRoute,
+    }).toEqual({
+      readingStatus: 'CONFIRMED',
+      readingConfirmedById: owner.id,
+      readingConfirmationRoute: 'SCREEN',
+    });
+    const confirmedAt = confirmed.readingConfirmedAt;
+    expect(confirmedAt).toBeInstanceOf(Date);
+    expect(confirmedAt!.getTime()).toBeGreaterThanOrEqual(beforeConfirm.getTime() - 5000);
+    expect(confirmedAt!.getTime()).toBeLessThanOrEqual(afterConfirm.getTime() + 5000);
+
+    // 一覧の「読取: 確認済み」の札の横に、確認者・日時・経路が出る（札の文字は変わらない）
+    const summary = `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(confirmedAt!)}　経路: 画面`;
+    await expect(row.getByTestId('received-quotation-reading-status')).toHaveText('読取: 確認済み');
+    await expect(row.getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(summary);
+
+    // 読み込み直しても一覧に出て、フォームの台帳の情報の欄にも同じ要約が出る
+    const listed = await reloadProjectQuotationList(page, project.id);
+    expect(listed.find((q) => q.id === created.id)?.readingConfirmationRoute).toBe('SCREEN');
+    await expectListPage(page);
+    await expect(row.getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(summary);
+    await openEditForm(page, quotationName);
+    await ledgerHeader(page).click();
+    await expect(page.getByLabel('読取の確認', { exact: true })).toHaveValue('CONFIRMED');
+    await expect(page.getByTestId('ledger-reading-confirmation')).toHaveText(summary);
+
+    // 明細行を変えて保存すると未確認に戻り、経路も消える
+    await lineField(page, 1, '単価').fill('1200');
+    const revertResponse = await submitUpdate(page, created.id);
+    expect(revertResponse.status()).toBe(200);
+    expect(
+      ((await revertResponse.json()) as { readingConfirmationRoute: unknown })
+        .readingConfirmationRoute
+    ).toBeNull();
+    await expectFormClosed(page);
+    expect(
+      await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: created.id },
+        select: routeColumns,
+      })
+    ).toEqual({
+      readingStatus: 'UNCONFIRMED',
+      readingConfirmedById: null,
+      readingConfirmedAt: null,
+      readingConfirmationRoute: null,
+    });
+    await expect(row.getByTestId('received-quotation-reading-status')).toHaveText('読取: 未確認');
+    await expect(row.getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveCount(0);
+    await openEditForm(page, quotationName);
+    await ledgerHeader(page).click();
+    await expect(page.getByLabel('読取の確認', { exact: true })).toHaveValue('UNCONFIRMED');
+    await expect(page.getByTestId('ledger-reading-confirmation')).toHaveCount(0);
+  });
+
+  /**
+   * design の同章の Testing Strategy の E2E の 2。画面の要求の本文に経路・入口・確認の日時に当たる欄を
+   * 足して送っても、経路は画面、確認者は操作した利用者、日時は保存の時刻になる。
+   *
+   * @requirement estimate-request/REQ-46.17
+   */
+  test('登録と更新の要求の本文へ経路の欄を足して送っても、保存された経路と表示は「経路: 画面」になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const project = await createProject(owner, 'route-forged');
+    const prisma = getPrismaClient();
+    const forgedConfirmedAt = '2020-01-02T03:04:05.000Z';
+    const forgedFields = {
+      readingConfirmationRoute: 'ARCHIBENCH',
+      route: 'ARCHIBENCH',
+      origin: JSON.stringify({ kind: 'archibench', readingConfirmedAt: forgedConfirmedAt }),
+      readingConfirmedAt: forgedConfirmedAt,
+    };
+    const routeColumns = {
+      name: true,
+      readingStatus: true,
+      readingConfirmedById: true,
+      readingConfirmedAt: true,
+      readingConfirmationRoute: true,
+    } as const;
+    // 更新の対象は未確認の受領見積書（画面で確認済みにして送る）
+    const updateTypedName = `${NAME_PREFIX}経路の欄-更新`;
+    const updateSentName = `${updateTypedName}-送信で書換`;
+    const toUpdate = await prisma.receivedQuotation.create({
+      data: {
+        projectId: project.id,
+        vendorName: '経路の欄の業者',
+        name: updateTypedName,
+        submittedAt: new Date('2026-10-12'),
+        lineItems: { create: [{ sortOrder: 0, name: '更新の行', amount: 100 }] },
+      },
+      select: { id: true },
+    });
+
+    await loginAsUser(page, owner);
+    expect(await openProjectQuotations(page, project.id)).toBe(200);
+    await expectListPage(page);
+
+    // 登録: 確認済みを選び、本文へ経路の欄を足して送る
+    const createTypedName = `${NAME_PREFIX}経路の欄-登録`;
+    const createSentName = `${createTypedName}-送信で書換`;
+    const createPattern = `**/api/projects/${project.id}/quotations`;
+    const createBodies = await addFieldsToSaveRequests(
+      page,
+      createPattern,
+      'POST',
+      { from: createTypedName, to: createSentName },
+      forgedFields
+    );
+    await openRegisterForm(page);
+    await page.locator('#quotation-name').fill(createTypedName);
+    await vendorInput(page).fill('経路の欄の業者');
+    await vendorInput(page).press('Escape');
+    await lineField(page, 1, '名称').fill('登録の行');
+    await ledgerHeader(page).click();
+    await page.getByLabel('読取の確認', { exact: true }).selectOption({ label: '確認済み' });
+    const beforeCreate = new Date();
+    const createResponse = await submitProjectCreate(page, project.id);
+    expect(createResponse.status()).toBe(201);
+    await expectFormClosed(page);
+    const afterCreate = new Date();
+    await page.unroute(createPattern);
+    // 足した欄を含む本文を 1 回だけ送った（確認済みの指定とともに）
+    expect(createBodies.missing).toEqual([]);
+    expect(createBodies.sent).toHaveLength(1);
+    for (const fragment of [
+      'name="readingConfirmationRoute"\r\n\r\nARCHIBENCH',
+      'name="route"\r\n\r\nARCHIBENCH',
+      'name="origin"\r\n\r\n{"kind":"archibench"',
+      `name="readingConfirmedAt"\r\n\r\n${forgedConfirmedAt}`,
+      'name="readingStatus"\r\n\r\nCONFIRMED',
+    ]) {
+      expect(createBodies.sent[0]).toContain(fragment);
+    }
+    expect(
+      ((await createResponse.json()) as { readingConfirmationRoute: unknown })
+        .readingConfirmationRoute
+    ).toBe('SCREEN');
+    // 書き換えた名前で保存されている（足した本文がサーバーへ届いた）。経路は画面、日時は保存の時刻
+    const createdRow = await prisma.receivedQuotation.findFirstOrThrow({
+      where: { projectId: project.id, name: createSentName },
+      select: { id: true, ...routeColumns },
+    });
+    expect({
+      readingStatus: createdRow.readingStatus,
+      readingConfirmedById: createdRow.readingConfirmedById,
+      readingConfirmationRoute: createdRow.readingConfirmationRoute,
+    }).toEqual({
+      readingStatus: 'CONFIRMED',
+      readingConfirmedById: owner.id,
+      readingConfirmationRoute: 'SCREEN',
+    });
+    expect(createdRow.readingConfirmedAt).toBeInstanceOf(Date);
+    expect(createdRow.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(
+      beforeCreate.getTime() - 5000
+    );
+    expect(createdRow.readingConfirmedAt!.getTime()).toBeLessThanOrEqual(
+      afterCreate.getTime() + 5000
+    );
+    await expect(listRow(page, createdRow.id).getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(
+      `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(createdRow.readingConfirmedAt!)}　経路: 画面`
+    );
+
+    // 更新: 未確認の受領見積書を確認済みにし、本文へ経路の欄を足して送る
+    const updatePattern = `**/api/quotations/${toUpdate.id}`;
+    const updateBodies = await addFieldsToSaveRequests(
+      page,
+      updatePattern,
+      'PUT',
+      { from: updateTypedName, to: updateSentName },
+      forgedFields
+    );
+    await openEditForm(page, updateTypedName);
+    await ledgerHeader(page).click();
+    await page.getByLabel('読取の確認', { exact: true }).selectOption({ label: '確認済み' });
+    const beforeUpdate = new Date();
+    const updateResponse = await submitUpdate(page, toUpdate.id);
+    expect(updateResponse.status()).toBe(200);
+    await expectFormClosed(page);
+    const afterUpdate = new Date();
+    await page.unroute(updatePattern);
+    expect(updateBodies.missing).toEqual([]);
+    expect(updateBodies.sent).toHaveLength(1);
+    expect(updateBodies.sent[0]).toContain('name="readingConfirmationRoute"\r\n\r\nARCHIBENCH');
+    expect(updateBodies.sent[0]).toContain('name="readingStatus"\r\n\r\nCONFIRMED');
+    expect(
+      ((await updateResponse.json()) as { readingConfirmationRoute: unknown })
+        .readingConfirmationRoute
+    ).toBe('SCREEN');
+    const updatedRow = await prisma.receivedQuotation.findUniqueOrThrow({
+      where: { id: toUpdate.id },
+      select: routeColumns,
+    });
+    expect({
+      name: updatedRow.name,
+      readingStatus: updatedRow.readingStatus,
+      readingConfirmedById: updatedRow.readingConfirmedById,
+      readingConfirmationRoute: updatedRow.readingConfirmationRoute,
+    }).toEqual({
+      name: updateSentName,
+      readingStatus: 'CONFIRMED',
+      readingConfirmedById: owner.id,
+      readingConfirmationRoute: 'SCREEN',
+    });
+    expect(updatedRow.readingConfirmedAt).toBeInstanceOf(Date);
+    expect(updatedRow.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(
+      beforeUpdate.getTime() - 5000
+    );
+    expect(updatedRow.readingConfirmedAt!.getTime()).toBeLessThanOrEqual(
+      afterUpdate.getTime() + 5000
+    );
+    const updatedSummary = `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(updatedRow.readingConfirmedAt!)}　経路: 画面`;
+    await expect(listRow(page, toUpdate.id).getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(
+      updatedSummary
+    );
+    // フォームの台帳の情報の欄も画面のまま
+    await openEditForm(page, updateSentName);
+    await ledgerHeader(page).click();
+    await expect(page.getByTestId('ledger-reading-confirmation')).toHaveText(updatedSummary);
+  });
+
+  /**
+   * design の同章の Testing Strategy の E2E の 3。追補の前に確認済みになった受領見積書（確認済みで経路が空）を
+   * DB に用意する（CHECK は確認済みで経路 null を許す）。
+   *
+   * @requirement estimate-request/REQ-46.20
+   */
+  test('確認済みで経路が空の受領見積書は、フォームと案件の一覧・見積依頼の詳細の一覧で「経路の記録なし」と表示され、送り直しても空のまま保たれる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const partner = await createPartner('legacy');
+    const project = await createProject(owner, 'legacy');
+    const estimateRequest = await createEstimateRequest(project.id, partner.id, 'legacy');
+    const prisma = getPrismaClient();
+    const legacyConfirmedAt = new Date('2026-10-20T01:23:00.000Z');
+    const legacyName = `${NAME_PREFIX}追補の前の確認済み`;
+    const legacy = await prisma.receivedQuotation.create({
+      data: {
+        projectId: project.id,
+        vendorName: '追補の前の業者',
+        name: legacyName,
+        submittedAt: new Date('2026-10-15'),
+        readingStatus: 'CONFIRMED',
+        readingConfirmedById: owner.id,
+        readingConfirmedAt: legacyConfirmedAt,
+        readingConfirmationRoute: null,
+        lineItems: { create: [{ sortOrder: 0, name: '追補の前の行', amount: 100 }] },
+      },
+      select: { id: true },
+    });
+    const legacyOfRequestName = `${NAME_PREFIX}追補の前の確認済み-依頼`;
+    const legacyOfRequest = await prisma.receivedQuotation.create({
+      data: {
+        projectId: project.id,
+        estimateRequestId: estimateRequest.id,
+        tradingPartnerId: partner.id,
+        vendorName: partner.name,
+        name: legacyOfRequestName,
+        submittedAt: new Date('2026-10-16'),
+        readingStatus: 'CONFIRMED',
+        readingConfirmedById: owner.id,
+        readingConfirmedAt: legacyConfirmedAt,
+        readingConfirmationRoute: null,
+        lineItems: { create: [{ sortOrder: 0, name: '追補の前の行（依頼）', amount: 200 }] },
+      },
+      select: { id: true },
+    });
+    const summary = `確認者: ${owner.displayName}　確認日時: ${formatJaDateTime(legacyConfirmedAt)}　経路の記録なし`;
+
+    await loginAsUser(page, owner);
+
+    // 案件の受領見積書の一覧: 応答の経路は null で、札の横に「経路の記録なし」
+    const listed = await reloadProjectQuotationList(page, project.id);
+    expect(
+      [legacy.id, legacyOfRequest.id].map((id) => {
+        const found = listed.find((q) => q.id === id);
+        return found === undefined ? '応答に無い' : found.readingConfirmationRoute;
+      })
+    ).toEqual([null, null]);
+    await expectListPage(page);
+    for (const id of [legacy.id, legacyOfRequest.id]) {
+      await expect(listRow(page, id).getByTestId('received-quotation-reading-status')).toHaveText(
+        '読取: 確認済み'
+      );
+      await expect(listRow(page, id).getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(summary);
+    }
+
+    // フォームの台帳の情報の欄
+    await openEditForm(page, legacyName);
+    await ledgerHeader(page).click();
+    await expect(page.getByLabel('読取の確認', { exact: true })).toHaveValue('CONFIRMED');
+    await expect(page.getByTestId('ledger-reading-confirmation')).toHaveText(summary);
+
+    // 明細行を変えずに送り直しても、確認済みのまま経路は空で保たれる（推し量って埋めない）
+    await page.getByLabel('見積番号', { exact: true }).fill('Q-LEGACY-1');
+    expect((await submitUpdate(page, legacy.id)).status()).toBe(200);
+    await expectFormClosed(page);
+    const kept = await prisma.receivedQuotation.findUniqueOrThrow({
+      where: { id: legacy.id },
+      select: {
+        quoteNumber: true,
+        readingStatus: true,
+        readingConfirmedById: true,
+        readingConfirmedAt: true,
+        readingConfirmationRoute: true,
+      },
+    });
+    expect({ ...kept, readingConfirmedAt: kept.readingConfirmedAt?.getTime() }).toEqual({
+      quoteNumber: 'Q-LEGACY-1',
+      readingStatus: 'CONFIRMED',
+      readingConfirmedById: owner.id,
+      readingConfirmedAt: legacyConfirmedAt.getTime(),
+      readingConfirmationRoute: null,
+    });
+    await expect(listRow(page, legacy.id).getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(
+      summary
+    );
+
+    // 見積依頼の詳細の一覧
+    await page.goto(`/estimate-requests/${estimateRequest.id}`);
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const item = page
+      .getByTestId('received-quotation-item')
+      .filter({ hasText: legacyOfRequestName });
+    await expect(item).toHaveCount(1);
+    await expect(item.getByTestId('received-quotation-reading-status')).toHaveText(
+      '読取: 確認済み'
+    );
+    await expect(item.getByTestId(READING_CONFIRMATION_TEST_ID)).toHaveText(summary);
+  });
+
+  /**
+   * design の同章の Testing Strategy の E2E の 4。監査ログの画面（`/admin/audit-logs`）の詳細の列の
+   * 「変更前」「変更後」を読む。
+   *
+   * @requirement estimate-request/REQ-46.21
+   */
+  test('監査ログの画面で、確認済みにした更新の記録の前後と、未確認へ戻した更新の記録の前後に経路が入っている', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const admin = await createSessionUser('ADMIN_USER');
+    const project = await createProject(owner, 'route-audit');
+    const prisma = getPrismaClient();
+    const quotationName = `${NAME_PREFIX}経路の監査`;
+    const quotation = await prisma.receivedQuotation.create({
+      data: {
+        projectId: project.id,
+        vendorName: '監査の検証の業者',
+        name: quotationName,
+        submittedAt: new Date('2026-10-18'),
+        lineItems: { create: [{ sortOrder: 0, name: '監査の行', amount: 100 }] },
+      },
+      select: { id: true },
+    });
+
+    await loginAsUser(page, owner);
+    expect(await openProjectQuotations(page, project.id)).toBe(200);
+    await expectListPage(page);
+
+    // 1 回目の更新: 画面で確認済みにする
+    await openEditForm(page, quotationName);
+    await ledgerHeader(page).click();
+    await page.getByLabel('読取の確認', { exact: true }).selectOption({ label: '確認済み' });
+    expect((await submitUpdate(page, quotation.id)).status()).toBe(200);
+    await expectFormClosed(page);
+    // 2 回目の更新: 明細行を変えて未確認へ戻す
+    await openEditForm(page, quotationName);
+    await lineField(page, 1, '金額').fill('150');
+    expect((await submitUpdate(page, quotation.id)).status()).toBe(200);
+    await expectFormClosed(page);
+
+    // この受領見積書の監査の記録は、上の 2 回の更新だけ（DB で用意したため作成の記録は無い）
+    const records = await prisma.auditLog.findMany({
+      where: { targetType: 'ReceivedQuotation', targetId: quotation.id },
+      select: { action: true },
+    });
+    expect(records.map((record) => record.action)).toEqual([
+      'RECEIVED_QUOTATION_UPDATED',
+      'RECEIVED_QUOTATION_UPDATED',
+    ]);
+
+    // 管理者で監査ログの画面を開く
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await loginAsUser(page, admin);
+    const loaded = page.waitForResponse(
+      (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === '/api/v1/audit-logs',
+      { timeout: getTimeout(30000) }
+    );
+    await page.goto('/admin/audit-logs');
+    expect((await loaded).status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: '監査ログ' })).toBeVisible();
+
+    // 対象の列がこの受領見積書の ID の行の、詳細の列の「変更前」「変更後」を読む
+    const rows = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('cell', { name: quotation.id, exact: true }) });
+    await expect(rows).toHaveCount(2);
+    const shown: { before: unknown; after: unknown }[] = [];
+    for (let i = 0; i < 2; i++) {
+      const detail = rows.nth(i).getByRole('cell').nth(4);
+      const readJson = async (label: string): Promise<Record<string, unknown>> => {
+        const text = await detail.locator('div').filter({ hasText: label }).innerText();
+        expect(text.startsWith(label)).toBe(true);
+        return JSON.parse(text.slice(label.length)) as Record<string, unknown>;
+      };
+      const before = await readJson('変更前: ');
+      const after = await readJson('変更後: ');
+      // 経路は項目として前後の両方にある（欠けていない）
+      expect(Object.keys(before)).toContain('readingConfirmationRoute');
+      expect(Object.keys(after)).toContain('readingConfirmationRoute');
+      shown.push({
+        before: [before.readingStatus, before.readingConfirmationRoute],
+        after: [after.readingStatus, after.readingConfirmationRoute],
+      });
+    }
+    // 確認済みにした更新: 前は未確認・経路なし、後は確認済み・経路は画面
+    expect(shown).toContainEqual({
+      before: ['UNCONFIRMED', null],
+      after: ['CONFIRMED', 'SCREEN'],
+    });
+    // 未確認へ戻した更新: 前は確認済み・経路は画面、後は未確認・経路なし
+    expect(shown).toContainEqual({
+      before: ['CONFIRMED', 'SCREEN'],
+      after: ['UNCONFIRMED', null],
+    });
+  });
+
+  /**
+   * design の同章の Testing Strategy の E2E の 5 と 6。
+   *
+   * @requirement estimate-request/REQ-48.9
+   * @requirement estimate-request/REQ-48.10
+   */
+  test('登録・更新・一覧の応答の fileSha256 は試験が求めたファイルの sha256 と同じでファイル無しは null、同じファイルの二度目の登録の 409 は既存の受領見積書の ID を返す', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const project = await createProject(owner, 'sha');
+    const hashA = sha256Of(PDF_A);
+    expect(hashA).toMatch(/^[0-9a-f]{64}$/);
+
+    await loginAsUser(page, owner);
+    expect(await openProjectQuotations(page, project.id)).toBe(200);
+    await expectListPage(page);
+
+    // ファイルの無い登録: 応答の指紋は null
+    const noFileName = `${NAME_PREFIX}指紋-ファイルなし`;
+    await openRegisterForm(page);
+    await page.locator('#quotation-name').fill(noFileName);
+    await vendorInput(page).fill('指紋の業者');
+    await vendorInput(page).press('Escape');
+    await lineField(page, 1, '名称').fill('ファイルなしの行');
+    const noFileResponse = await submitProjectCreate(page, project.id);
+    expect(noFileResponse.status()).toBe(201);
+    const noFileBody = (await noFileResponse.json()) as { id: string; fileSha256: unknown };
+    expect(Object.keys(noFileBody)).toContain('fileSha256');
+    expect(noFileBody.fileSha256).toBeNull();
+    await expectFormClosed(page);
+
+    // ファイルを添えた登録: 応答の指紋は、試験が求めたファイルの sha256
+    const firstName = `${NAME_PREFIX}指紋-原本A`;
+    await openRegisterForm(page);
+    await page.locator('#quotation-name').fill(firstName);
+    await page.locator('#submitted-at').fill('2026-10-07');
+    await vendorInput(page).fill('指紋の業者');
+    await vendorInput(page).press('Escape');
+    await selectFileAndWaitForReading(page, PDF_A, PDF_A_TEXT);
+    const firstResponse = await submitProjectCreate(page, project.id);
+    expect(firstResponse.status()).toBe(201);
+    const firstBody = (await firstResponse.json()) as { id: string; fileSha256: unknown };
+    expect(firstBody.fileSha256).toBe(hashA);
+    await expectFormClosed(page);
+    const first = await findOwnQuotation(project.id, firstName);
+    expect(firstBody.id).toBe(first.id);
+
+    // その後の一覧の応答: ファイルのあるものは同じ指紋、無いものは null
+    const listed = await reloadProjectQuotationList(page, project.id);
+    expect(
+      listed
+        .map((q) => ({ id: q.id, fileSha256: q.fileSha256 }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+    ).toEqual(
+      [
+        { id: first.id, fileSha256: hashA },
+        { id: noFileBody.id, fileSha256: null },
+      ].sort((a, b) => a.id.localeCompare(b.id))
+    );
+    await expectListPage(page);
+
+    // 更新の応答（ファイルは変えない）も同じ指紋
+    await openEditForm(page, firstName);
+    await ledgerHeader(page).click();
+    await page.getByLabel('見積番号', { exact: true }).fill('Q-SHA-1');
+    const updateResponse = await submitUpdate(page, first.id);
+    expect(updateResponse.status()).toBe(200);
+    expect(((await updateResponse.json()) as { fileSha256: unknown }).fileSha256).toBe(hashA);
+    await expectFormClosed(page);
+
+    // 同じファイル・同じ区別（空）の二度目の登録: 409 の本文の existing.id が一度目の受領見積書の ID
+    await openRegisterForm(page);
+    await page.locator('#quotation-name').fill(`${NAME_PREFIX}指紋-二度目`);
+    await vendorInput(page).fill('二度目の業者');
+    await vendorInput(page).press('Escape');
+    await selectFileAndWaitForReading(page, PDF_A, PDF_A_TEXT);
+    const rejected = await submitProjectCreate(page, project.id);
+    expect(rejected.status()).toBe(409);
+    const rejectedBody = (await rejected.json()) as {
+      code: unknown;
+      existing: { id: unknown; name: unknown; vendorName: unknown } | undefined;
+    };
+    expect(rejectedBody.code).toBe('DUPLICATE_ORIGINAL');
+    expect(rejectedBody.existing).toMatchObject({
+      id: first.id,
+      name: firstName,
+      vendorName: '指紋の業者',
+    });
+    // 画面は従来どおり名前・業者名・提出日を示し、登録されない
+    await expect(page.getByTestId('duplicate-original-error')).toContainText(
+      `既存の受領見積書: ${firstName}（業者名: 指紋の業者、提出日: 2026-10-07）`
+    );
+    expect(await ownQuotationNames(project.id)).toEqual([noFileName, firstName].sort());
+  });
+
+  /**
+   * design の同章の Testing Strategy の E2E の 7。見積依頼の詳細からの登録で、項目選択からの一括転記の行と
+   * 端数調整の行を同じ受領見積書に入れる。
+   *
+   * @requirement estimate-request/REQ-45.1
+   * @requirement estimate-request/REQ-45.6
+   * @requirement estimate-request/REQ-45.14
+   * @requirement estimate-request/REQ-45.15
+   * @requirement estimate-request/REQ-45.16
+   */
+  test('区分で端数調整を選んだ正・負・0 の金額の行が保存され、端数調整の小計と別途を除く合計に入り、項目選択から転記した行は直接工事のままになる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const partner = await createPartner('rounding');
+    const project = await createProject(owner, 'rounding');
+    const estimateRequest = await createEstimateRequest(project.id, partner.id, 'rounding');
+
+    await loginAsUser(page, owner);
+    await page.goto(`/estimate-requests/${estimateRequest.id}`);
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '受領見積書登録' }).click();
+    await expect(page.getByText('受領見積書の登録', { exact: true })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // 項目選択からの一括転記の行は直接工事（端数調整にならない）
+    await page.getByTestId('transcription-button').click();
+    await expect(lineField(page, 1, '名称')).toHaveValue('床の張替え');
+    await expect(lineField(page, 2, '名称')).toHaveValue('壁の塗装');
+    for (const row of [1, 2]) {
+      await expect(lineField(page, row, '区分')).toHaveValue('DIRECT');
+    }
+    await lineField(page, 1, '数量').fill('2');
+    await lineField(page, 1, '単価').fill('1000');
+    await lineField(page, 2, '数量').fill('3');
+    await lineField(page, 2, '単価').fill('1000');
+
+    // 区分の選択欄の 8 つ目が端数調整。正・負・0 の金額の行を足す
+    await page.getByRole('button', { name: '行を追加' }).click();
+    await expect(lineField(page, 3, '区分')).toHaveValue('DIRECT');
+    await expect(lineField(page, 3, '区分').locator('option')).toHaveText([
+      '直接工事',
+      '諸経費',
+      '交通費',
+      '産廃',
+      '値引き',
+      '法定福利費',
+      '別途',
+      '端数調整',
+    ]);
+    const roundingRows = [
+      { row: 3, name: '端数調整（切り上げ）', amount: '7' },
+      { row: 4, name: '端数調整（切り捨て）', amount: '-207' },
+      { row: 5, name: '端数調整（なし）', amount: '0' },
+    ];
+    for (const { row, name, amount } of roundingRows) {
+      if (row > 3) {
+        await page.getByRole('button', { name: '行を追加' }).click();
+      }
+      await lineField(page, row, '区分').selectOption({ label: '端数調整' });
+      await expect(lineField(page, row, '区分')).toHaveValue('ROUNDING');
+      await lineField(page, row, '名称').fill(name);
+      await lineField(page, row, '金額').fill(amount);
+    }
+    // 別途の行（合計から除かれるのは別途だけ）
+    await page.getByRole('button', { name: '行を追加' }).click();
+    await lineField(page, 6, '区分').selectOption({ label: '別途' });
+    await lineField(page, 6, '名称').fill('別途の行');
+    await lineField(page, 6, '金額').fill('500');
+
+    // 8 つの小計（端数調整は 7 − 207 + 0 = −200）と、別途を除く合計（5,000 − 200 = 4,800）
+    const subtotalTexts = [
+      '直接工事5,000',
+      '諸経費0',
+      '交通費0',
+      '産廃0',
+      '値引き0',
+      '法定福利費0',
+      '別途500',
+      '端数調整-200',
+    ];
+    const subtotals = page.getByRole('list', { name: '区分ごとの小計' }).getByRole('listitem');
+    await expect(subtotals).toHaveText(subtotalTexts);
+    await expect(page.getByTestId('category-subtotal-ROUNDING')).toHaveText('-200');
+    await expect(page.getByTestId('total-amount')).toHaveText('4,800');
+
+    // 保存できる（端数調整の正の金額・負の金額・0 は拒まれない）
+    const quotationName = `${NAME_PREFIX}端数調整`;
+    await page.locator('#quotation-name').fill(quotationName);
+    const saved = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/estimate-requests/${estimateRequest.id}/quotations`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録', exact: true }).click();
+    const response = await saved;
+    expect(response.status()).toBe(201);
+    // 応答の合計も、端数調整を含み別途を除く
+    expect(((await response.json()) as { totalAmount: unknown }).totalAmount).toBe(4800);
+
+    const quotation = await findOwnQuotation(project.id, quotationName);
+    expect(
+      quotation.lineItems.map((line) => ({
+        name: line.name,
+        category: line.category,
+        amount: line.amount === null ? null : Number(line.amount),
+      }))
+    ).toEqual([
+      { name: '床の張替え', category: 'DIRECT', amount: 2000 },
+      { name: '壁の塗装', category: 'DIRECT', amount: 3000 },
+      { name: '端数調整（切り上げ）', category: 'ROUNDING', amount: 7 },
+      { name: '端数調整（切り捨て）', category: 'ROUNDING', amount: -207 },
+      { name: '端数調整（なし）', category: 'ROUNDING', amount: 0 },
+      { name: '別途の行', category: 'EXCLUDED', amount: 500 },
+    ]);
+
+    // 編集を開き直しても、区分・金額・小計・合計が戻る
+    const item = page.getByTestId('received-quotation-item').filter({ hasText: quotationName });
+    await expect(item).toHaveCount(1, { timeout: getTimeout(15000) });
+    await item.getByRole('button', { name: '編集', exact: true }).click();
+    await expect(page.locator('#quotation-name')).toHaveValue(quotationName, {
+      timeout: getTimeout(10000),
+    });
+    for (const { row, amount } of roundingRows) {
+      await expect(lineField(page, row, '区分')).toHaveValue('ROUNDING');
+      await expect(lineField(page, row, '金額')).toHaveValue(amount);
+    }
+    await expect(lineField(page, 1, '区分')).toHaveValue('DIRECT');
+    await expect(lineField(page, 2, '区分')).toHaveValue('DIRECT');
+    await expect(subtotals).toHaveText(subtotalTexts);
+    await expect(page.getByTestId('total-amount')).toHaveText('4,800');
   });
 });

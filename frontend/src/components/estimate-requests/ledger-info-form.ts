@@ -5,11 +5,16 @@
  * 検証の規則と文言はサーバーの検証（受領見積書の台帳の項目の検証）と同じにそろえる。
  *
  * 根拠: 46.1, 46.2, 46.3, 46.6, 48.2（estimate-request のタスク117.3）
+ *
+ * タスク124.1: 読取の確認の経路の表示名と、確認者・日時・経路の要約の文字を足す
+ * （46.19, 46.20。design の章「Requirements 45.14〜45.16・46.12〜46.21・48.9〜48.11」の D21）
  */
 
+import { formatDateTime } from '../../utils/formatters';
 import type {
   ConstructionKind,
   QuotationAdoption,
+  ReadingConfirmationRoute,
   ReadingStatus,
   ReceivedQuotationInfo,
   ReceivedQuotationLedgerInput,
@@ -29,6 +34,46 @@ export const READING_STATUS_LABELS: Readonly<Record<ReadingStatus, string>> = {
   UNCONFIRMED: '未確認',
   CONFIRMED: '確認済み',
 };
+
+/** 読取の確認の経路の表示名（46.19）。フォームの台帳の情報の欄と一覧の札が使う */
+export const READING_CONFIRMATION_ROUTE_LABELS: Readonly<Record<ReadingConfirmationRoute, string>> =
+  {
+    SCREEN: '画面',
+    LEDGER_IMPORT: '台帳の取り込み',
+    ARCHIBENCH: 'ArchiBench',
+  };
+
+/** 追補の前に確認済みになった受領見積書（経路が null）の表示の文字（46.20） */
+export const READING_ROUTE_NOT_RECORDED_TEXT = '経路の記録なし';
+
+/** 確認の要約の入力 */
+export interface ReadingConfirmationSummaryInput {
+  /** 確認者の表示名。名前を引けないとき（確認者の利用者が消えた）は null で、「—」と出す */
+  confirmedByName: string | null | undefined;
+  /** 確認の日時。記録が無いときは「—」と出す */
+  confirmedAt: Date | null;
+  /**
+   * 読取の確認の経路。null は追補の前の確認済み（経路の記録なし）。
+   * 渡さない（undefined）と経路に触れない従来の文字にする（単価台帳の画面の表示を変えない）
+   */
+  route?: ReadingConfirmationRoute | null;
+}
+
+/**
+ * 確認者・日時・経路の要約の文字を作る（46.19・46.20）。
+ * フォームの台帳の情報の欄と一覧の読取の確認の札の両方が使う
+ */
+export function formatReadingConfirmationSummary({
+  confirmedByName,
+  confirmedAt,
+  route,
+}: ReadingConfirmationSummaryInput): string {
+  const confirmedAtText = confirmedAt ? formatDateTime(confirmedAt.toISOString()) : '—';
+  const base = `確認者: ${confirmedByName || '—'}　確認日時: ${confirmedAtText}`;
+  if (route === undefined) return base;
+  if (route === null) return `${base}　${READING_ROUTE_NOT_RECORDED_TEXT}`;
+  return `${base}　経路: ${READING_CONFIRMATION_ROUTE_LABELS[route]}`;
+}
 
 /** 改修／新営の文字（46.2）。使い手は {@link ADOPTION_LABELS} と同じ */
 export const CONSTRUCTION_KIND_LABELS: Readonly<Record<ConstructionKind, string>> = {
