@@ -767,6 +767,104 @@ describe('ReceivedQuotationService', () => {
         'quotations/er-001/rq-001/旧見積書.pdf'
       );
     });
+
+    describe('同じファイル名での差し替え（2026-11-21 の不具合の是正）', () => {
+      const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
+      const OLD_PATH = 'quotations/er-001/rq-001/見積書.pdf';
+      const sameNameFile = {
+        buffer: Buffer.from('差し替えた PDF の中身'),
+        originalName: '見積書.pdf',
+        mimeType: 'application/pdf',
+        size: 15000,
+      };
+      const current = {
+        id: 'rq-001',
+        estimateRequestId: 'er-001',
+        projectId: 'project-001',
+        name: '受領見積書',
+        submittedAt: new Date('2026-01-23'),
+        filePath: OLD_PATH,
+        fileName: '見積書.pdf',
+        fileMimeType: 'application/pdf',
+        fileSize: 10000,
+        createdAt: new Date('2026-01-22T00:00:00Z'),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      };
+
+      const setupTx = (options: { failOnCommit: boolean }) => {
+        const update = vi.fn().mockImplementation(({ data }: { data: { filePath?: string } }) =>
+          Promise.resolve({
+            ...current,
+            ...data,
+            fileName: '見積書.pdf',
+            updatedAt: new Date('2026-01-23T01:00:00Z'),
+          })
+        );
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
+            receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
+              findUnique: vi.fn().mockResolvedValue(current),
+              update,
+            },
+          };
+          const result = await fn(txClient as unknown as PrismaClient);
+          if (options.failOnCommit) {
+            throw new Error('確定の失敗');
+          }
+          return result;
+        });
+        return update;
+      };
+
+      it('差し替えのファイルを今の格納先とは別の格納先へ送り、新しいファイルを取り除かず、旧ファイルだけを取り除く', async () => {
+        const update = setupTx({ failOnCommit: false });
+
+        await service.update('rq-001', { file: sameNameFile }, expectedUpdatedAt, ACTOR_ID);
+
+        expect(mockStorageProvider.upload).toHaveBeenCalledTimes(1);
+        const uploadedPath = vi.mocked(mockStorageProvider.upload).mock.calls[0]![0];
+        expect(uploadedPath).not.toBe(OLD_PATH);
+        expect(uploadedPath.startsWith('quotations/er-001/rq-001/')).toBe(true);
+        expect(uploadedPath.endsWith('/見積書.pdf')).toBe(true);
+        expect(update.mock.calls[0]![0].data.filePath).toBe(uploadedPath);
+        expect(mockStorageProvider.delete).toHaveBeenCalledTimes(1);
+        expect(mockStorageProvider.delete).toHaveBeenCalledWith(OLD_PATH);
+      });
+
+      it('同じファイル名で 2 度続けて差し替えても、毎回いまの格納先と違う格納先へ送る', async () => {
+        setupTx({ failOnCommit: false });
+        await service.update('rq-001', { file: sameNameFile }, expectedUpdatedAt, ACTOR_ID);
+        const firstPath = vi.mocked(mockStorageProvider.upload).mock.calls[0]![0];
+
+        current.filePath = firstPath;
+        try {
+          vi.mocked(mockStorageProvider.upload).mockClear();
+          vi.mocked(mockStorageProvider.delete).mockClear();
+          setupTx({ failOnCommit: false });
+          await service.update('rq-001', { file: sameNameFile }, expectedUpdatedAt, ACTOR_ID);
+        } finally {
+          current.filePath = OLD_PATH;
+        }
+
+        const secondPath = vi.mocked(mockStorageProvider.upload).mock.calls[0]![0];
+        expect(secondPath).not.toBe(firstPath);
+        expect(mockStorageProvider.delete).toHaveBeenCalledWith(firstPath);
+        expect(mockStorageProvider.delete).not.toHaveBeenCalledWith(secondPath);
+      });
+
+      it('トランザクションの確定に失敗したら、旧ファイルを取り除かない', async () => {
+        setupTx({ failOnCommit: true });
+
+        await expect(
+          service.update('rq-001', { file: sameNameFile }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toThrow('確定の失敗');
+
+        expect(mockStorageProvider.delete).not.toHaveBeenCalledWith(OLD_PATH);
+      });
+    });
   });
 
   describe('delete', () => {
