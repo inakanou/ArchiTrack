@@ -361,15 +361,22 @@ interface ListedQuotation {
   readingConfirmationRoute: string | null;
 }
 
-/** 案件の受領見積書の一覧の画面を開き直し、一覧の取得の応答の本文を返す（200 でなければ失敗） */
+/**
+ * 案件の受領見積書の一覧の画面を開き直し、一覧の取得の応答の本文を返す（200 でなければ失敗）
+ *
+ * 開き直す前のページが保存の後に一覧を取り直していると、その応答を先に受けることがある。その応答の本文は
+ * 開き直しで捨てられて読めないため、開き直しを始めた後に送られた要求の応答だけを待つ
+ */
 async function reloadProjectQuotationList(
   page: Page,
   projectId: string
 ): Promise<ListedQuotation[]> {
+  const navigationStartedAt = Date.now();
   const loaded = page.waitForResponse(
     (r) =>
       r.request().method() === 'GET' &&
-      new URL(r.url()).pathname === `/api/projects/${projectId}/quotations`,
+      new URL(r.url()).pathname === `/api/projects/${projectId}/quotations` &&
+      r.request().timing().startTime >= navigationStartedAt,
     { timeout: getTimeout(30000) }
   );
   await page.goto(`/projects/${projectId}/quotations`);
