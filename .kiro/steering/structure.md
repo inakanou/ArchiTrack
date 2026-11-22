@@ -108,7 +108,6 @@ ArchiTrack/
 │   ├── Dockerfile          # 本番環境Dockerイメージ
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
-│   ├── railway.toml        # Railway デプロイ設定
 │   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
@@ -137,7 +136,6 @@ ArchiTrack/
 │   ├── vitest.config.ts    # Vitest設定
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
 │   ├── docker-entrypoint.sh # Docker起動時依存関係チェック
-│   ├── railway.toml        # Railway デプロイ設定
 │   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
@@ -731,7 +729,6 @@ frontend/
 ├── Dockerfile             # 本番環境用（nginx）
 ├── Dockerfile.dev         # 開発環境用（Vite dev server）
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
-├── railway.toml           # Railway デプロイ設定
 ├── nginx.conf             # nginx本番環境設定（API の中継、アクセスログの形式）
 ├── nginx-security-headers.conf # セキュリティヘッダー（CSP・HSTS 等）のテンプレート
 ├── nginx-proxy-params.conf # API の中継の共通の設定
@@ -1140,7 +1137,6 @@ backend/
 ├── vitest.setup.ts        # Vitestセットアップスクリプト
 ├── Dockerfile.dev         # 開発環境用Dockerイメージ
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック
-├── railway.toml           # Railway デプロイ設定
 ├── package.json           # 依存関係（lint-staged設定を含む）
 ├── eslint.config.js       # ESLint設定（Flat Config形式、vitest.config.ts除外）
 ├── .prettierrc            # Prettier設定（プロジェクトルートからコピー、CI互換性確保）

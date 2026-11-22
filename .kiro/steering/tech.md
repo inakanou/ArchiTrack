@@ -158,7 +158,7 @@ ArchiTrack/
 - `frontend/Dockerfile` - 本番環境用Dockerイメージ
 - `frontend/Dockerfile.dev` - 開発環境用Dockerイメージ
 - `frontend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
-- `frontend/railway.toml` - Railway デプロイ設定
+- `.railway/railway.ts` - Railway デプロイ設定（IaC。backend と共用）
 
 ### 対応ブラウザ
 
@@ -323,7 +323,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `.husky/` - Git フック設定ディレクトリ
 - `backend/Dockerfile.dev` - 開発環境用Dockerイメージ
 - `backend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
-- `backend/railway.toml` - Railway デプロイ設定
+- `.railway/railway.ts` - Railway デプロイ設定（IaC。frontend と共用）
 
 ## データベース・キャッシュ
 
@@ -1378,7 +1378,7 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 - **PostgreSQL**: RailwayマネージドPostgreSQL 15
 - **Redis**: RailwayマネージドRedis 7
 
-各サービスの環境変数はRailway UIまたは `railway.toml` で管理します。
+各サービスの環境変数はRailway UIで管理します（`.railway/railway.ts` は環境変数を管理しません）。
 
 ### Dependabot 自動依存関係管理
 

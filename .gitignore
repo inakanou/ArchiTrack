@@ -77,8 +77,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Railway
-.railway/
+# Railway（IaC の定義だけを追跡する）
+.railway/*
+!.railway/railway.ts
 
 /generated/prisma
 /src/generated/
