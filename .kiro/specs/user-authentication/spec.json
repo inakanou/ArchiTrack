@@ -2,9 +2,9 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "implementation-complete",
+  "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-11-14T00:00:00Z",
+  "updated_at": "2026-11-22T00:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -190,6 +190,54 @@
       ],
       "tasks_added": ["66.1", "67.1", "68.1"],
       "decision": "利用者の判断 2026-10-30「推奨案で進める」。各業務 spec の解決関数とサービスの照合の切り替え（design.md の起票先の一覧）と、見積依頼文のコピーへの適用は各 spec のタスクで行う"
+    },
+    "requirement_update_2026_11_22": {
+      "updated_at": "2026-11-22T00:00:00Z",
+      "description": "外部アプリの認可（OAuth 2.1、2FA を通る同意、外部アプリ用トークン、接続の一覧と取り消し、監査、利用者単位の回数制限）。2026-11-22 に利用者が承認",
+      "new_requirements_added": ["46", "47", "48", "49", "50", "51"],
+      "revised_criteria": ["33.1", "33.3"],
+      "decisions": [
+        "接続できるのは権限「外部アプリの接続」を持つ利用者",
+        "接続を申し込めるのは運用者が許可した一覧のアプリ（最初は Claude）",
+        "接続は未使用30日・同意から最長90日",
+        "操作の範囲は読み取り（必須）と書き込み（任意）",
+        "全デバイスのログアウトでも接続を切り、1端末のログアウトでは切らない",
+        "システム管理者は全利用者の接続を一覧・取り消しできる",
+        "回数制限の既定は利用者ごとに1分120回",
+        "同意のたびに2FAを求める",
+        "外部アプリ用アクセストークンの有効期限は15分（画面用に合わせた）",
+        "外部アプリ用リフレッシュトークンの再利用は、30 秒以内・後継が未使用・クライアント認証の成功に限り猶予する（要件48.11。当初の猶予なしの決定を 2026-11-22 に利用者の判断で改めた）"
+      ]
+    },
+    "design_update_2026_11_22": {
+      "updated_at": "2026-11-22T00:00:00Z",
+      "new_requirements_designed": ["46", "47", "48", "49", "50", "51"],
+      "updated_requirements_designed": ["33.1", "33.3"],
+      "sections_added": ["Requirements 46-51: 外部アプリの認可（OAuth 2.1）"],
+      "research_log": "research.md（要件46〜51 の節）",
+      "decision": "2026-11-22 に利用者が設計を承認。Claude への接続は事前登録（client ID と secret の入力）とする",
+      "revision": "タスク計画の独立点検の指摘 4 件を、利用者の指示で反映した（手続きの Cookie の到達、リフレッシュトークンの発行、再開の経路、再利用の通知）。トークンの失効の窓口の無効化を含めて 2026-11-22 に利用者が再承認",
+      "gate_policy_changes": [
+        "check:design-component-reqs の user-authentication を minPairs 62 / minTableDeclarations 62 / minDetailDeclarations 45 へ"
+      ],
+      "unverified": [
+        "PostgreSQL の上での認可サーバーの保存・行ロック・Grant ごとの直列化（タスク73）",
+        "Claude の同時 refresh の有無（4 回の更新では起きなかったが断定しない）",
+        "Claude が prompt=consent を送るか（観測のログに残していない）"
+      ]
+    },
+    "tasks_generation_2026_11_22": {
+      "generated_at": "2026-11-22T00:00:00Z",
+      "mode": "merge",
+      "scope": "要件33.1・33.3・46〜51（受入基準 55 件）",
+      "major_tasks_added": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"],
+      "sub_tasks_added": 32,
+      "parallel_tasks_identified": 3,
+      "sanity_review": "independent。指摘の反映と再実行を利用者の判断で繰り返し、最後の全体の点検で PASS",
+      "decision": "2026-11-22 に利用者がタスクを承認",
+      "revision_after_70_2": "Claude 実機の観測に基づき、利用者の判断で要件48.6 を改め 48.11（30 秒の猶予）を加え、51.7 に猶予の適用の監査を足した。offline_access の付与と client_secret_post を設計へ反映した",
+      "revision_after_70_1": "タスク70.1 の検証で判明した 3 点（Grant があるときだけトークンを保存、認可サーバーのセッションを使わない、provider.proxy）を、利用者の承認を得て design.md とタスク73.2・73.3・79.1 へ反映した",
+      "push_policy": "check:req-coverage はタスク79.4 まで通らないため、1 本のブランチで進め、79.4 の完了まで push しない"
     },
     "requirement_update_2026_11_14": {
       "updated_at": "2026-11-14T00:00:00Z",

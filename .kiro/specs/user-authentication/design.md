@@ -6540,3 +6540,855 @@ model Project {
 3. staging で確認: `req.ip` が自分の公開 IP と一致すること、再読み込みでログインが保たれること、主要画面で CSP の違反が無いこと
 4. backend の公開ドメインを閉じる（是正計画の運用作業 O4 に追記する）
 5. 利用者への告知: 全員の再ログインと 2FA の登録
+
+---
+
+## Requirements 46-51: 外部アプリの認可（OAuth 2.1）
+
+### 概要
+
+本章は、Claude などの外部アプリが利用者の同意に基づいて本システムを利用するための認可の仕組みを定める。利用者は既存のログインと 2FA を通って同意し、外部アプリには利用者本人の権限と閲覧範囲に収まる短命のトークンだけが渡る。
+
+利用者は連携中のアプリを一覧して取り消せる。システム管理者は全利用者の接続を一覧して取り消せる。パスワードの変更や全デバイスのログアウトなど信頼の前提が変わる操作では、接続も同じトランザクションで失効する。
+
+既存の画面用の JWT の発行と検証は変えない。外部アプリ用トークンは別の系統とし、互いの経路では使えない（33.1、33.3 の改訂）。
+
+### Goals
+
+- 既製の認可サーバーのライブラリを Express に載せ、OAuth 2.1 の認可コードフロー（PKCE S256 必須）を提供する
+- 許可した外部アプリと、権限を持つ利用者だけが接続できる
+- 取り消しと失効が次の要求から直ちに効く
+- claude-connector が使うトークンの検証の入口を一つに定める
+
+### Non-Goals
+
+- MCP の窓口（`/mcp`）、操作の一覧、Protected Resource Metadata の配信（claude-connector）
+- 個々の業務操作への閲覧範囲と出力記録の適用（claude-connector）
+- OpenID Connect の利用者情報の提供、外部の ID プロバイダーによるログイン
+- 動的クライアント登録と Client ID Metadata Document の受け付け
+- 許可するアプリの管理画面（運用者が環境変数で管理する）
+
+### Boundary Commitments
+
+#### This Spec Owns
+
+- 認可・トークンの窓口と、認可サーバーのメタデータ
+- 接続（`ExternalAppConnection`）と認可サーバーの保存データ（`OAuthStoreRecord`）
+- 同意の画面、連携中のアプリの画面、接続の管理画面
+- 外部アプリ用トークンの検証の契約（`ExternalAppPrincipal`、`authenticateExternalApp`、`requireExternalScope`）
+- 利用者単位の回数制限と、接続に関する監査・通知
+
+#### Out of Boundary
+
+- `/mcp` の中継、MCP の要求の処理、Protected Resource Metadata の本文（claude-connector）
+- 業務データの読み書きの規則（各業務 spec）
+- 画面用のトークンの発行・検証・回転の規則（要件33 のまま）
+
+#### Allowed Dependencies
+
+- 既存の `TokenService`、`AuthService`、`TwoFactorService`、`RBACService`、`AuditLogService`、`AdminNotificationService`、`SecurityAnomalyMonitor`、Prisma、Redis
+- 外部ライブラリ `oidc-provider` 9.15 系（新規の依存）
+- 依存の方向は Types → Config → OAuthStoreAdapter → ExternalAppConnectionService → OAuthProviderHost → ConsentInteractionService・ExternalAppTokenVerifier → Middleware → Routes → UI とする。`OAuthStoreAdapter` は上位の部品を参照せず、再利用の通知は `OAuthProviderHost` が組み立て時に注入するコールバックで受け渡す
+- 既存の認証サービスは `ExternalAppConnectionService` の失効の入口だけを呼び、`oidc-provider` を直接参照しない
+
+#### Revalidation Triggers
+
+- `ExternalAppPrincipal` の形、`authenticateExternalApp` のエラー応答、操作の範囲の値の変更（claude-connector の再確認）
+- リソースの URL（`OAUTH_RESOURCE_URL`）、発行者（`OAUTH_ISSUER`）の変更（Claude 側の接続の作り直し）
+- 許可するアプリの追加と、そのクライアント情報の変更
+- `oidc-provider` のメジャー更新、および保存アダプターの契約の変更
+- nginx の中継先の変更
+
+### 既存設計との関係
+
+| 既存 | 関係 |
+|---|---|
+| 要件33 | 33.1・33.3 を改訂。外部アプリ用トークンは不透明な値で JWT として解釈できないため、画面用 API は変更なしで 401 を返す |
+| 要件34 | 同意の API は既存の認証ミドルウェアを通すため、パスワード変更や 2FA 登録を求められている利用者は進めない |
+| 要件35 | 同意の 2FA に同じ試行制限とアカウントのロックを適用する |
+| 要件36 | 外部アプリの利用では `lastLoginAt` を更新しない |
+| 要件39・40 | 判定の部品を claude-connector が呼ぶ。出力記録に外部アプリの欄を足す |
+| 要件43 | 再利用の検知を新しい信号として通知する |
+
+### Architecture
+
+#### Existing Architecture Analysis
+
+- 公開オリジンでは nginx が `/api/` と `/csrf-token` だけを backend へ中継する。OAuth の経路の中継を足す
+- nginx は Host を backend へ渡さない。URL の組み立てには要求のヘッダーを使わず、`OAUTH_ISSUER` を正とする
+- ログインのリフレッシュ Cookie は `/api/v1/auth` に限られ、`/oauth` では利用者を識別できない。そのため同意は SPA の画面で行い、画面用のアクセストークンで API を呼ぶ
+- `express.json()` より前に認可サーバーを載せる必要がある。既存の `claude-vision` と同じく本文の解析の前に置く
+- CSP の `form-action 'self'` が外部への遷移を止めうるため、同意はフォーム送信にせず、API の応答の URL へ画面から遷移する
+- 認可サーバーは手続きの Cookie の Path を同意の URL のパスに設定し、この Cookie が無いと手続きを読めない。そのため同意の URL を backend の `/oauth/interaction/:uid` とし、ここから SPA の画面へ転送する。同意の API をこの経路の下に置くことで Cookie が届く。Cookie の Path を設定で上書きする方法と、`uid` だけで手続きを引く方法は採らない。後者はブラウザとの結び付きが失われる
+
+#### Architecture Pattern & Boundary Map
+
+```mermaid
+graph TB
+    Claude[Claude connector client]
+    Browser[User browser]
+    subgraph Edge
+        Nginx[nginx]
+    end
+    subgraph Frontend
+        ConsentPage[ConsentPage]
+        ConnectedAppsPage[ConnectedAppsPage]
+        AdminConnectionsPage[AdminConnectionsPage]
+    end
+    subgraph Backend
+        OAuthProviderHost[OAuthProviderHost]
+        ExternalAppRoutes[ExternalAppRoutes]
+        ConsentInteractionService[ConsentInteractionService]
+        SecondFactorVerifier[SecondFactorVerifier]
+        ExternalAppConnectionService[ExternalAppConnectionService]
+        ExternalAppTokenVerifier[ExternalAppTokenVerifier]
+        ExternalAppAuthMiddleware[ExternalAppAuthMiddleware]
+        OAuthStoreAdapter[OAuthStoreAdapter]
+    end
+    Database[PostgreSQL]
+    Redis[Redis]
+    Connector[claude-connector]
+
+    Claude --> Nginx
+    Browser --> Nginx
+    Nginx --> OAuthProviderHost
+    Nginx --> ExternalAppRoutes
+    Browser --> ConsentPage
+    ConsentPage --> ExternalAppRoutes
+    ConnectedAppsPage --> ExternalAppRoutes
+    AdminConnectionsPage --> ExternalAppRoutes
+    ExternalAppRoutes --> ConsentInteractionService
+    ExternalAppRoutes --> ExternalAppConnectionService
+    ConsentInteractionService --> SecondFactorVerifier
+    ConsentInteractionService --> OAuthProviderHost
+    ConsentInteractionService --> ExternalAppConnectionService
+    OAuthProviderHost --> OAuthStoreAdapter
+    OAuthProviderHost --> ExternalAppConnectionService
+    OAuthStoreAdapter --> Database
+    ExternalAppConnectionService --> Database
+    SecondFactorVerifier --> Redis
+    Connector --> ExternalAppAuthMiddleware
+    ExternalAppAuthMiddleware --> ExternalAppTokenVerifier
+    ExternalAppTokenVerifier --> OAuthStoreAdapter
+    ExternalAppTokenVerifier --> ExternalAppConnectionService
+```
+
+**主な設計判断**
+
+- **ライブラリの採用**: 認可サーバーは自作せず `oidc-provider` を使う。単一プロセスで Express に載り、ログインの画面を外部化できる。Ory Hydra と Keycloak は別サービスの運用が増えるため採らない
+- **クライアントの制限**: 事前登録の confidential client だけを受け付け、動的登録と Client ID Metadata Document は無効にする。Claude には「自前の OAuth クライアント」として client ID と secret を入力する
+- **トークンの形式**: アクセストークンは不透明な値とし、要求ごとに保存データを引く。JWT では取り消しが次の要求から効かないため採らない
+- **保存先**: トークンと接続を PostgreSQL に置く。既存のパスワード変更などと同じトランザクションで失効できるため、Redis には置かない
+- **発行者**: 公開オリジンの直下を発行者とし、経路を `/oauth/*` に置く。パス付きの発行者ではメタデータの探索先と一致しないため採らない
+- **同意の要求の範囲**: 外部アプリには `read write` を要求させ、同意画面で利用者が `write` を外せるようにする。OAuth では要求されていない範囲を付与できないため、`read` だけを要求させると画面で書き込みを選べない
+
+#### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|---|---|---|---|
+| Backend | oidc-provider 9.15 系 | 認可・トークンの窓口 | 新規。MIT、ESM。koa を内部で使う |
+| Backend | Express 5 | 認可サーバーの載せ先 | 既存 |
+| Data | PostgreSQL + Prisma | 接続と保存データ | テーブルを 2 つ追加 |
+| Data | Redis | 同意の 2FA の通過の印、回数制限 | 既存 |
+| Frontend | React + React Router | 同意・一覧・管理の画面 | 既存 |
+| Infrastructure | nginx | `/oauth/` と認可サーバーのメタデータの中継 | 設定の追加 |
+
+### File Structure Plan
+
+#### Directory Structure
+
+```text
+backend/src/oauth/provider.ts                                    # 新設予定: 認可サーバーの設定と Express への搭載
+backend/src/oauth/store-adapter.ts                               # 新設予定: 保存アダプター（値の HMAC 化と再利用の検知）
+backend/src/oauth/client-registry.ts                             # 新設予定: 許可するアプリの読み込みと検証
+backend/src/oauth/oauth.types.ts                                 # 新設予定: 操作の範囲・主体・エラーの型
+backend/src/oauth/request-context.ts                             # 新設予定: 認可の窓口の要求の送信元を保存アダプターの通知へ渡す文脈
+backend/src/services/oauth-consent.service.ts                    # 新設予定: 同意の手続き
+backend/src/services/second-factor-verifier.service.ts           # 新設予定: 2FA の検証と失敗の計数の共通部品
+backend/src/services/external-app-connection.service.ts          # 新設予定: 接続の作成・一覧・失効・監査
+backend/src/services/external-app-token-verifier.service.ts      # 新設予定: 外部アプリ用トークンの検証
+backend/src/middleware/external-app-auth.middleware.ts           # 新設予定: 認証・範囲の確認・回数制限
+backend/src/middleware/require-system-admin.middleware.ts        # 新設予定: システム管理者ロールの確認
+backend/src/routes/external-app.routes.ts                        # 新設予定: 同意・一覧・取り消しの API
+backend/src/jobs/external-app-maintenance.job.ts                 # 新設予定: 期限切れの失効と許可一覧の照合
+frontend/src/api/external-apps.ts                                # 新設予定: API クライアント
+frontend/src/pages/OAuthConsentPage.tsx                          # 新設予定: 同意の画面
+frontend/src/pages/ConnectedAppsPage.tsx                         # 新設予定: 連携中のアプリの画面
+frontend/src/pages/AdminExternalAppConnectionsPage.tsx           # 新設予定: 接続の管理画面
+```
+
+#### Modified Files
+
+- `backend/src/app.ts` — 本文の解析の前に認可サーバーを載せ、`external-app.routes` を登録する
+- `backend/src/services/auth.service.ts` — 2FA の検証と失敗の計数を共通部品へ移す。`logoutAll` は新しいトランザクションで利用者のリフレッシュトークンのロックを先に取り、リフレッシュトークンと接続を同じトランザクションで失効させる
+- `backend/src/routes/session.routes.ts` — `DELETE /api/v1/auth/sessions` も全デバイスのログアウトであるため、`logoutAll` と同じ失効と監査の処理を通す
+- `backend/src/routes/auth.routes.ts`、`backend/src/routes/user-roles.routes.ts`、`backend/src/routes/roles.routes.ts` — パスワードの変更・リセット、利用者を消す処理、ロールと権限の解除（一括の置き換えを含む）へ `RequestContext` を渡し、接続の失効の監査に送信元 IP を残す（51.7）。要求の無い定期処理の失効では送信元 IP を null として記録する
+- `backend/.env.example`、`docker-compose.test.yml`、`docker-compose.ci.yml`、`.github/workflows/ci.yml` — 試験用の `OAUTH_*` の値を足し、E2E と CI で認可の窓口が載るようにする
+- `backend/src/services/password.service.ts` — パスワードの更新のトランザクションで接続を失効させる
+- `backend/src/services/account-status.service.ts` — 無効化のトランザクションで接続を失効させる
+- `backend/src/services/user-role.service.ts` — 利用者を消す処理とロールの解除のトランザクションで接続を失効させる
+- `backend/src/services/role-permission.service.ts` — 権限の解除のトランザクションで接続を失効させる
+- `backend/src/services/export-audit.service.ts` — 出力記録に外部アプリの欄を足す（API の本文では受けない）
+- `backend/src/services/admin-notification.service.ts` — 通知の種類を足す
+- `backend/src/services/security-anomaly-monitor.service.ts` — 再利用の検知の信号を足す
+- `backend/src/types/audit-log.types.ts` — 監査の種別を足す
+- `backend/src/utils/url-query-redaction.ts` — `state`、`code_verifier` などをログから伏せる
+- `backend/src/utils/seed-helpers.ts` — 権限 `external_app:connect` を足す
+- `backend/src/jobs/scheduled-job-runner.ts` — 定期処理を登録する
+- `backend/prisma/schema.prisma` — モデルを 2 つ足す
+- `frontend/nginx.conf` — `/oauth/` と認可サーバーのメタデータを中継する
+- `frontend/src/routes.tsx` — 3 つの画面を登録する
+- `frontend/src/utils/audit-log-actions.ts` — 監査の種別の表示名を足す
+
+### System Flows
+
+#### 接続の同意
+
+```mermaid
+sequenceDiagram
+    participant App as Claude
+    participant Browser
+    participant AS as OAuthProviderHost
+    participant UI as ConsentPage
+    participant API as ExternalAppRoutes
+    participant Svc as ConsentInteractionService
+
+    App->>Browser: 認可の要求へ誘導
+    Browser->>AS: authorize
+    AS->>AS: アプリ 戻り先 PKCE を検証
+    AS->>Browser: 手続きの Cookie を設定して同意の URL へ遷移
+    Browser->>API: 同意の URL を開く
+    API->>Browser: 画面へ転送
+    Browser->>UI: 画面を開く
+    UI->>UI: 未ログインならログインして戻る
+    UI->>API: 申し込みの内容を取得
+    API->>Svc: 権限と状態を確認
+    UI->>API: 2FA コードを送信
+    API->>Svc: 検証して通過の印を記録
+    UI->>API: 範囲を選んで同意
+    API->>Svc: 通過の印を消費して接続を作成
+    Svc-->>UI: 再開の URL
+    UI->>AS: 再開の URL へ遷移
+    AS->>App: 認可コードを戻り先へ返す
+    App->>AS: コードと検証値でトークンを取得
+```
+
+- 通過の印は申し込みと利用者に結び付け、5 分で切れ、同意で 1 回だけ消費する
+- 既存の 2FA 待ちの資格は流用しない。流用するとログイン用トークンの取得に使える形になるためである
+
+#### 接続の状態
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: 同意
+    Active --> Active: 利用または更新
+    Active --> Replaced: 再度の同意
+    Active --> Revoked: 取り消しまたは利用者の状態の変化
+    Active --> Expired: 未使用30日または同意から90日
+    Active --> Active: 猶予に当たる再提示
+    Active --> ReuseDetected: 猶予に当たらない使用済みの値の再提示
+    Replaced --> [*]
+    Revoked --> [*]
+    Expired --> [*]
+    ReuseDetected --> [*]
+```
+
+終了した接続の行とトークンは削除し、経緯は監査ログに残す。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 33.1 | 画面用 API で外部アプリ用トークンを拒否 | TokenService | 既存の検証 | — |
+| 33.3 | 経路ごとの発行者と想定利用者の確認 | TokenService, ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
+| 46.1 | OAuth 2.1 の認可コードフロー | OAuthProviderHost | authorize, token | 接続の同意 |
+| 46.2 | 権限を持つ利用者だけが接続 | ConsentInteractionService, ExternalAppRoutes | getInteraction, approve | 接続の同意 |
+| 46.3 | 権限が無いときの拒否と表示 | ConsentInteractionService, ConsentPage | getInteraction | 接続の同意 |
+| 46.4 | 許可したアプリだけを受け付け | ExternalAppClientRegistry, OAuthProviderHost | loadAllowedClients | 接続の同意 |
+| 46.5 | 不正なアプリと戻り先を遷移させない | OAuthProviderHost, ExternalAppClientRegistry | authorize | 接続の同意 |
+| 46.6 | 自己登録の拒否 | OAuthProviderHost | 登録の窓口を持たない | — |
+| 46.7 | 制限中の利用者は接続を作れない | ConsentInteractionService, ExternalAppRoutes | approve | 接続の同意 |
+| 47.1 | 未ログインならログインして戻る | ConsentPage, ConsentInteractionService | getInteraction | 接続の同意 |
+| 47.2 | 同意のたびに 2FA を求める | ConsentInteractionService, SecondFactorVerifier | verifySecondFactor | 接続の同意 |
+| 47.3 | 2FA の失敗の制限と監査 | SecondFactorVerifier, ExternalAppRoutes | verify | 接続の同意 |
+| 47.4 | 同意画面の表示項目 | ConsentPage, ConsentInteractionService | getInteraction | 接続の同意 |
+| 47.5 | 読み取りは必須、書き込みは既定で未選択 | ConsentPage | approve | 接続の同意 |
+| 47.6 | 接続の作成とコードの返却 | ConsentInteractionService, ExternalAppConnectionService, OAuthProviderHost | approve | 接続の同意 |
+| 47.7 | 拒否の返却 | ConsentInteractionService | deny | 接続の同意 |
+| 47.8 | 再度の同意で置き換え | ExternalAppConnectionService | createOrReplace | 接続の状態 |
+| 47.9 | 認可コードの条件 | OAuthProviderHost, OAuthStoreAdapter | token | 接続の同意 |
+| 47.10 | 使用済みコードの再提示で無効化 | OAuthStoreAdapter | find, consume | 接続の状態 |
+| 47.11 | CSRF と枠内表示の防止 | ExternalAppRoutes, ConsentPage | approve | — |
+| 48.1 | アクセストークンは 15 分 | OAuthProviderHost | token | — |
+| 48.2 | 未使用 30 日で失効 | ExternalAppConnectionService, ExternalAppTokenVerifier, ExternalAppMaintenanceJob | assertActive | 接続の状態 |
+| 48.3 | 同意から 90 日で失効 | ExternalAppConnectionService, ExternalAppTokenVerifier, ExternalAppMaintenanceJob | assertActive | 接続の状態 |
+| 48.4 | 更新で 90 日を延ばさない | OAuthProviderHost | token | — |
+| 48.5 | リフレッシュトークンの回転 | OAuthProviderHost | token | — |
+| 48.6 | 猶予に当たらない再利用で失効 | OAuthStoreAdapter, ExternalAppConnectionService | find, consume | 接続の状態 |
+| 48.7 | 復元できない形で保存 | OAuthStoreAdapter | upsert | — |
+| 48.8 | トークンの値を出力しない | OAuthStoreAdapter, OAuthProviderHost | — | — |
+| 48.9 | 失効後は 401 | ExternalAppTokenVerifier, OAuthProviderHost | verify | — |
+| 48.10 | 最終ログインとして数えない | ExternalAppConnectionService | touch | — |
+| 48.11 | 30 秒以内・後継が未使用・クライアント認証成功の再提示は接続を保つ | OAuthStoreAdapter, OAuthProviderHost | find, consume | 接続の状態 |
+| 49.1 | 本人の接続の一覧 | ConnectedAppsPage, ExternalAppConnectionService, ExternalAppRoutes | listOwn | — |
+| 49.2 | 接続が無いときの表示 | ConnectedAppsPage | listOwn | — |
+| 49.3 | 取り消しの確認 | ConnectedAppsPage | — | — |
+| 49.4 | 本人の取り消し | ExternalAppConnectionService, ExternalAppRoutes | revokeOwn | 接続の状態 |
+| 49.5 | 他人の接続の取り消しの拒否 | ExternalAppConnectionService, ExternalAppRoutes | revokeOwn | — |
+| 49.6 | 全利用者の接続の一覧 | AdminConnectionsPage, ExternalAppConnectionService, ExternalAppRoutes | listAll | — |
+| 49.7 | 絞り込みとページの切り替え | AdminConnectionsPage, ExternalAppConnectionService | listAll | — |
+| 49.8 | 管理者の取り消し | ExternalAppConnectionService, ExternalAppRoutes | revokeByAdmin | 接続の状態 |
+| 49.9 | 管理者以外は 403 | SystemAdminGuard, ExternalAppRoutes | requireSystemAdmin | — |
+| 50.1 | パスワードの変更・リセットで失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
+| 50.2 | 全デバイスのログアウトで失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
+| 50.3 | 無効化・削除で失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
+| 50.4 | 権限の喪失で失効 | ExternalAppConnectionService | revokeForUsersWithoutPermission | 接続の状態 |
+| 50.5 | 1 端末のログアウトでは失効しない | ExternalAppConnectionService | 呼び出さない | — |
+| 50.6 | 許可の一覧から外れたアプリの失効 | ExternalAppClientRegistry, ExternalAppMaintenanceJob, ExternalAppConnectionService | revokeForRemovedClients | 接続の状態 |
+| 51.1 | 範囲・権限・閲覧範囲の全てで判定 | ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
+| 51.2 | 読み取りだけの接続の書き込みは 403 | ExternalAppAuthMiddleware | requireExternalScope | — |
+| 51.3 | 画面用トークンは 401 | ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
+| 51.4 | 利用者ごとに 1 分 120 回 | ExternalAppAuthMiddleware | authenticateExternalApp | — |
+| 51.5 | 回数と期間の環境設定 | ExternalAppAuthMiddleware | 環境変数 | — |
+| 51.6 | 本番では無効化できない | ExternalAppAuthMiddleware | isRateLimitBypassAllowed | — |
+| 51.7 | 接続の出来事と猶予の適用の監査 | ExternalAppConnectionService | recordEvent | 接続の状態 |
+| 51.8 | 出力記録に外部アプリを残す | ExportAuditService | record | — |
+| 51.9 | 再利用の検知を管理者へ通知 | ExternalAppConnectionService | handleReuse | 接続の状態 |
+
+### Components and Interfaces
+
+#### Component Summary
+
+| Component | Domain | Intent | Req Coverage | Key Dependencies | Contracts |
+|---|---|---|---|---|---|
+| TokenService | Backend Service | 画面用のトークンの検証（変更なし、試験で保証） | 33 | jose (P0) | Service |
+| OAuthProviderHost | Backend OAuth | 認可サーバーの設定と搭載 | 46, 47, 48 | oidc-provider (P0), OAuthStoreAdapter (P0) | API |
+| OAuthStoreAdapter | Backend OAuth | 値の HMAC 化と再利用の検知 | 47, 48 | Prisma (P0) | Service |
+| ExternalAppClientRegistry | Backend OAuth | 許可するアプリの読み込み | 46, 50 | 環境変数 (P0) | Service |
+| ConsentInteractionService | Backend Service | 同意の手続き | 46, 47 | OAuthProviderHost (P0), SecondFactorVerifier (P0) | Service |
+| SecondFactorVerifier | Backend Service | 2FA の検証と失敗の計数 | 47 | TwoFactorService (P0), Redis (P0) | Service |
+| ExternalAppConnectionService | Backend Service | 接続の作成・一覧・失効・監査 | 47, 48, 49, 50, 51 | Prisma (P0), AuditLogService (P0) | Service |
+| ExternalAppTokenVerifier | Backend Service | 外部アプリ用トークンの検証 | 33, 48, 51 | OAuthStoreAdapter (P0), RBACService (P0) | Service |
+| ExternalAppAuthMiddleware | Backend Middleware | 認証・範囲の確認・回数制限 | 33, 51 | ExternalAppTokenVerifier (P0), Redis (P1) | Service |
+| ExternalAppRoutes | Backend Routes | 同意・一覧・取り消しの API | 46, 47, 49 | ConsentInteractionService (P0) | API |
+| SystemAdminGuard | Backend Middleware | システム管理者ロールの確認 | 49 | Prisma (P0) | Service |
+| ExternalAppMaintenanceJob | Backend Job | 期限切れの失効と許可一覧の照合 | 48, 50 | ExternalAppConnectionService (P0) | Batch |
+| ExportAuditService | Backend Service | 出力記録への外部アプリの記録 | 51 | AuditLogService (P0) | Service |
+| ConsentPage | Frontend Page | 同意の画面 | 46, 47 | ExternalAppRoutes (P0) | State |
+| ConnectedAppsPage | Frontend Page | 連携中のアプリの画面 | 49 | ExternalAppRoutes (P0) | State |
+| AdminConnectionsPage | Frontend Page | 接続の管理画面 | 49 | ExternalAppRoutes (P0) | State |
+
+#### 共通の型
+
+```typescript
+type ExternalAppScope = 'read' | 'write';
+
+interface ExternalAppPrincipal {
+  readonly userId: string;
+  readonly clientId: string;
+  readonly connectionId: string;
+  readonly scopes: readonly ExternalAppScope[];
+}
+
+type ConnectionEndReason =
+  | 'USER_REVOKED'
+  | 'ADMIN_REVOKED'
+  | 'REPLACED'
+  | 'IDLE_EXPIRED'
+  | 'ABSOLUTE_EXPIRED'
+  | 'PASSWORD_CHANGED'
+  | 'LOGOUT_ALL'
+  | 'ACCOUNT_DEACTIVATED'
+  | 'ACCOUNT_DELETED'
+  | 'PERMISSION_LOST'
+  | 'CLIENT_REMOVED'
+  | 'TOKEN_REUSE';
+
+type ExternalAppAuthError =
+  | { readonly kind: 'INVALID_TOKEN' }
+  | { readonly kind: 'INSUFFICIENT_SCOPE'; readonly required: ExternalAppScope }
+  | { readonly kind: 'RATE_LIMITED'; readonly retryAfterSeconds: number };
+
+interface TokenReuseEvent {
+  readonly grantId: string;
+  readonly kind: 'authorization_code' | 'refresh_token' | 'grant_revocation';
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
+}
+
+type TokenReuseHandler = (event: TokenReuseEvent) => Promise<void>;
+
+interface RefreshGraceEvent {
+  readonly grantId: string;
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
+}
+
+type RefreshGraceHandler = (event: RefreshGraceEvent) => Promise<void>;
+
+interface ConnectionAuditEvent {
+  readonly kind: 'CONSENT_GRANTED' | 'CONSENT_DENIED' | 'CONNECTION_REPLACED' | 'CONNECTION_ENDED' | 'TOKEN_REUSE_DETECTED' | 'REFRESH_GRACE_APPLIED';
+  readonly actorUserId: string | null;
+  readonly targetUserId: string;
+  readonly clientId: string;
+  readonly scopes: readonly ExternalAppScope[];
+  readonly reason: ConnectionEndReason | null;
+  readonly occurredAt: Date;
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
+}
+```
+
+#### Backend
+
+##### TokenService
+
+| Field | Detail |
+|---|---|
+| Intent | 画面用のトークンの検証を変えずに、外部アプリ用トークンを拒否する |
+| Requirements | 33.1, 33.3 |
+
+**Implementation Notes**
+
+- 外部アプリ用トークンは JWT の形式でないため既存の検証で拒否される。実装は変えず、統合テストで保証する
+
+##### OAuthProviderHost
+
+| Field | Detail |
+|---|---|
+| Intent | `oidc-provider` の設定を一か所に持ち、Express へ載せる |
+| Requirements | 46.1, 46.4, 46.5, 46.6, 47.6, 47.9, 48.1, 48.4, 48.5, 48.8, 48.9, 48.11 |
+
+**Responsibilities & Constraints**
+
+- 発行者は `OAUTH_ISSUER` に固定する。要求の Host と転送ヘッダーを認可サーバーへ渡す前に発行者の値で置き換え、`provider.proxy` を有効にする。これにより https の構成で手続きの Cookie に `Secure` が付き、窓口の URL が発行者のオリジンになる
+- 認可サーバーのセッションは使わない。`/oauth/authorize` と再開の `/oauth/authorize/:uid` の要求から、認可サーバーのセッションの Cookie を渡す前に外す。同じブラウザで別の利用者が同意してもログアウトの確認へ進まず、認可コードが返る
+- `/oauth/authorize`、同意の後の再開の `/oauth/authorize/:uid`、`/oauth/token`、`/oauth/jwks` と認可サーバーのメタデータだけを扱い、それ以外は次のミドルウェアへ渡す
+- 同意の URL を `/oauth/interaction/:uid` とする
+- 既存のセッションと Grant があっても、その申し込みの同意の結果を持たない要求は必ず同意の手続きへ戻す（`interactions.policy`）。既存の Grant の読み込み（`loadExistingGrant`）は同意の結果の `grantId` だけを使い、セッションの Grant を使わない。同意の後の再開では再び手続きへ戻さない
+- 開発用の画面、動的登録、Client ID Metadata Document、イントロスペクション、トークンの失効の窓口を無効にする。接続の取り消しは本システムの画面だけで行い、接続とトークンの状態が食い違う経路を持たない
+- 範囲は `read` と `write` とする。Claude は `offline_access` も併せて要求するため（タスク70.2 の観測）、要求されたときは利用者の選択肢に出さず Grant へ付与する。付与しないと同意の後に同意の手続きへ戻り続ける。許可したアプリの認可コードの交換では常にリフレッシュトークンを発行し（`issueRefreshToken`）、ブラウザのセッションには結び付けない（`expiresWithSession` は常に false）
+- 要求ごとに送信元 IP とユーザーエージェントを要求の文脈へ置き、`ExternalAppConnectionService.handleReuse` を包んだ `TokenReuseHandler` と、`recordEvent` を包んだ `RefreshGraceHandler` を `OAuthStoreAdapter` へ注入する
+- PKCE を全要求で必須とし、方式は S256 だけとする。認可コードの有効期間は 600 秒とする
+- アクセストークンは不透明な値で 900 秒とする。ただし接続の期限を超えない
+- リフレッシュトークンは毎回回転し、有効期間は `min(30 日, Grant の残り)` とする。Grant は 90 日で、更新しても延びない
+- リソースは `OAUTH_RESOURCE_URL` の 1 つだけを受け付ける
+- 利用者へのエラー画面に要求の値を反映しない
+
+**Dependencies**
+
+- Outbound: OAuthStoreAdapter — 保存 (P0)、ExternalAppClientRegistry — クライアント (P0)、ExternalAppConnectionService — 再利用の処理 (P0)
+- External: oidc-provider — 認可サーバー本体 (P0)
+
+**Contracts**: API [x]
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| GET | /.well-known/oauth-authorization-server | — | RFC 8414 のメタデータ | — |
+| GET | /oauth/authorize | RFC 6749 + PKCE + resource | 同意の URL への遷移 | 400 |
+| GET | /oauth/authorize/:uid | 再開の Cookie | 戻り先への遷移 | 400 |
+| POST | /oauth/token | クライアント認証 + grant | トークン | 400 `invalid_grant`, 401 |
+
+**Implementation Notes**
+
+- Integration: `express.json()` と CORS より前に置く。外部からの要求に利用者の Cookie は不要である
+- Validation: 必須の環境変数（`OAUTH_ISSUER`、`OAUTH_RESOURCE_URL`、`OAUTH_JWKS`、`OAUTH_COOKIE_KEYS`、`OAUTH_TOKEN_HMAC_KEY`）が欠けると、許可するアプリが設定された環境では起動を止める。許可するアプリが無い環境では窓口を載せない
+- Risks: 毎回の同意の強制、手続きの Cookie の到達、再開、`read write` でのリフレッシュトークンの発行は、タスク70.1 のインメモリの検証で確かめた。PostgreSQL の上での動作はタスク73 の統合テストで確かめる。セッションの Cookie を外すと毎回の同意の方針だけを外しても検査が通るため、統合テストでは両者を分けて確かめる
+
+##### OAuthStoreAdapter
+
+| Field | Detail |
+|---|---|
+| Intent | 認可サーバーの保存の契約を実装し、値の復元不能と再利用の検知を保証する |
+| Requirements | 47.9, 47.10, 48.6, 48.7, 48.8, 48.11 |
+
+**Responsibilities & Constraints**
+
+- アクセストークン、リフレッシュトークン、認可コードのキーは `HMAC-SHA-256(値, OAUTH_TOKEN_HMAC_KEY)` とし、本体から `jti` を除いて保存する
+- 使用済みの認可コードまたはリフレッシュトークンを `find` で読んだ時点で再利用として扱う。期限切れの判定や PKCE の検証より先に行う。ただしリフレッシュトークンが 48.11 の猶予に当たるときは未使用の形で返す
+- 48.11 の判定のため、リフレッシュトークンの行に置き換えの日時と後継を持つ。猶予での再発行では、まだ使われていない後継を置き換え済みにし、置き換え済みにした後継と、その後継を指していた同じ Grant の全ての行の後継を新しいトークンへ付け替える。これにより再試行が続く場面にも 48.11 を適用する。猶予を適用したら、注入された `RefreshGraceHandler` を呼び、`ExternalAppConnectionService.recordEvent` で監査に残す。クライアント認証はトークンの読み出しより前に通るため、認証に失敗した要求は猶予の判定にも失効にも進まない
+- 同じ Grant の更新は Grant の行のロックで直列にする
+- `consume` は行の条件付き更新で原子的に行う。認可コードの競合に負けた要求と、リフレッシュトークンの競合のうち 48.11 に当たらない要求は再利用として扱う。48.11 に当たるリフレッシュトークンの競合は猶予として接続を保つ
+- 使用済みの行は接続が終わるまで残す
+- Grant に属するトークンの行は、同じトランザクションで Grant の行をロックして存在を確かめたときだけ保存し、無ければ `invalid_grant` とする。接続の失効も同じ Grant の行をロックして行う。これにより、同時要求の勝者のトークンが失効の後に保存されて残ることを防ぐ
+- 再利用を検知したら、注入された `TokenReuseHandler` を呼ぶ。アダプターは接続のサービスを参照しない
+- `revokeByGrantId` はライブラリが再利用で呼ぶ経路だけに使い、同じハンドラーへ渡す。ハンドラーは終了済みの接続に対して何もしない
+- 接続の失効のトランザクションの中で行う保存データの行の消去は `ExternalAppConnectionService` が持ち、アダプターを経由しない
+
+**Contracts**: Service [x]
+
+```typescript
+interface OAuthStoreAdapter {
+  upsert(id: string, payload: OAuthStorePayload, expiresInSeconds: number): Promise<void>;
+  find(id: string): Promise<OAuthStorePayload | undefined>;
+  findByUid(uid: string): Promise<OAuthStorePayload | undefined>;
+  consume(id: string): Promise<void>;
+  destroy(id: string): Promise<void>;
+  revokeByGrantId(grantId: string): Promise<void>;
+}
+```
+
+- Postconditions: 再利用の検知では接続を `TOKEN_REUSE` で終了し、`invalid_grant` を返す
+- Invariants: DB の値だけからトークンを復元できない
+
+**Implementation Notes**
+
+- Risks: `find` の前倒しの判定はライブラリの内部の順序に依存する。ライブラリの更新時は再利用の統合テストで確かめる
+
+##### ExternalAppClientRegistry
+
+| Field | Detail |
+|---|---|
+| Intent | 運用者が許可したアプリを環境変数から読み、検証する |
+| Requirements | 46.4, 46.5, 50.6 |
+
+**Contracts**: Service [x]
+
+```typescript
+interface AllowedExternalApp {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly displayName: string;
+  readonly redirectUris: readonly string[];
+  readonly tokenEndpointAuthMethod: 'client_secret_post';
+}
+
+interface ExternalAppClientRegistry {
+  loadAllowedClients(): readonly AllowedExternalApp[];
+  isAllowed(clientId: string): boolean;
+}
+```
+
+**Implementation Notes**
+
+- Integration: 値は `OAUTH_ALLOWED_CLIENTS`（JSON）から読む。Claude の戻り先は `https://claude.ai/api/mcp/auth_callback` とする
+- Validation: 本番では戻り先を HTTPS の完全な URL に限り、形が不正なら起動を止める
+
+##### ConsentInteractionService
+
+| Field | Detail |
+|---|---|
+| Intent | 申し込みの確認、2FA の通過、同意と拒否を扱う |
+| Requirements | 46.2, 46.3, 46.7, 47.1, 47.2, 47.4, 47.6, 47.7 |
+
+**Contracts**: Service [x]
+
+```typescript
+interface ConsentInteractionView {
+  readonly appName: string;
+  readonly redirectHost: string;
+  readonly account: { readonly displayName: string; readonly email: string };
+  readonly requestedScopes: readonly ExternalAppScope[];
+  readonly idleDays: 30;
+  readonly absoluteDays: 90;
+  readonly secondFactorVerified: boolean;
+}
+
+type ConsentError =
+  | 'INTERACTION_NOT_FOUND'
+  | 'PERMISSION_REQUIRED'
+  | 'SECOND_FACTOR_REQUIRED'
+  | 'SECOND_FACTOR_FAILED'
+  | 'READ_SCOPE_REQUIRED';
+
+interface ConsentInteractionService {
+  getInteraction(ctx: InteractionContext, userId: string): Promise<Result<ConsentInteractionView, ConsentError>>;
+  verifySecondFactor(ctx: InteractionContext, userId: string, code: SecondFactorCode): Promise<Result<void, ConsentError>>;
+  approve(ctx: InteractionContext, userId: string, scopes: readonly ExternalAppScope[]): Promise<Result<{ redirectTo: string }, ConsentError>>;
+  deny(ctx: InteractionContext, userId: string): Promise<Result<{ redirectTo: string }, ConsentError>>;
+}
+```
+
+- Preconditions: `approve` は権限「外部アプリの接続」と、申し込みと利用者に結び付いた 2FA の通過の印を要する
+- Postconditions: `approve` は印を消費し、ライブラリで Grant を保存した後に、接続の作成または置き換えと監査を同じトランザクションで行う。このトランザクションが失敗したら保存した Grant を消してエラーを返す。再度の同意でも既存の Grant を再利用せず新しい Grant を作り、置き換えでは前の Grant とそのトークンの行だけを消す。`deny` は接続もトークンも作らず、拒否を監査に残す
+
+##### SecondFactorVerifier
+
+| Field | Detail |
+|---|---|
+| Intent | ログインと同意で共通の 2FA の検証・失敗の計数・ロック・監査を提供する |
+| Requirements | 47.2, 47.3 |
+
+**Responsibilities & Constraints**
+
+- `AuthService` の検証から、コードの照合、失敗の計数、ロック、監査だけを切り出す
+- 資格の消費、`lastLoginAt` の更新、トークンの発行は `AuthService` に残す
+- ログインの既存の振る舞いを変えない
+
+**Contracts**: Service [x]
+
+```typescript
+type SecondFactorCode =
+  | { readonly type: 'totp'; readonly code: string }
+  | { readonly type: 'backup'; readonly code: string };
+
+type SecondFactorFailure = 'INVALID_CODE' | 'ACCOUNT_LOCKED';
+
+interface SecondFactorVerifier {
+  verify(userId: string, code: SecondFactorCode, purpose: 'login' | 'oauth_consent'): Promise<Result<void, SecondFactorFailure>>;
+}
+```
+
+##### ExternalAppConnectionService
+
+| Field | Detail |
+|---|---|
+| Intent | 接続の唯一の持ち主として作成・一覧・失効・監査を行う |
+| Requirements | 47.6, 47.8, 48.2, 48.3, 48.6, 48.10, 49.1, 49.4, 49.5, 49.6, 49.7, 49.8, 50.1, 50.2, 50.3, 50.4, 50.5, 50.6, 51.7, 51.9 |
+
+**Responsibilities & Constraints**
+
+- 利用者とアプリの組ごとに接続は最大 1 件とする
+- 失効は接続の行、関連する保存データの行、監査の記録を同じトランザクションで行う
+- 既存のサービスは自身のトランザクションを `tx` として渡す。1 端末のログアウトからは呼ばない
+- `lastUsedAt` は 1 分に 1 回まで更新する。未使用 30 日の判定にはこの粒度で足りる
+- `lastLoginAt` は更新しない
+
+**Contracts**: Service [x]
+
+```typescript
+interface ExternalAppConnectionView {
+  readonly id: string;
+  readonly appName: string;
+  readonly scopes: readonly ExternalAppScope[];
+  readonly consentedAt: string;
+  readonly lastUsedAt: string | null;
+  readonly expiresAt: string;
+}
+
+interface ExternalAppConnectionService {
+  createOrReplace(input: CreateConnectionInput, tx: TransactionClient): Promise<ExternalAppConnectionView>;
+  assertActive(grantId: string, now: Date, source?: RequestContext): Promise<Result<ActiveConnection, 'NOT_ACTIVE'>>;
+  touch(connectionId: string, now: Date): Promise<void>;
+  listOwn(userId: string): Promise<readonly ExternalAppConnectionView[]>;
+  listAll(filter: ConnectionFilter): Promise<PaginatedConnections>;
+  revokeOwn(userId: string, connectionId: string, actor: AuditActor): Promise<Result<void, 'NOT_FOUND'>>;
+  revokeByAdmin(connectionId: string, actor: AuditActor): Promise<Result<void, 'NOT_FOUND'>>;
+  revokeAllForUser(userId: string, reason: ConnectionEndReason, actor: AuditActor, tx: TransactionClient): Promise<number>;
+  revokeForUsersWithoutPermission(userIds: readonly string[] | 'ALL', actor: AuditActor, tx: TransactionClient): Promise<number>;
+  revokeForRemovedClients(allowedClientIds: readonly string[]): Promise<number>;
+  handleReuse(event: TokenReuseEvent): Promise<void>;
+  recordEvent(event: ConnectionAuditEvent, tx?: TransactionClient): Promise<void>;
+}
+```
+
+- Postconditions: `assertActive` は期限を過ぎた接続を `IDLE_EXPIRED` または `ABSOLUTE_EXPIRED` で終了して `NOT_ACTIVE` を返す。期限切れの終了の持ち主はこのメソッドであり、検証と定期処理はこれを呼ぶ。要求の中で終了したときは `source` の送信元 IP とユーザーエージェントを監査に記録し、要求の無い定期処理では `source` を渡さず送信元 IP を null として記録する
+- Postconditions: `RefreshGraceEvent` は `grantId` から接続を引いて `REFRESH_GRACE_APPLIED` の `ConnectionAuditEvent` へ写す。実行者と対象は接続の利用者、アプリと範囲は接続の値、理由は null、日時は記録の時刻、IP とユーザーエージェントはイベントの値とする
+- Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する。同じ Grant への 2 回目以降の呼び出しは何もしない
+- Invariants: 他の利用者の接続を `revokeOwn` で指定しても `NOT_FOUND` を返し、存在を明かさない（49.5）
+
+**Implementation Notes**
+
+- Integration: 権限の喪失は、ロールと権限の変更のトランザクションの中で DB の現在の値から判定する。キャッシュの無効化はコミットの後に失敗することがあるため、これに依存しない
+- Integration: ワイルドカードの権限（`*:*`、`external_app:*`、`*:connect`）は既存の判定と同じ規則で扱う
+- Validation: 通知は `SecurityAnomalyMonitor` の重複抑止を通す（43.6）
+
+##### ExternalAppTokenVerifier
+
+| Field | Detail |
+|---|---|
+| Intent | Bearer トークンから利用者と範囲を解決する唯一の入口 |
+| Requirements | 33.3, 48.2, 48.3, 48.9, 51.1, 51.3 |
+
+**Contracts**: Service [x]
+
+```typescript
+interface ExternalAppTokenVerifier {
+  verify(bearerToken: string, now: Date, source: RequestContext): Promise<Result<ExternalAppPrincipal, ExternalAppAuthError>>;
+}
+```
+
+- Postconditions: 成功は、トークンが有効、想定利用者が `OAUTH_RESOURCE_URL`、接続が有効、利用者が有効、利用者が権限「外部アプリの接続」を持つ場合に限る
+- 期限を過ぎた接続は検証の時点で、`ExternalAppAuthMiddleware` から受けた要求の送信元を渡して `assertActive` により終了させる
+- 検証の成功で `touch` を呼び、最後に使われた日時を記録する
+
+##### ExternalAppAuthMiddleware
+
+| Field | Detail |
+|---|---|
+| Intent | claude-connector の窓口に掛ける認証・範囲の確認・回数制限 |
+| Requirements | 33.3, 51.1, 51.2, 51.3, 51.4, 51.5, 51.6 |
+
+**Contracts**: Service [x]
+
+```typescript
+declare function authenticateExternalApp(): RequestHandler;
+declare function requireExternalScope(scope: ExternalAppScope): RequestHandler;
+```
+
+- 401 は `WWW-Authenticate: Bearer resource_metadata="<URL>", scope="read write"` を返す
+- 403 は `error="insufficient_scope", scope="read write"` を返す
+- 429 は `Retry-After` を返す。キーは利用者の ID とし、利用者の全接続を合算する
+- 既定は 1 分 120 回。`EXTERNAL_APP_RATE_LIMIT_MAX` と `EXTERNAL_APP_RATE_LIMIT_WINDOW_MS` で変更する
+- 無効化の判定は既存の `isRateLimitBypassAllowed` だけを使い、本番では無効化できない
+
+**Implementation Notes**
+
+- Integration: 本章の時点では claude-connector の窓口が無い。本番の入口からの到達と統合テストのため、`/oauth/resource/whoami`（read）と `/oauth/resource/whoami/write-access`（write）の確認用の窓口を `ExternalAppRoutes` に置く。業務データは返さない
+
+##### ExternalAppRoutes
+
+| Field | Detail |
+|---|---|
+| Intent | 同意・一覧・取り消しの HTTP の窓口 |
+| Requirements | 46.2, 46.7, 47.3, 47.11, 49.1, 49.4, 49.5, 49.6, 49.8, 49.9 |
+
+**Contracts**: API [x]
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| GET | /oauth/interaction/:uid | ブラウザの遷移 | `/connect/consent/:uid` への転送（認証なし、業務データなし。`uid` の形を検証する） | 400 |
+| GET | /oauth/interaction/:uid/details | — | ConsentInteractionView | 401, 403, 404 |
+| POST | /oauth/interaction/:uid/second-factor | SecondFactorCode | 204 | 400, 401, 403, 404, 429 |
+| POST | /oauth/interaction/:uid/approve | `{ scopes }` | `{ redirectTo }` | 400, 401, 403, 404 |
+| POST | /oauth/interaction/:uid/deny | — | `{ redirectTo }` | 401, 403, 404 |
+| GET | /oauth/resource/whoami | Bearer | `{ scopes, appName }` | 401, 429 |
+| GET | /oauth/resource/whoami/write-access | Bearer | 204 | 401, 403, 429 |
+| GET | /api/v1/external-app-connections | — | 本人の一覧 | 401 |
+| DELETE | /api/v1/external-app-connections/:id | — | 204 | 401, 404 |
+| GET | /api/v1/admin/external-app-connections | 利用者・アプリ・ページ | 全利用者の一覧 | 401, 403 |
+| DELETE | /api/v1/admin/external-app-connections/:id | — | 204 | 401, 403, 404 |
+
+- 状態を変える経路は既存の CSRF 検証を通す。`/oauth/interaction/:uid` の下の API は画面用のアクセストークンで認証し、手続きの Cookie も要求する
+- 2FA の経路は既存の 2FA の試行制限を掛ける
+
+##### SystemAdminGuard
+
+| Field | Detail |
+|---|---|
+| Intent | ロール `admin` を持つ利用者だけを通す |
+| Requirements | 49.9 |
+
+**Contracts**: Service [x]
+
+```typescript
+declare function requireSystemAdmin(): RequestHandler;
+```
+
+- 権限で判定しない。要件が「システム管理者」を指しており、カスタムのロールへ権限を与えても通さないためである
+
+##### ExternalAppMaintenanceJob
+
+| Field | Detail |
+|---|---|
+| Intent | 使われない接続の期限切れと、許可一覧から外れたアプリの接続を終了する |
+| Requirements | 48.2, 48.3, 50.6 |
+
+**Contracts**: Batch [x]
+
+- Trigger: 既存の定期処理の基盤で 1 時間ごと。起動時にも許可一覧の照合を 1 回行う
+- Output: 接続の終了と監査の記録。期限切れの認可サーバーの保存データの削除
+- Idempotency & recovery: 再実行しても終了済みの接続は対象にならない
+
+##### ExportAuditService
+
+| Field | Detail |
+|---|---|
+| Intent | 外部アプリ経由の出力の記録に、外部アプリを加える |
+| Requirements | 51.8 |
+
+- `ExportRecordInput` に任意の `externalClientId` を足す。値は `ExternalAppPrincipal` からサーバー側で渡し、API の本文では受け付けない
+
+#### Frontend
+
+##### ConsentPage
+
+| Field | Detail |
+|---|---|
+| Intent | アプリと範囲を示し、2FA を通して同意または拒否を受ける |
+| Requirements | 46.3, 47.1, 47.4, 47.5, 47.11 |
+
+- 経路は `/connect/consent/:uid` とし、`ProtectedRoute` の内側に置く。未ログインならログインの後に同じ経路へ戻る
+- 2FA の入力は既存の `TwoFactorVerificationForm` を使う
+- 「読み取り」は選択済みで外せない表示、「書き込み」は既定で未選択とする
+- `redirectTo` への遷移は全ページの遷移で行う
+
+##### ConnectedAppsPage
+
+| Field | Detail |
+|---|---|
+| Intent | 本人の接続の一覧と取り消し |
+| Requirements | 49.1, 49.2, 49.3 |
+
+- 経路は `/connected-apps` とし、プロフィールの画面から導線を置く
+
+##### AdminConnectionsPage
+
+| Field | Detail |
+|---|---|
+| Intent | 全利用者の接続の一覧・絞り込み・取り消し |
+| Requirements | 49.6, 49.7 |
+
+- 経路は `/admin/external-app-connections` とし、既存の管理者ルートと同じ保護を掛ける
+
+### Data Models
+
+```mermaid
+erDiagram
+    User ||--o{ ExternalAppConnection : has
+    ExternalAppConnection ||--o{ OAuthStoreRecord : owns
+```
+
+#### ExternalAppConnection
+
+| 列 | 型 | 制約 |
+|---|---|---|
+| id | UUID | PK |
+| userId | UUID | FK User（Cascade）、`clientId` との複合で一意 |
+| clientId | String | 索引 |
+| grantId | String | 一意 |
+| scopes | String[] | `read` を必ず含む |
+| consentedAt | DateTime | |
+| lastUsedAt | DateTime? | 索引 |
+| expiresAt | DateTime | 同意 + 90 日、索引 |
+
+#### OAuthStoreRecord
+
+| 列 | 型 | 制約 |
+|---|---|---|
+| id | String | PK。モデル種別と HMAC 値の組 |
+| kind | String | `AccessToken`、`RefreshToken`、`AuthorizationCode`、`Grant`、`Session`、`Interaction` など |
+| grantId | String? | 索引 |
+| uid | String? | 索引 |
+| payload | Json | トークンの値を含めない |
+| consumedAt | DateTime? | |
+| expiresAt | DateTime? | 索引 |
+
+- 利用者の削除の前に `revokeAllForUser` を呼び、監査を残す
+- 権限 `external_app:connect` はマイグレーションの SQL と seed の両方で足す。ロール `admin` は `*:*` で持つ
+
+### Error Handling
+
+| 場面 | 応答 | 利用者への案内 |
+|---|---|---|
+| 不正なアプリ・戻り先 | 400 の固定のエラー画面。遷移しない | アプリの設定の確認を促す |
+| 権限なし | 403 `PERMISSION_REQUIRED` | 管理者への依頼を促す |
+| 2FA の失敗 | 400、ロック時は 403、制限時は 429 | 再入力または待機 |
+| 申し込みの期限切れ | 404 | アプリから接続し直すよう促す |
+| 再利用・失効 | `invalid_grant` または 401 | アプリが再度の同意へ進む |
+| 保存データの障害 | 500。fail closed でトークンを発行しない | 再試行を促す |
+
+### Testing Strategy
+
+- **Unit**: `OAuthStoreAdapter` の HMAC 化と `jti` の除去、期限の計算（30 日と 90 日の短い方）、`ExternalAppClientRegistry` の検証、範囲の判定、ワイルドカードを含む権限喪失の判定
+- **Integration**: 認可コードフロー全体、PKCE の不一致、コードとリフレッシュトークンの再利用（期限切れ後と同時要求を含む）、画面用と外部アプリ用のトークンの相互拒否、50.1〜50.6 の各契機の失効と 50.5 の非失効、利用者単位の回数制限、トークンの値がログと DB に現れないこと
+- **E2E**: ログインと 2FA を通した同意から接続の表示まで、書き込みの既定の未選択、拒否、本人の取り消し、管理者の一覧と取り消し、権限の無い利用者の拒否
+- **回帰**: 既存のログイン・2FA・ロックの試験を `SecondFactorVerifier` への切り出しの後に通す
+
+### Security Considerations
+
+- **なりすましの同意**: 事前登録と戻り先の完全一致で防ぎ、同意画面に戻り先のホスト名を示す
+- **ログイン用の資格への転用**: 同意の 2FA の通過の印は別の鍵と用途で持ち、ログインに使えない
+- **トークンの漏えい**: 保存は HMAC。ログの伏せ字に `state`、`code_verifier`、`refresh_token`、`client_secret` を足す
+- **鍵の分離**: 認可サーバーの署名鍵・Cookie の鍵・HMAC の鍵は画面用の JWT の鍵と分ける
+- **Host ヘッダーの注入**: URL の組み立てに要求のヘッダーを使わない
+- **更新の応答の喪失**: Claude は応答を受け取れないと 12 秒後に同じトークンで再試行する（タスク70.2 の観測）。48.11 の 30 秒の猶予で接続を保ち、適用を監査に残す。4 回の更新で同時更新は起きなかったが、起きないとは断定しない
+
+### 配備の前提と移行の順序
+
+1. Prisma のマイグレーションでモデルと権限を足す
+2. 鍵と `OAUTH_*` の環境変数を設定する
+3. nginx の中継を足す
+4. 公開された環境で Claude のカスタムコネクタに client ID と secret を入力して接続を確かめる
+
+`OAUTH_ALLOWED_CLIENTS` を設定しない環境では窓口が載らず、既存の動作は変わらない。

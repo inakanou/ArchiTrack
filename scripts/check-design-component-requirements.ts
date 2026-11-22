@@ -456,11 +456,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'user-authentication': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 46,
-    minTableDeclarations: 46,
-    minDetailDeclarations: 29,
+    minPairs: 62,
+    minTableDeclarations: 62,
+    minDetailDeclarations: 45,
     reason:
-      '2026-10-16 に要件32〜45 の章が追跡表・部品表・詳細節の Requirements 欄を新設した。矛盾 0 件をラチェットで維持する。要件1〜31 の前半は表を持たない書式のまま',
+      '2026-10-16 に要件32〜45 の章が追跡表・部品表・詳細節の Requirements 欄を新設した。矛盾 0 件をラチェットで維持する。要件1〜31 の前半は表を持たない書式のまま。2026-11-22 に要件46〜51 の章（外部アプリの認可）を足し、下限を実測の 62 / 62 / 45 へ上げた',
   },
 };
 
