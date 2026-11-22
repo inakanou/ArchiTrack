@@ -20,13 +20,13 @@ export default defineRailway((ctx) => {
   }
   const names = SERVICE_NAMES[ctx.environment];
 
-  // 配備は GitHub Actions の railway up が行う。staging の監視パターンは、どのファイルにも
-  // 一致しない現在の値（"[]"）を保つ。空にすると監視の制限が外れるため、空にしない。
-  // production はこのパターンを保存していないので、切り替えの前に試算で扱いを確かめる。
+  // 配備は GitHub Actions の railway up が行う。監視パターンは空にする。
+  // どのファイルにも一致しない値（"[]" など）を置くと、railway up のデプロイも
+  // 「監視対象の変更なし」で SKIPPED になる。
   const build = {
     builder: 'DOCKERFILE',
     buildCommand: '',
-    ...(ctx.environment === 'staging' ? { watchPatterns: ['[]'] } : {}),
+    watchPatterns: [],
   } as const;
   // production はアプリのスリープが有効で、書かないと無効へ変わる。設定を変えないために現在の値を保つ。
   const restart = {
