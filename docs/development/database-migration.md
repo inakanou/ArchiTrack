@@ -225,18 +225,9 @@ npx prisma migrate reset
 Railway環境では、デプロイ時に自動的にマイグレーションが適用されます。
 
 **仕組み:**
-1. `backend/railway.toml` に定義された build コマンドで `prisma generate` 実行
-2. `start` コマンドで `prisma migrate deploy` 実行（本番用マイグレーション適用）
+1. `backend/Dockerfile` のビルドで `prisma generate` を実行
+2. コンテナの起動時に `backend/docker-entrypoint.sh` が、`MIGRATE_ON_DEPLOY=true` のときだけ `prisma migrate deploy` を実行
 3. サーバー起動
-
-**railway.toml の設定:**
-```toml
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "npx prisma migrate deploy && npm start"
-```
 
 **注意:** Prisma 7では、Prisma Clientは `backend/src/generated/prisma/` に出力されます。ビルド時に `prisma generate` が自動実行され、Clientが生成されます。
 

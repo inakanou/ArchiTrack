@@ -138,6 +138,7 @@
     "pdfjs-dist": "^6.4.299",
     "prettier": "^3.9.5",
     "prisma": "^7.8.0",
+    "railway": "3.17.0",
     "tsx": "^4.23.11",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1"

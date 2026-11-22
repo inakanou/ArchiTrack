@@ -65,7 +65,7 @@ graph LR
 **設定:**
 
 - **Root Directory**: `/backend`
-- **Build Command**: Dockerfileから自動検出（`backend/railway.toml` の `builder = "DOCKERFILE"`）
+- **Build Command**: `backend/Dockerfile` を使う（`.railway/railway.ts` の `builder: 'DOCKERFILE'`）
 - **Start Command**: 設定しない（Dockerfile の `docker-entrypoint.sh` が `MIGRATE_ON_DEPLOY=true` でマイグレーションを、`RUN_SEED=true` でシードを実行してから起動する）
 
 **環境変数:**
@@ -188,26 +188,22 @@ GitHub Actionsから制御するため、Railway UIからの自動デプロイ�
 
 **Backend Service:**
 1. Backend Service > **Settings** > **Service**
-2. **Watch Paths** を空にする
-3. または `railway.toml` に `watchPatterns = []` を設定
+2. staging は **Watch Paths** の `[]`（どのファイルにも一致しない値）を変えない
 
 **Frontend Service:**
 1. Frontend Service > **Settings** > **Service**
-2. **Watch Paths** を空にする
-3. または `railway.toml` に `watchPatterns = []` を設定
+2. staging は **Watch Paths** の `[]`（どのファイルにも一致しない値）を変えない
 
-**railway.toml の設定例（`backend/railway.toml`）:**
-```toml
-[build]
-builder = "DOCKERFILE"
-watchPatterns = []  # GitHub Actionsから制御するため自動デプロイを無効化
+**サービスの設定（`.railway/railway.ts`）:**
 
-[deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+Railway は `railway.toml` を 2026-12-01 で読まなくなるため、backend と frontend の設定は Infrastructure as Code で管理する。Postgres・Redis・ボリューム・環境変数は管理の対象に含めない。
+
+```bash
+railway config plan --environment staging      # 変更内容の確認（変更しない）
+railway config apply --environment staging     # 確認した変更の適用
 ```
+
+適用の前に、意図しない変更や削除が試算に無いことを必ず確かめる。
 
 ---
 
