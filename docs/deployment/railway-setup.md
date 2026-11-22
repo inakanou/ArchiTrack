@@ -205,6 +205,8 @@ railway config apply --environment staging     # 確認した変更の適用
 
 適用の前に、意図しない変更や削除が試算に無いことを必ず確かめる。
 
+`main` へのマージではこの設定は適用されない。**次に `main` へ配備する前に、`--environment production` で試算と適用を行う**（適用すると再デプロイされる）。適用を忘れると、CI の本番配備は `scripts/railway-production-guard.sh` が配備の前に止める。
+
 ---
 
 ## Railway CLI設定
