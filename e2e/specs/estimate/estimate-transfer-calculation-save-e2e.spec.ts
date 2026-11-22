@@ -461,6 +461,11 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
 
     const netAmountInput = page.locator('#net-amount');
     await expect(netAmountInput).toBeVisible({ timeout: getTimeout(10000) });
+    // 受領見積書のNET金額の自動設定（36.1）を待つ。待たずに fill すると、全選択と入力の間に
+    // 自動設定が入って選択が外れ、値が連結される（400000400000）
+    await expect(netAmountInput).toHaveValue(String(NET_AMOUNT), {
+      timeout: getTimeout(10000),
+    });
     await netAmountInput.fill(String(NET_AMOUNT));
 
     return dialog;
