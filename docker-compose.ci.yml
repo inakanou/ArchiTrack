@@ -60,6 +60,14 @@ services:
       # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない。
       # 本番・staging では使わず、Railway の変数に別の乱数の鍵を設定する
       ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+      # 外部アプリの認可（user-authentication 要件46）。試験専用の固定値で秘密ではない。
+      # 本番・staging では使わず、Railway の変数に別の値を設定する
+      OAUTH_ALLOWED_CLIENTS: '[{"clientId":"architrack-test-client","clientSecret":"test-only-oauth-client-secret-not-for-production","displayName":"Test App","redirectUris":["http://127.0.0.1:4999/oauth/callback"],"tokenEndpointAuthMethod":"client_secret_post"}]'
+      OAUTH_ISSUER: http://localhost:5173
+      OAUTH_RESOURCE_URL: http://localhost:5173/mcp
+      OAUTH_JWKS: '{"keys":[{"kty":"RSA","n":"ieybEAvHsdC37VZekRTifbMeaCiorNn-bOeCnVLtS-Q-hbmPewRCU2XsoRAGm-t8K7a4KUWNPY_roIOGuUisyksziaMMlLxsKF8w1s-FVw_ZTl67yB8Es8eCZKL3ZPoXbDNsyPxol_grUscHcIw7OVtE0AEvldoKw7ZqPA87NY6oyIYo6CWzbld8XeIYRZBjAdr8AB0OtblRk1A1aOqwJ58ZcD2sS-1FS56s-VMMO1HFjO5ANTzBjnbTI5ywS2Q6_N154s1LfJlj40srT0qHoXWpq0Ok6QnOvFYdmdOx3jQbZeQA2hSmlIQc3EfpiRQbX6hGOesq3cLek37MHf-KCw","e":"AQAB","d":"Q_yWnv0_jX41-870RI3H63BMz8kjBDlcufAQqV5ETIGQ9Df46wm5bAS09NvCdj9I8P9bnjSDn9H-sxvCYDjbu8f_-pudyv9qTShHGcwnjTfpxUDbTZVEqx3wP405Z9QDkblzqUsKf8a8DEzBdRAa7XX44JOFElftsHWNvlc_t3EGl4CgmjUxT_ITmYqCiJQNnJwuUqkhecDy0vIS_mneBr_cCpfZQju52WniFOoo-EaVrOhLQ6WvxaAQ-e1BRuIs2m5BuQt0Dx097c8TRz4H2VB0czl_Xp35FcugBt61H9HmK7SDJwp0NzZpZMT1vzZp-CUmR_lxW4VcBZ9maJSpOQ","p":"wgOgW3TiVbHuWY4ELc4iaacj99IbXSRxCzGipaGLPQkkfW5EDStB8YoallUnAWphkd6kNNoemrZgbhj3qn1ztOFWAIUguV8xRQojEFFO9OfP0PSBPq3pBZAQq8RVzjFtDI6HnRWyhJxQdlljFduYYApn94v5qPeKz3aGcOA_dY8","q":"tf1lu_5zPd7fAhZCUX3qQooc4MQ6KY2F09-xlnaTeGhgIqomKIV8Bn3Bhd7qCk44Qmyin2rM-mKl6v0r0v_kTnD2R94GfSh3hnvs3IVgtFqZbkZkC7-bTO1QS2-b5DWoIPvGvsJpyyrjvkJu9EcO61_onqTxgTnbJ_r0eSHpPcU","dp":"NOnsSEU-nYSjrwUOmreHpy0QoDxLfkG8GwN0ipveb80YiKUUJktP9uJlke6zbq1m4vPH8So0ApoO_rgMhBEnB4QVgprMbAJMW7oCCidC04SNpz2oKkIgNYYvJcmsZUoRpcURs4QBZi2DvGNwpLt5eWgdJuSkOLMaxq5ayFpAtH0","dq":"X7bZ3rnAmnWxDEPwtTNoFX7WGVCa1mfcTsaDfAL5JIagqRqb3wv1YuSY93N529mvtR-1l-pvy_A-Gwz0E5EJ3keC_-FBwGmcE1ryBDkR10kfEORskdFAOIFHjaUxdCDUQCSrLoDJa1UvWk1OVaNZsWlLysQtUC3BmZFfKqYvKZE","qi":"I8xDji_qJ4A1O4sO34Fl7UD85sV2gEPhFUAS2kjc1Dy6KeozA1Sg6BgrG1-BZVnLqWNtdjC_Mb6VLFQ87TPRr6eglERL0g10S8XhTjYcFAD6RimMtbAhRT09brRTJnviqFN2-dVdSBbtdNm8NbyW8jizfqvpCInS9UkWfG9aLew","kid":"architrack-test-only","use":"sig","alg":"RS256"}]}'
+      OAUTH_COOKIE_KEYS: '["test-only-oauth-cookie-key-not-for-production"]'
+      OAUTH_TOKEN_HMAC_KEY: ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100
       # セキュリティ上の異常の検知の閾値（user-authentication 要件43.7）。ci.yml が書き出す .env の値を使い、
       # E2E の全件の実行で超えず途中で管理者への通知が流れないようにする（未設定でも同じ高い値に倒す）
       SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: ${SECURITY_ALERT_LOGIN_FAILED_THRESHOLD:-1000000}

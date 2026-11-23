@@ -2,6 +2,7 @@ import { z } from 'zod';
 import logger from '../utils/logger.js';
 import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
 import { securityAlertEnvSchema } from './security-alert.js';
+import { ExternalAppConfigError, parseExternalAppOAuthConfig } from '../oauth/client-registry.js';
 
 /**
  * 環境変数検証用の定数
@@ -336,7 +337,10 @@ export function validateEnv(): Env {
   }
 
   try {
-    validatedEnv = envSchema.parse(process.env);
+    const parsedEnv = envSchema.parse(process.env);
+    // 外部アプリの設定（要件46.4）。鍵を含むためスキーマに載せず、不正なら検証済みにしない
+    parseExternalAppOAuthConfig(process.env);
+    validatedEnv = parsedEnv;
     logger.info(
       {
         env: validatedEnv.NODE_ENV,
@@ -355,6 +359,12 @@ export function validateEnv(): Env {
 
     return validatedEnv;
   } catch (error) {
+    if (error instanceof ExternalAppConfigError) {
+      logger.error({ errors: error.issues }, 'External app OAuth configuration is invalid');
+      console.error('\n❌ External app OAuth configuration is invalid:\n');
+      error.issues.forEach((issue) => console.error(`  ❌ ${issue}`));
+      console.error('\n   Fix: Correct the OAUTH_* values, or unset OAUTH_ALLOWED_CLIENTS\n');
+    }
     if (error instanceof z.ZodError) {
       logger.error({ errors: error.issues }, 'Environment validation failed');
       console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
