@@ -59,6 +59,7 @@ const mockUser: User = {
   invitedById: null,
   accessTokenGeneration: 0,
   reactivatedAt: null,
+  externalAppRevocationGeneration: 0,
 };
 
 const mockRole: Role = {

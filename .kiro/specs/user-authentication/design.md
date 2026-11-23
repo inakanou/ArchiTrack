@@ -7177,6 +7177,11 @@ interface ExternalAppConnectionService {
 - Postconditions: `assertActive` は期限を過ぎた接続を `IDLE_EXPIRED` または `ABSOLUTE_EXPIRED` で終了して `NOT_ACTIVE` を返す。期限切れの終了の持ち主はこのメソッドであり、検証と定期処理はこれを呼ぶ。要求の中で終了したときは `source` の送信元 IP とユーザーエージェントを監査に記録し、要求の無い定期処理では `source` を渡さず送信元 IP を null として記録する
 - Postconditions: `RefreshGraceEvent` は `grantId` から接続を引いて `REFRESH_GRACE_APPLIED` の `ConnectionAuditEvent` へ写す。実行者と対象は接続の利用者、アプリと範囲は接続の値、理由は null、日時は記録の時刻、IP とユーザーエージェントはイベントの値とする
 - Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する（信号 `external_app_token_reuse` に接続の利用者を渡す。抑止は利用者ごとで、閾値と上限の対象外。51.9）。同じ Grant への 2 回目以降の呼び出しは何もしない
+- Postconditions（接続の無い Grant の再利用。2026-11-24、利用者の判断）: `handleReuse` は Grant の保存データの行を消し、行を実際に消せた呼び出しだけが監査と通知を行う。監査の対象の利用者とアプリは Grant の行の payload の `accountId` と `clientId` を検証して使い、読めないときだけ不明として記録する。これが 51.7 の唯一の例外である
+- Invariants（失効の世代。50.1〜50.4、2026-11-24、利用者の判断）: `users.external_app_revocation_generation`（整数、既定 0）を失効の世代とする。`revokeAllForUser` と `revokeForUsersWithoutPermission` は呼び出し元のトランザクションの中で、利用者単位の排他の取引ロックを Grant の行より先に（複数の利用者はキーの昇順で）取り、接続の有無によらず対象の利用者の世代を 1 進めてから、ロックの後の文で接続を読んで失効する。`createOrReplace` は最初に同じキーの共有の取引ロックを取り、同意の手続きの開始時に読んだ世代（入力 `expectedRevocationGeneration`）と現在の世代を比べ、違えば接続を作らず失敗する。これにより、失効と同時に進んだ同意の接続が失効の後に残らない
+- Invariants（ロックの順序）: 「users の行 → 利用者の取引ロック → 利用者とアプリの取引ロック → Grant の行 → 接続の行」とする。失効は users の行を `FOR NO KEY UPDATE`、`createOrReplace` は `FOR KEY SHARE` で最初に取る（呼び出し元が利用者の行を更新してから失効を呼ぶ経路とのデッドロックを防ぐ。`FOR UPDATE` にしないのは、同意の `FOR KEY SHARE` と他の表の外部キーの検査を待たせないため）。世代の不一致と利用者の不在は `ConnectionRevocationConflictError`（`CONNECTION_REVOCATION_CONFLICT`）を投げ、同意のトランザクション全体を戻す
+- Invariants（アクセストークンの即失効。2026-11-24、利用者の判断）: パスワードの変更・リセットと全デバイスのログアウトは、接続の失効と同じトランザクションで `users.access_token_generation` を 1 進める。発行済みの画面用アクセストークンは直ちに使えなくなり、漏れたトークンから新しい同意を始められない。パスワードを変更した本人の画面の続け方は、既存の変更後の動作を確かめて 76.1 で定める
+- 再利用の監査は `ConnectionAuditEvent` に再利用の種類 `reuseKind`（`TokenReuseEvent.kind`）を持つ。管理者への通知は注入した `observeAnomaly`（省略時は共有の監視）を、コミットの後に勝者だけが呼ぶ
 - Invariants: 他の利用者の接続を `revokeOwn` で指定しても `NOT_FOUND` を返し、存在を明かさない（49.5）
 
 **Implementation Notes**
@@ -7357,6 +7362,7 @@ erDiagram
 | expiresAt | DateTime? | 索引 |
 
 - 利用者の削除の前に `revokeAllForUser` を呼び、監査を残す
+- `users` に失効の世代の列 `external_app_revocation_generation`（Int、NOT NULL、既定 0）を足す（ExternalAppConnectionService の Invariants）
 - 権限 `external_app:connect` はマイグレーションの SQL と seed の両方で足す。ロール `admin` は `*:*` で持つ
 
 ### Error Handling

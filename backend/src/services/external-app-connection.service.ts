@@ -1,11 +1,12 @@
 /**
  * @fileoverview 外部アプリの接続の作成・置き換え・有効性の判定・一覧・取り消し
- * （user-authentication タスク 72.1、72.2）
+ * （user-authentication タスク 72.1、72.2、72.3）
  *
  * 接続の唯一の持ち主として、行の変更と監査を同じトランザクションで行う。
  * 期限切れの終了の持ち主は `assertActive` であり、検証と定期処理はこれを呼ぶ。
  *
- * Requirements: 47.8, 48.2, 48.3, 48.8, 48.10, 49.1, 49.4, 49.5, 49.6, 49.7, 49.8, 51.7
+ * Requirements: 47.8, 48.2, 48.3, 48.6, 48.8, 48.10, 49.1, 49.4, 49.5, 49.6, 49.7, 49.8,
+ * 50.1, 50.2, 50.3, 50.4, 51.7, 51.9
  *
  * @module services/external-app-connection
  */
@@ -23,6 +24,7 @@ import type {
   ExternalAppConnectionView,
   ExternalAppScope,
   PaginatedConnections,
+  TokenReuseEvent,
 } from '../oauth/oauth.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { RequestContext } from '../types/auth.types.js';
@@ -32,6 +34,12 @@ import {
   AUDIT_USER_AGENT_MAX_LENGTH,
   boundAuditText,
 } from '../utils/audit-text.js';
+import logger from '../utils/logger.js';
+import { permissionCovers } from './privilege-ceiling.js';
+import {
+  observeSecurityAnomaly,
+  type AnomalyObservation,
+} from './security-anomaly-monitor.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -48,9 +56,26 @@ export const CONNECTION_LIST_MAX_OFFSET = 2_147_483_647;
 
 /** 同じ利用者とアプリの接続の置き換えを直列化する取引ロックの名前空間（第1キー） */
 const CONNECTION_LOCK_NAMESPACE = 72_001;
+/**
+ * 利用者単位の失効と同意を直列化する取引ロックの名前空間（第1キー）。
+ * 失効と権限の喪失の判定は排他で、同意は共有で取る。
+ *
+ * ロックの順序は「users の行 → このロック → 利用者とアプリの取引ロック → Grant の行 → 接続の行」とする。
+ * users の行を先にするのは、呼び出し元が利用者の行を更新してから失効を呼ぶ経路と逆順にならないため。
+ */
+const USER_REVOCATION_LOCK_NAMESPACE = 72_002;
+
+/** Grant の payload から読む利用者とアプリの ID の形（表示できる ASCII、255 文字まで） */
+const GRANT_OWNER_ID_PATTERN = /^[\x20-\x7e]{1,255}$/;
+
+/** 接続に必要な権限（要件50.4） */
+const CONNECT_PERMISSION = { resource: 'external_app', action: 'connect' } as const;
 
 /** 監査の対象の種別。対象は接続の利用者である（要件51.7） */
 const AUDIT_TARGET_TYPE = 'User';
+/** 接続が無く利用者を特定できない再利用の監査の対象。Grant の ID は監査に書かない */
+const UNKNOWN_GRANT_TARGET_TYPE = 'ExternalAppGrant';
+const UNKNOWN_GRANT_TARGET_ID = 'unknown';
 
 const KNOWN_SCOPES: ReadonlySet<string> = new Set<ExternalAppScope>(['read', 'write']);
 
@@ -82,15 +107,35 @@ const CONNECTION_LIST_ORDER_BY: Prisma.ExternalAppConnectionOrderByWithRelationI
   { id: 'asc' },
 ];
 
+/**
+ * 同意の開始の後に利用者の接続が失効した（または利用者がいない）ため、接続を作らなかった。
+ * 呼び出し元の取引を戻し、アプリから接続し直すよう促す（要件50.1〜50.4）
+ */
+export class ConnectionRevocationConflictError extends Error {
+  readonly code = 'CONNECTION_REVOCATION_CONFLICT' as const;
+
+  constructor() {
+    super('同意の開始の後に接続が失効したため、接続を作れません');
+    this.name = 'ConnectionRevocationConflictError';
+  }
+}
+
 export interface ExternalAppConnectionServiceDependencies {
   prisma: PrismaClient;
   auditLogService: Pick<IAuditLogService, 'createLog'>;
   clientRegistry: Pick<ExternalAppClientRegistry, 'loadAllowedClients'>;
+  /** 再利用の通知の送り先。既定は共有の異常検知 */
+  observeAnomaly?: (observation: AnomalyObservation) => void;
 }
 
 /** DB の範囲のうち、知っている値だけを権限として扱う */
 function toScopes(scopes: readonly string[]): ExternalAppScope[] {
   return scopes.filter((scope): scope is ExternalAppScope => KNOWN_SCOPES.has(scope));
+}
+
+/** payload の値が ID の形なら返す */
+function toOwnerId(value: unknown): string | null {
+  return typeof value === 'string' && GRANT_OWNER_ID_PATTERN.test(value) ? value : null;
 }
 
 /** 未使用の期限。最後の利用（未使用なら同意）から 30 日（要件48.2） */
@@ -124,7 +169,11 @@ function toActive(row: ConnectionRow): ActiveConnection {
 }
 
 /** 出来事を監査の metadata へ写す。トークンの値と HMAC の ID は含めない（要件48.8） */
-function auditMetadata(event: ConnectionAuditEvent): Prisma.InputJsonObject {
+function auditMetadata(
+  event: Omit<ConnectionAuditEvent, 'kind' | 'actorUserId' | 'targetUserId' | 'clientId'> & {
+    readonly clientId: string | null;
+  }
+): Prisma.InputJsonObject {
   const userAgent =
     event.userAgent === null ? null : boundAuditText(event.userAgent, AUDIT_USER_AGENT_MAX_LENGTH);
   return {
@@ -138,6 +187,7 @@ function auditMetadata(event: ConnectionAuditEvent): Prisma.InputJsonObject {
         : boundAuditText(event.ipAddress, AUDIT_IP_ADDRESS_MAX_LENGTH).value,
     userAgent: userAgent?.value ?? null,
     ...(userAgent?.truncated ? { userAgentTruncated: true } : {}),
+    ...(event.reuseKind !== undefined ? { reuseKind: event.reuseKind } : {}),
   };
 }
 
@@ -153,11 +203,27 @@ export class ExternalAppConnectionService {
    * @param tx - 呼び出し元のトランザクション
    * @returns 作成した接続
    * @throws 既存の接続と同じ Grant を渡したとき（有効なトークンの行を消さないため）
+   * @throws {ConnectionRevocationConflictError} 同意の開始の後に世代が進んだ、または利用者がいないとき
    */
   async createOrReplace(
     input: CreateConnectionInput,
     tx: Prisma.TransactionClient
   ): Promise<ExternalAppConnectionView> {
+    // 失効と逆順にならないよう users の行を先に共有でロックする（外部キーの検査と同じ強さ）
+    await tx.$queryRaw`SELECT 1 FROM "users" WHERE "id" = ${input.userId} FOR KEY SHARE`;
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock_shared(
+        ${USER_REVOCATION_LOCK_NAMESPACE}::int, hashtext(${input.userId})
+      )::text`;
+    // ロックを待った失効のコミットが見えるよう、ロックより後の文で世代を読む
+    const owner = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { externalAppRevocationGeneration: true },
+    });
+    if (owner?.externalAppRevocationGeneration !== input.expectedRevocationGeneration) {
+      throw new ConnectionRevocationConflictError();
+    }
+
     // 行がまだ無い組の同時の同意も直列化するため、行ロックでなく取引ロックを使う
     const lockKey = `${input.userId}:${input.clientId}`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CONNECTION_LOCK_NAMESPACE}::int, hashtext(${lockKey}))`;
@@ -359,6 +425,175 @@ export class ExternalAppConnectionService {
   }
 
   /**
+   * 利用者の全ての接続を、呼び出し元のトランザクションの中で理由つきで終了する（要件50.1〜50.4）
+   *
+   * @param userId - 利用者の ID
+   * @param reason - 終了の理由
+   * @param actor - 実行者と要求の送信元。実行者のいない処理では `userId` を null にする
+   * @param tx - 呼び出し元のトランザクション
+   * @returns この呼び出しが終了した接続の数
+   */
+  async revokeAllForUser(
+    userId: string,
+    reason: ConnectionEndReason,
+    actor: AuditActor,
+    tx: Prisma.TransactionClient
+  ): Promise<number> {
+    const locked = await this.lockUsersForRevocation(tx, [userId]);
+    await this.advanceRevocationGeneration(tx, locked);
+    return this.endConnections(tx, { userId }, reason, actor);
+  }
+
+  /**
+   * 権限「外部アプリの接続」を失った利用者の接続を終了する（要件50.4）
+   *
+   * 判定は呼び出し元のトランザクションから見た DB の現在の値で行い、RBAC のキャッシュを使わない
+   * （キャッシュの無効化はコミットの後に失敗しうる）。同じ利用者の別々のロールを同時に外す取引が
+   * 互いの変更を見ずに「まだ権限がある」と判定しないよう、判定を利用者ごとの取引ロックで直列化する。
+   * 権限を失った利用者の世代だけを進める。接続の無い利用者も、進行中の同意を止めるために含める。
+   *
+   * @param userIds - 判定する利用者の ID。`'ALL'` は全利用者
+   * @param actor - 実行者と要求の送信元
+   * @param tx - 呼び出し元のトランザクション
+   * @returns この呼び出しが終了した接続の数
+   */
+  async revokeForUsersWithoutPermission(
+    userIds: readonly string[] | 'ALL',
+    actor: AuditActor,
+    tx: Prisma.TransactionClient
+  ): Promise<number> {
+    if (userIds !== 'ALL' && userIds.length === 0) {
+      return 0;
+    }
+    const candidates = await this.lockUsersForRevocation(tx, userIds);
+    if (candidates.length === 0) {
+      return 0;
+    }
+
+    // ロックを待った相手のコミットが見えるよう、ロックより後の文で権限を読む
+    const assignments = await tx.userRole.findMany({
+      where: userIds === 'ALL' ? {} : { userId: { in: candidates } },
+      select: {
+        userId: true,
+        role: {
+          select: {
+            rolePermissions: {
+              select: { permission: { select: { resource: true, action: true } } },
+            },
+          },
+        },
+      },
+    });
+    const holders = new Set(
+      assignments
+        .filter((assignment) =>
+          assignment.role.rolePermissions.some(({ permission }) =>
+            permissionCovers(permission, CONNECT_PERMISSION)
+          )
+        )
+        .map((assignment) => assignment.userId)
+    );
+    const lost = candidates.filter((userId) => !holders.has(userId));
+    if (lost.length === 0) {
+      return 0;
+    }
+    await this.advanceRevocationGeneration(tx, lost);
+    return this.endConnections(tx, { userId: { in: lost } }, 'PERMISSION_LOST', actor);
+  }
+
+  /**
+   * トークンの再利用の検知で接続を終了する（要件48.6、51.7、51.9）
+   *
+   * 消去と監査を 1 つのトランザクションで行い、コミットの後に消去に成功した呼び出しだけが通知する。
+   * 接続の無い Grant は保存データの行を消し、行を消せた呼び出しが、Grant の行の payload から検証した
+   * 利用者とアプリで監査と通知を行う。読めないときだけ不明とする。
+   * DB の失敗は呼び出し元へ伝える（失効できていないトークンの処理を続けさせない）。
+   *
+   * @param event - 再利用の出来事
+   */
+  async handleReuse(event: TokenReuseEvent): Promise<void> {
+    const occurredAt = new Date();
+    const ended = await this.deps.prisma.$transaction(async (tx) => {
+      // ロックを待った相手の結果を見るため、接続はロックより後の文で読む
+      await this.lockGrantRow(tx, event.grantId);
+      const row = await tx.externalAppConnection.findUnique({
+        where: { grantId: event.grantId },
+      });
+      if (!row) {
+        // 行を消す前に、監査の対象を Grant の行から読む
+        const grantOwner = await this.readGrantOwner(tx, event.grantId);
+        const { count } = await tx.oAuthStoreRecord.deleteMany({
+          where: { grantId: event.grantId },
+        });
+        if (count === 0) {
+          return null;
+        }
+        await this.deps.auditLogService.createLog(
+          {
+            action: 'TOKEN_REUSE_DETECTED',
+            actorId: null,
+            targetType: grantOwner.userId === null ? UNKNOWN_GRANT_TARGET_TYPE : AUDIT_TARGET_TYPE,
+            targetId: grantOwner.userId ?? UNKNOWN_GRANT_TARGET_ID,
+            metadata: auditMetadata({
+              clientId: grantOwner.clientId,
+              scopes: [],
+              reason: 'TOKEN_REUSE',
+              occurredAt,
+              ipAddress: event.ipAddress,
+              userAgent: event.userAgent,
+              reuseKind: event.kind,
+            }),
+          },
+          tx
+        );
+        return { userId: grantOwner.userId };
+      }
+
+      const removed = await this.deleteConnectionAndGrantRows(
+        tx,
+        { id: row.id, grantId: row.grantId },
+        row.grantId
+      );
+      if (!removed) {
+        return null;
+      }
+      await this.recordEvent(
+        {
+          kind: 'TOKEN_REUSE_DETECTED',
+          actorUserId: null,
+          targetUserId: row.userId,
+          clientId: row.clientId,
+          scopes: toScopes(row.scopes),
+          reason: 'TOKEN_REUSE',
+          occurredAt,
+          ipAddress: event.ipAddress,
+          userAgent: event.userAgent,
+          reuseKind: event.kind,
+        },
+        tx
+      );
+      return { userId: row.userId };
+    });
+
+    if (ended === null) {
+      return;
+    }
+    try {
+      (this.deps.observeAnomaly ?? observeSecurityAnomaly)({
+        signal: 'external_app_token_reuse',
+        sourceIp: event.ipAddress,
+        userId: ended.userId,
+      });
+    } catch (error) {
+      // 失効はコミット済み。通知の失敗をトークンの処理へ伝えない
+      logger.warn(
+        { errorName: error instanceof Error ? error.name : 'unknown' },
+        'Failed to notify external app token reuse'
+      );
+    }
+  }
+
+  /**
    * 接続の出来事を監査に記録する（要件51.7）
    *
    * @param event - 出来事
@@ -460,6 +695,116 @@ export class ExternalAppConnectionService {
   }
 
   /**
+   * 利用者を users の行、失効の排他の取引ロックの順にロックし、実在する利用者の ID を返す。
+   * どちらも昇順に取り、複数の利用者を扱う取引どうしのデッドロックを防ぐ。
+   * 行のロックは非キーの更新の強さとし、接続の外部キーの検査を待たせない。
+   */
+  private async lockUsersForRevocation(
+    tx: Prisma.TransactionClient,
+    userIds: readonly string[] | 'ALL'
+  ): Promise<string[]> {
+    const rows =
+      userIds === 'ALL'
+        ? await tx.$queryRaw<{ id: string }[]>`
+            SELECT "id" FROM "users" ORDER BY "id" FOR NO KEY UPDATE`
+        : await tx.$queryRaw<{ id: string }[]>`
+            SELECT "id" FROM "users" WHERE "id" = ANY(${[...userIds]}::text[])
+            ORDER BY "id" FOR NO KEY UPDATE`;
+    const ids = rows.map((row) => row.id);
+    if (ids.length > 0) {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(${USER_REVOCATION_LOCK_NAMESPACE}::int, key)::text
+        FROM (
+          SELECT DISTINCT hashtext(user_id) AS key
+          FROM unnest(${ids}::text[]) AS user_id
+          ORDER BY key
+        ) AS keys`;
+    }
+    return ids;
+  }
+
+  /** 失効の世代を 1 進める。利用者の更新日時は変えない */
+  private async advanceRevocationGeneration(
+    tx: Prisma.TransactionClient,
+    userIds: readonly string[]
+  ): Promise<void> {
+    if (userIds.length === 0) {
+      return;
+    }
+    await tx.$executeRaw`
+      UPDATE "users"
+      SET "external_app_revocation_generation" = "external_app_revocation_generation" + 1
+      WHERE "id" = ANY(${[...userIds]}::text[])`;
+  }
+
+  /** Grant の行の payload から、検証した利用者とアプリを読む。読めない値は null にする */
+  private async readGrantOwner(
+    tx: Prisma.TransactionClient,
+    grantId: string
+  ): Promise<{ userId: string | null; clientId: string | null }> {
+    const record = await tx.oAuthStoreRecord.findFirst({
+      where: { grantId, kind: 'Grant' },
+      select: { payload: true },
+      orderBy: { id: 'asc' },
+    });
+    const payload = record?.payload;
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      return { userId: null, clientId: null };
+    }
+    const fields = payload as Record<string, unknown>;
+    const accountId = toOwnerId(fields.accountId);
+    const user =
+      accountId === null
+        ? null
+        : await tx.user.findUnique({ where: { id: accountId }, select: { id: true } });
+    return { userId: user?.id ?? null, clientId: toOwnerId(fields.clientId) };
+  }
+
+  /**
+   * 条件に合う接続を Grant の ID の昇順に 1 回だけ走査して終了する。順序を揃えて、同時の一括の失効の
+   * デッドロックを防ぐ。呼び出し元が利用者の排他ロックを持つので、走査の間に新しい接続は作られない。
+   * 消せなかった行は他の処理が先に終了した行であり、監査はその処理が持つ。
+   */
+  private async endConnections(
+    tx: Prisma.TransactionClient,
+    where: Prisma.ExternalAppConnectionWhereInput,
+    reason: ConnectionEndReason,
+    actor: AuditActor
+  ): Promise<number> {
+    const rows = await tx.externalAppConnection.findMany({
+      where,
+      orderBy: { grantId: 'asc' },
+    });
+    let ended = 0;
+    for (const row of rows) {
+      const removed = await this.deleteConnectionAndGrantRows(
+        tx,
+        { id: row.id, grantId: row.grantId },
+        row.grantId
+      );
+      if (!removed) {
+        continue;
+      }
+      ended += 1;
+      await this.recordEvent(
+        {
+          kind: 'CONNECTION_ENDED',
+          actorUserId: actor.userId,
+          targetUserId: row.userId,
+          clientId: row.clientId,
+          scopes: toScopes(row.scopes),
+          reason,
+          occurredAt: new Date(),
+          ipAddress: actor.source?.ipAddress ?? null,
+          userAgent: actor.source?.userAgent ?? null,
+        },
+        tx
+      );
+    }
+    return ended;
+  }
+
+  /**
    * Grant の行をロックしてから接続を条件付きで消し、消せたときだけその Grant の保存データの行を消す。
    *
    * ロックの順序は「Grant の行 → 接続の行」とする。トークンの保存側は同じ Grant の行をロックして挿入する。
@@ -476,16 +821,21 @@ export class ExternalAppConnectionService {
     where: Prisma.ExternalAppConnectionWhereInput,
     grantId: string
   ): Promise<boolean> {
-    await tx.$queryRaw`
-      SELECT "id" FROM "oauth_store_records"
-      WHERE "grant_id" = ${grantId} AND "kind" = 'Grant'
-      FOR UPDATE`;
+    await this.lockGrantRow(tx, grantId);
     const { count } = await tx.externalAppConnection.deleteMany({ where });
     if (count === 0) {
       return false;
     }
     await tx.oAuthStoreRecord.deleteMany({ where: { grantId } });
     return true;
+  }
+
+  /** Grant の行をトランザクションの終わりまでロックする */
+  private async lockGrantRow(tx: Prisma.TransactionClient, grantId: string): Promise<void> {
+    await tx.$queryRaw`
+      SELECT "id" FROM "oauth_store_records"
+      WHERE "grant_id" = ${grantId} AND "kind" = 'Grant'
+      FOR UPDATE`;
   }
 
   private toView(row: ConnectionViewRow): ExternalAppConnectionView {

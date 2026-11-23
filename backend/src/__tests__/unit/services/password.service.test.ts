@@ -321,6 +321,7 @@ describe('PasswordService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
       };
 
       const mockResetToken: PasswordResetToken = {
@@ -650,6 +651,7 @@ describe('PasswordService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
       };
 
       (
@@ -904,6 +906,7 @@ describe('PasswordService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -948,6 +951,7 @@ describe('PasswordService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -996,6 +1000,7 @@ describe('PasswordService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);

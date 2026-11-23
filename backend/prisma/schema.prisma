@@ -28,18 +28,20 @@ model User {
   updatedAt            DateTime  @updatedAt
 
   // アカウントの状態と棚卸し（要件36）。ロック（isLocked）とは別の状態で、ログイン成功や時間経過で解除しない
-  isActive               Boolean   @default(true) @map("is_active")
-  deactivatedAt          DateTime? @map("deactivated_at")
-  deactivationReason     String?   @map("deactivation_reason")
-  lastLoginAt            DateTime? @map("last_login_at")
-  mustChangePassword     Boolean   @default(false) @map("must_change_password") // 初回のパスワード変更の要否（要件34）
-  twoFactorLastUsedStep  Int?      @map("two_factor_last_used_step") // TOTP の最後に使った時間ステップ（再利用の拒否、要件32）
-  twoFactorPendingSecret String?   @map("two_factor_pending_secret") // 再登録中の秘密鍵（AES-256-GCM暗号化済み、要件34）
-  invitedById            String?   @map("invited_by_id") // 招待者（登録時に招待の作成者を写す、要件36.10）
-  invitedBy              User?     @relation("InvitedUsers", fields: [invitedById], references: [id], onDelete: SetNull)
-  invitedUsers           User[]    @relation("InvitedUsers")
-  accessTokenGeneration  Int       @default(0) @map("access_token_generation") // アクセストークンの世代（管理者の 2FA の再設定で進める、要件34.7）
-  reactivatedAt          DateTime? @map("reactivated_at") // 最後の再有効化（90 日の自動無効化の起点の一つ、要件36.8）
+  isActive                        Boolean   @default(true) @map("is_active")
+  deactivatedAt                   DateTime? @map("deactivated_at")
+  deactivationReason              String?   @map("deactivation_reason")
+  lastLoginAt                     DateTime? @map("last_login_at")
+  mustChangePassword              Boolean   @default(false) @map("must_change_password") // 初回のパスワード変更の要否（要件34）
+  twoFactorLastUsedStep           Int?      @map("two_factor_last_used_step") // TOTP の最後に使った時間ステップ（再利用の拒否、要件32）
+  twoFactorPendingSecret          String?   @map("two_factor_pending_secret") // 再登録中の秘密鍵（AES-256-GCM暗号化済み、要件34）
+  invitedById                     String?   @map("invited_by_id") // 招待者（登録時に招待の作成者を写す、要件36.10）
+  invitedBy                       User?     @relation("InvitedUsers", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitedUsers                    User[]    @relation("InvitedUsers")
+  accessTokenGeneration           Int       @default(0) @map("access_token_generation") // アクセストークンの世代（管理者の 2FA の再設定で進める、要件34.7）
+  reactivatedAt                   DateTime? @map("reactivated_at") // 最後の再有効化（90 日の自動無効化の起点の一つ、要件36.8）
+  // 外部アプリの接続の失効の世代。失効で進め、同意の確定時に比べる（要件50.1〜50.4）
+  externalAppRevocationGeneration Int       @default(0) @map("external_app_revocation_generation")
 
   userRoles             UserRole[]
   refreshTokens         RefreshToken[]

@@ -176,6 +176,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -461,6 +462,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 4,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -553,6 +555,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -612,6 +615,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -664,6 +668,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -714,6 +719,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -773,6 +779,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -833,6 +840,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1142,6 +1150,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [
           {
             role: {
@@ -1221,6 +1230,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 5,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1322,6 +1332,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1419,6 +1430,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1489,6 +1501,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1538,6 +1551,7 @@ describe('AuthService', () => {
         invitedById: null,
         accessTokenGeneration: 0,
         reactivatedAt: null,
+        externalAppRevocationGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 

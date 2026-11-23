@@ -49,6 +49,16 @@ export interface ConnectionAuditEvent {
   readonly occurredAt: Date;
   readonly ipAddress: string | null;
   readonly userAgent: string | null;
+  /** 再利用を検知したトークンの種類。`TOKEN_REUSE_DETECTED` で記録する（通知には含まれない） */
+  readonly reuseKind?: TokenReuseEvent['kind'];
+}
+
+/** 認可サーバーの保存側が検知したトークンの再利用 */
+export interface TokenReuseEvent {
+  readonly grantId: string;
+  readonly kind: 'authorization_code' | 'refresh_token' | 'grant_revocation';
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
 }
 
 /** 接続の作成・置き換えの入力 */
@@ -59,6 +69,8 @@ export interface CreateConnectionInput {
   readonly grantId: string;
   readonly scopes: readonly ExternalAppScope[];
   readonly consentedAt: Date;
+  /** 同意の手続きの開始時に読んだ利用者の失効の世代。現在の世代と違えば接続を作らない */
+  readonly expectedRevocationGeneration: number;
   /** 同意の要求の送信元（監査に記録する） */
   readonly source?: RequestContext;
 }
@@ -104,7 +116,8 @@ export interface PaginatedConnections {
 
 /** 接続を操作した実行者と要求の送信元（要件51.7） */
 export interface AuditActor {
-  readonly userId: string;
+  /** 実行者の ID。定期処理など実行者のいない処理では null */
+  readonly userId: string | null;
   readonly source?: RequestContext;
 }
 
