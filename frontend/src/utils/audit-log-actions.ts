@@ -135,6 +135,31 @@ export const PROJECT_PURGE_AUDIT_ACTION_LABELS: Record<ProjectPurgeAuditAction, 
   PROJECT_PURGE_RUN_COMPLETED: 'プロジェクトの完全削除の定期処理の結果',
 };
 
+/**
+ * 外部アプリの接続の種別（user-authentication 要件51.7。backend の EXTERNAL_APP_AUDIT_ACTIONS と
+ * 一致させる）。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const EXTERNAL_APP_AUDIT_ACTIONS = [
+  'CONSENT_GRANTED',
+  'CONSENT_DENIED',
+  'CONNECTION_REPLACED',
+  'CONNECTION_ENDED',
+  'TOKEN_REUSE_DETECTED',
+  'REFRESH_GRACE_APPLIED',
+] as const satisfies readonly AuditLogAction[];
+
+export type ExternalAppAuditAction = (typeof EXTERNAL_APP_AUDIT_ACTIONS)[number];
+
+/** 外部アプリの接続の種別の表示名 */
+export const EXTERNAL_APP_AUDIT_ACTION_LABELS: Record<ExternalAppAuditAction, string> = {
+  CONSENT_GRANTED: '外部アプリの接続の同意',
+  CONSENT_DENIED: '外部アプリの接続の拒否',
+  CONNECTION_REPLACED: '外部アプリの接続の置き換え',
+  CONNECTION_ENDED: '外部アプリの接続の終了（取り消し・失効）',
+  TOKEN_REUSE_DETECTED: '外部アプリのトークン再利用検知',
+  REFRESH_GRACE_APPLIED: '外部アプリのトークン更新の猶予の適用',
+};
+
 /** 招待の記録の対象の種別（backend の InvitationService.recordAudit と register の記録の targetType） */
 const INVITATION_TARGET_TYPE = 'Invitation';
 

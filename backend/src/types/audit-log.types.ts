@@ -224,7 +224,33 @@ export type AuditLogAction =
   // 監査ログのアーカイブと復元
   | 'AUDIT_ARCHIVE_CREATED'
   | 'AUDIT_ARCHIVE_FAILED'
-  | 'AUDIT_ARCHIVE_RESTORED';
+  | 'AUDIT_ARCHIVE_RESTORED'
+  // 外部アプリの接続（要件51.7。種別の一覧は EXTERNAL_APP_AUDIT_ACTIONS）
+  | 'CONSENT_GRANTED'
+  | 'CONSENT_DENIED'
+  | 'CONNECTION_REPLACED'
+  | 'CONNECTION_ENDED'
+  | 'TOKEN_REUSE_DETECTED'
+  | 'REFRESH_GRACE_APPLIED';
+
+/**
+ * 外部アプリの接続の監査ログアクション一覧（要件51.7）
+ * design.md の ConnectionAuditEvent の kind と一致させる。
+ * 取り消しと失効は CONNECTION_ENDED に終了の理由を付けて記録する
+ */
+export const EXTERNAL_APP_AUDIT_ACTIONS = [
+  'CONSENT_GRANTED',
+  'CONSENT_DENIED',
+  'CONNECTION_REPLACED',
+  'CONNECTION_ENDED',
+  'TOKEN_REUSE_DETECTED',
+  'REFRESH_GRACE_APPLIED',
+] as const satisfies readonly AuditLogAction[];
+
+/**
+ * 外部アプリの接続の監査ログアクション型（サブセット）
+ */
+export type ExternalAppAuditAction = (typeof EXTERNAL_APP_AUDIT_ACTIONS)[number];
 
 /**
  * セキュリティ是正（IPA注意喚起 2026-10-09）で加えた監査ログアクション一覧（要件40.1）

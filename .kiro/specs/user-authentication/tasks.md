@@ -2058,7 +2058,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 70.2_
   - _Requirements: 46.4, 46.5_
 
-- [ ] 71.3 (P) 接続の出来事の監査の種別と画面の表示名を足す
+- [x] 71.3 (P) 接続の出来事の監査の種別と画面の表示名を足す
   - 同意・拒否・置き換え・取り消し・失効・再利用の検知・猶予の適用の種別を足す
   - 監査ログの画面に各種別の表示名が出ることを単体テストで確かめた状態になる
   - _Boundary: AuditLogService, 監査ログの表示名_
@@ -2075,6 +2075,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 **タスク71の記録（2026-11-23）**:
 - 71.1: migration `20261123000000_external_app_connections` で 2 つの表と権限 `external_app:connect` を足した。`scopes` の `read` 必須は Prisma で書けないため CHECK 制約で守る。Prisma の配列の列は NULL を許し、NULL は `ANY` の比較を素通りするので、`IS NOT NULL` も条件に含めた。`oauth_store_records.grant_id` は接続より先に作られる行があるため外部キーを持たず、孤立した行の片付けは後続のタスクで確かめる。単体 8,014 件・統合 1,809 件が緑。反実仮想: 一意索引と CHECK 制約を落とすと新しい統合テストの 5 件が赤になる
 - 71.2: `oidc-provider` 9.15.1 を版固定で足し、`backend/src/oauth/client-registry.ts` の検証を `validateEnv` から呼ぶ。鍵を含むため env のスキーマには載せず、エラーの文にも値を出さない。HTTP と試験用の値を許すのは `NODE_ENV` が `development`・`test` のときだけで、未設定や未知の値は本番と同じに扱う。compose と ci.yml の試験用の鍵は SHA-256 の指紋で本番では拒むので、**試験用の値を変えるときは指紋も更新する**。単体 8,111 件・統合 1,809 件が緑。E2E は未実行で、窓口の搭載はタスク73が持つ。**タスク73への申し送り**: x25519・`key_ops=[decrypt]` など署名に使えない鍵はこの検証を通り、プロバイダの構築時に例外になるので、構築の失敗で起動を止めることを保つ
+- 71.3: 監査の種別は design.md の `ConnectionAuditEvent.kind` の 6 種別（`CONSENT_GRANTED`・`CONSENT_DENIED`・`CONNECTION_REPLACED`・`CONNECTION_ENDED`・`TOKEN_REUSE_DETECTED`・`REFRESH_GRACE_APPLIED`）とし、取り消しと失効は `CONNECTION_ENDED` に `ConnectionEndReason` を付けて区別する。`audit_logs.action` は文字列の列なので migration は要らない。frontend 単体 13,575 件・backend 単体 8,118 件・統合 1,809 件が緑。出来事の記録と `docs/architecture/security-design.md` の種別の分類への追記はタスク72 以降で行う
 
 ## タスク72: 接続の管理（要件47〜51）
 

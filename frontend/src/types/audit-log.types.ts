@@ -55,7 +55,14 @@ export type AuditLogAction =
   // 完全削除の失敗の扱い（対象外化・対象への復帰・定期処理の結果。project-management 要件46.11・46.14・46.15）
   | 'PROJECT_PURGE_EXCLUDED'
   | 'PROJECT_PURGE_REQUEUED'
-  | 'PROJECT_PURGE_RUN_COMPLETED';
+  | 'PROJECT_PURGE_RUN_COMPLETED'
+  // 外部アプリの接続（user-authentication 要件51.7。表示名は utils/audit-log-actions.ts）
+  | 'CONSENT_GRANTED'
+  | 'CONSENT_DENIED'
+  | 'CONNECTION_REPLACED'
+  | 'CONNECTION_ENDED'
+  | 'TOKEN_REUSE_DETECTED'
+  | 'REFRESH_GRACE_APPLIED';
 
 /**
  * 監査ログ情報
