@@ -32,7 +32,8 @@ declare module 'oidc-provider' {
     oidc: {
       account?: { accountId: string };
       client?: { clientId: string; grantTypeAllowed(grantType: string): boolean };
-      entities: { Grant?: OidcGrant };
+      entities: { Grant?: OidcGrant; RotatedRefreshToken?: { jti: string } };
+      params?: Record<string, unknown>;
       provider: Provider;
       requestParamScopes: Set<string>;
       result?: { consent?: { grantId?: unknown } };
@@ -43,6 +44,8 @@ declare module 'oidc-provider' {
   }
 
   export class Provider {
+    /** 処理中の要求の文脈。要求の外では undefined */
+    static readonly ctx: OidcContext | undefined;
     constructor(issuer: string, configuration: Record<string, unknown>);
     proxy: boolean;
     callback(): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -68,6 +71,7 @@ declare module 'oidc-provider' {
     AccessDenied: new (description?: string, detail?: string) => Error;
     InvalidGrant: new (detail?: string) => Error;
     InvalidTarget: new (description?: string) => Error;
+    OIDCProviderError: new (status: number, message: string) => Error;
   };
 
   interface PolicyCheck {

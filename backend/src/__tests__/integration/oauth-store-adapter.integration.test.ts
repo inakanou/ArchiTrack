@@ -86,6 +86,8 @@ describe('OAuthStoreAdapter（統合・実 DB と実ライブラリ）', () => {
   let server: http.Server;
   let tokenUrl: string;
   const onGrantRevoked = vi.fn<(event: TokenReuseEvent) => Promise<void>>();
+  /** 注入する時計。null なら実時間 */
+  let injectedNow: Date | null = null;
   const createdIds = new Set<string>();
   const createdRecordIds = new Set<string>();
 
@@ -157,6 +159,7 @@ describe('OAuthStoreAdapter（統合・実 DB と実ライブラリ）', () => {
       adapter: createOAuthStoreAdapterFactory({
         prisma,
         tokenHmacKey: HMAC_KEY,
+        now: () => injectedNow ?? new Date(),
         onGrantRevoked,
         onRefreshGraceApplied: async () => undefined,
         getRequestSource: () => ({ ipAddress: '203.0.113.10', userAgent: 'integration' }),
@@ -208,6 +211,7 @@ describe('OAuthStoreAdapter（統合・実 DB と実ライブラリ）', () => {
   });
 
   afterEach(async () => {
+    injectedNow = null;
     onGrantRevoked.mockReset();
     await prisma.oAuthStoreRecord.deleteMany({ where: { grantId: { in: [...createdIds] } } });
     await prisma.oAuthStoreRecord.deleteMany({ where: { id: { in: [...createdRecordIds] } } });
@@ -386,13 +390,58 @@ describe('OAuthStoreAdapter（統合・実 DB と実ライブラリ）', () => {
     expect(consumedKinds).toEqual(['AuthorizationCode', 'RefreshToken']);
   });
 
+  describe('猶予の時間の境界（48.11）', () => {
+    it.each([
+      ['経過ちょうど 30 秒は猶予内', 30_000, true],
+      ['経過 30 秒 + 1ms は再利用', 30_001, false],
+      ['負の経過 5 秒は猶予内', -5_000, true],
+      ['負の経過 5 秒 + 1ms は再利用', -5_001, false],
+      ['1 時間先の置き換えの日時は再利用', -3_600_000, false],
+    ])('%s', async (_name, elapsedMs, graced) => {
+      const accountId = randomUUID();
+      const grantId = await saveConsentedGrant(accountId);
+      const used = await exchangeCode(grantId, accountId);
+      const rotated = await postToken({ grant_type: 'refresh_token', refresh_token: used });
+      expect(rotated.status).toBe(200);
+      const row = (await grantRows(grantId)).find(
+        (candidate) => candidate.kind === 'RefreshToken' && candidate.consumedAt !== null
+      );
+      const replacedAt = (row?.payload as { rotation?: { replacedAt?: number } } | undefined)
+        ?.rotation?.replacedAt;
+      if (typeof replacedAt !== 'number') {
+        throw new Error('置き換えの日時が保存されていません');
+      }
+
+      injectedNow = new Date(replacedAt + elapsedMs);
+      const replay = await postToken({ grant_type: 'refresh_token', refresh_token: used });
+
+      if (graced) {
+        expect(replay.status).toBe(200);
+        expect(onGrantRevoked).not.toHaveBeenCalled();
+      } else {
+        expect(replay.status).toBe(400);
+        expect(replay.json.error).toBe('invalid_grant');
+        expect(onGrantRevoked).toHaveBeenCalledTimes(1);
+        expect(onGrantRevoked).toHaveBeenCalledWith(
+          expect.objectContaining({ grantId, kind: 'refresh_token' })
+        );
+      }
+    });
+  });
+
   it('再利用の処理が失敗しても使用済みの行が残り、復旧後の再提示で失効して後継も使えない', async () => {
     const accountId = randomUUID();
     const grantId = await saveConsentedGrant(accountId);
     const used = await exchangeCode(grantId, accountId);
     const rotated = await postToken({ grant_type: 'refresh_token', refresh_token: used });
     expect(rotated.status).toBe(200);
-    const successor = rotated.json.refresh_token as string;
+    // 後継を実際に使い、48.11 の猶予に当たらない再提示にする
+    const latest = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: rotated.json.refresh_token as string,
+    });
+    expect(latest.status).toBe(200);
+    const successor = latest.json.refresh_token as string;
 
     onGrantRevoked.mockRejectedValueOnce(new Error('handler down'));
     const failed = await postToken({ grant_type: 'refresh_token', refresh_token: used });

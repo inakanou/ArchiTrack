@@ -6856,6 +6856,7 @@ stateDiagram-v2
 | 51.7 | 接続の出来事と猶予の適用の監査 | ExternalAppConnectionService | recordEvent | 接続の状態 |
 | 51.8 | 出力記録に外部アプリを残す | ExportAuditService | record | — |
 | 51.9 | 再利用の検知を管理者へ通知 | ExternalAppConnectionService | handleReuse | 接続の状態 |
+| 51.10 | 認可の窓口の送信元 IP ごとの回数制限 | OAuthProviderHost | authorize, token | — |
 
 ### Components and Interfaces
 
@@ -6864,7 +6865,7 @@ stateDiagram-v2
 | Component | Domain | Intent | Req Coverage | Key Dependencies | Contracts |
 |---|---|---|---|---|---|
 | TokenService | Backend Service | 画面用のトークンの検証（変更なし、試験で保証） | 33 | jose (P0) | Service |
-| OAuthProviderHost | Backend OAuth | 認可サーバーの設定と搭載 | 46, 47, 48 | oidc-provider (P0), OAuthStoreAdapter (P0) | API |
+| OAuthProviderHost | Backend OAuth | 認可サーバーの設定と搭載 | 46, 47, 48, 51 | oidc-provider (P0), OAuthStoreAdapter (P0) | API |
 | OAuthStoreAdapter | Backend OAuth | 値の HMAC 化と再利用の検知 | 47, 48 | Prisma (P0) | Service |
 | ExternalAppClientRegistry | Backend OAuth | 許可するアプリの読み込み | 46, 50 | 環境変数 (P0) | Service |
 | ConsentInteractionService | Backend Service | 同意の手続き | 46, 47 | OAuthProviderHost (P0), SecondFactorVerifier (P0) | Service |
@@ -6959,7 +6960,7 @@ interface ConnectionAuditEvent {
 | Field | Detail |
 |---|---|
 | Intent | `oidc-provider` の設定を一か所に持ち、Express へ載せる |
-| Requirements | 46.1, 46.4, 46.5, 46.6, 47.6, 47.9, 48.1, 48.4, 48.5, 48.8, 48.9, 48.11 |
+| Requirements | 46.1, 46.4, 46.5, 46.6, 47.6, 47.9, 48.1, 48.4, 48.5, 48.8, 48.9, 48.11, 51.10 |
 
 **Responsibilities & Constraints**
 
@@ -6995,6 +6996,7 @@ interface ConnectionAuditEvent {
 
 - Integration: `express.json()` と CORS より前に置く。外部からの要求に利用者の Cookie は不要である
 - Validation: 必須の環境変数（`OAUTH_ISSUER`、`OAUTH_RESOURCE_URL`、`OAUTH_JWKS`、`OAUTH_COOKIE_KEYS`、`OAUTH_TOKEN_HMAC_KEY`）が欠けると、許可するアプリが設定された環境では起動を止める。許可するアプリが無い環境では窓口を載せない
+- Rate limit（51.10。2026-11-24、利用者の判断）: `/oauth/authorize`（再開を含む）と `/oauth/token` に、既存の回数制限の仕組み（`rateLimit.middleware.ts`、Redis の保存先）で送信元 IP ごとの上限を掛ける。既定は 1 分あたり認可 60 回・トークン 300 回で、`OAUTH_RATE_LIMIT_AUTHORIZE_MAX`・`OAUTH_RATE_LIMIT_TOKEN_MAX`・`OAUTH_RATE_LIMIT_WINDOW_MS` で変える。Claude は共有の送信元から更新するのでトークンの上限を高くする。送信元は `TRUST_PROXY_HOPS` の判定を使い、本番では無効化の設定を無視する
 - Risks: 毎回の同意の強制、手続きの Cookie の到達、再開、`read write` でのリフレッシュトークンの発行は、タスク70.1 のインメモリの検証で確かめた。PostgreSQL の上での動作はタスク73 の統合テストで確かめる。セッションの Cookie を外すと毎回の同意の方針だけを外しても検査が通るため、統合テストでは両者を分けて確かめる
 
 ##### OAuthStoreAdapter
@@ -7011,6 +7013,7 @@ interface ConnectionAuditEvent {
 - 48.11 の判定のため、リフレッシュトークンの行に置き換えの日時と後継を持つ。猶予での再発行では、まだ使われていない後継を置き換え済みにし、置き換え済みにした後継と、その後継を指していた同じ Grant の全ての行の後継を新しいトークンへ付け替える。これにより再試行が続く場面にも 48.11 を適用する。猶予を適用したら、注入された `RefreshGraceHandler` を呼び、`ExternalAppConnectionService.recordEvent` で監査に残す。クライアント認証はトークンの読み出しより前に通るため、認証に失敗した要求は猶予の判定にも失効にも進まない
 - 同じ Grant の更新は Grant の行のロックで直列にする
 - `consume` は行の条件付き更新で原子的に行う。認可コードの競合に負けた要求と、リフレッシュトークンの競合のうち 48.11 に当たらない要求は再利用として扱う。48.11 に当たるリフレッシュトークンの競合は猶予として接続を保つ
+- 実装の注記（タスク73.3）: トークンの窓口のリフレッシュトークンの更新では、`consume` は書き込まず、直後の後継の `upsert` の同じトランザクションの中で条件付き更新を行う。後継の保存の失敗で消費も戻すためで、ライブラリが `consume` の直後に後継を保存する順序（`rotateRefreshToken: true`）に依存する。ライブラリの更新時は再利用の統合テストで確かめる。48.11 の猶予で許容する時計のずれは 5 秒までとし、それより未来の置き換えの日時は再利用として扱う
 - 使用済みの行は接続が終わるまで残す
 - Grant に属するトークンの行は、同じトランザクションで Grant の行をロックして存在を確かめたときだけ保存し、無ければ `invalid_grant` とする。接続の失効も同じ Grant の行をロックして行う。これにより、同時要求の勝者のトークンが失効の後に保存されて残ることを防ぐ
 - 再利用を検知したら、注入された `TokenReuseHandler` を呼ぶ。アダプターは接続のサービスを参照しない

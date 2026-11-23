@@ -830,7 +830,11 @@ describe('認可サーバーの設定と搭載（タスク73.2）', () => {
       const tokens = (await (await exchangeCode(harness, code, verifier)).json()) as {
         refresh_token: string;
       };
-      expect((await refresh(harness, tokens.refresh_token)).status).toBe(200);
+      const rotated = await refresh(harness, tokens.refresh_token);
+      expect(rotated.status).toBe(200);
+      // 後継を実際に使い、48.11 の猶予に当たらない再提示にする
+      const { refresh_token: successor } = (await rotated.json()) as { refresh_token: string };
+      expect((await refresh(harness, successor)).status).toBe(200);
 
       const replay = await refresh(harness, tokens.refresh_token, {
         'x-forwarded-for': `203.0.113.99, ${FORWARDED_CLIENT_IP}`,

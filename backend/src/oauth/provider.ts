@@ -170,6 +170,18 @@ async function loadConsentGrant(ctx: OidcContext): Promise<OidcGrant | undefined
   return grant;
 }
 
+/**
+ * トークンの要求の `resource` が設定の値だけであることを確かめる。
+ * ライブラリの検証は認可コードの消費の後なので、誤りの後の正しい再試行が再利用にならないよう先に拒否する
+ */
+function assertRequestedResource(ctx: OidcContext, resourceUrl: string): void {
+  const requested = ctx.oidc.params?.resource;
+  const values = Array.isArray(requested) ? requested : requested === undefined ? [] : [requested];
+  if (values.some((value) => value !== resourceUrl)) {
+    throw new errors.InvalidTarget();
+  }
+}
+
 function buildConfiguration(
   config: ExternalAppOAuthConfig,
   deps: OAuthProviderHostDeps
@@ -182,6 +194,7 @@ function buildConfiguration(
       onGrantRevoked: (event) => deps.connectionService.handleReuse(event),
       onRefreshGraceApplied: (event) => deps.connectionService.recordRefreshGrace(event),
       getRequestSource,
+      assertCodeExchangeRequest: (ctx) => assertRequestedResource(ctx, resourceUrl),
     }),
     clients: config.clients.map((client) => ({
       client_id: client.clientId,

@@ -10,6 +10,7 @@
  */
 
 import { createHmac } from 'crypto';
+import { errors } from 'oidc-provider';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createOAuthStoreAdapterFactory,
@@ -38,7 +39,11 @@ function hmacId(kind: string, value: string): string {
 }
 
 function fakeDb(rows: Map<string, Row>): OAuthStoreDb {
-  return {
+  const db = {
+    $queryRaw: vi.fn(async (_query: TemplateStringsArray, grantId: string) =>
+      rows.has(`Grant:${grantId}`) ? [{ id: `Grant:${grantId}` }] : []
+    ),
+    $transaction: vi.fn(async (action: (tx: unknown) => Promise<unknown>) => action(db)),
     oAuthStoreRecord: {
       upsert: vi.fn(async ({ where, create, update }) => {
         const previous = rows.get(where.id as string);
@@ -75,7 +80,20 @@ function fakeDb(rows: Map<string, Row>): OAuthStoreDb {
         return { count: 1 };
       }),
     },
-  } as unknown as OAuthStoreDb;
+  };
+  return db as unknown as OAuthStoreDb;
+}
+
+function grantRow(grantId: string): Row {
+  return {
+    id: `Grant:${grantId}`,
+    kind: 'Grant',
+    grantId,
+    uid: null,
+    payload: { kind: 'Grant' },
+    consumedAt: null,
+    expiresAt: null,
+  };
 }
 
 describe('OAuthStoreAdapter', () => {
@@ -84,7 +102,7 @@ describe('OAuthStoreAdapter', () => {
   let factory: ReturnType<typeof createOAuthStoreAdapterFactory>;
 
   beforeEach(() => {
-    rows = new Map();
+    rows = new Map([['Grant:grant-1', grantRow('grant-1')]]);
     onGrantRevoked = vi.fn(async () => undefined);
     factory = createOAuthStoreAdapterFactory({
       prisma: fakeDb(rows),
@@ -227,13 +245,50 @@ describe('OAuthStoreAdapter', () => {
       await expect(adapter.find(RAW_TOKEN)).resolves.toMatchObject({ consumed: NOW_SECONDS });
     });
 
-    it('存在しない行と使用済みの行の consume は失敗にする', async () => {
-      const adapter = factory('RefreshToken');
-      await expect(adapter.consume(RAW_TOKEN)).rejects.toBeInstanceOf(OAuthStoreError);
+    it('存在しない行の consume は invalid_grant にする', async () => {
+      await expect(factory('RefreshToken').consume(RAW_TOKEN)).rejects.toBeInstanceOf(
+        errors.InvalidGrant
+      );
+      expect(onGrantRevoked).not.toHaveBeenCalled();
+    });
 
-      await adapter.upsert(RAW_TOKEN, { jti: RAW_TOKEN, kind: 'RefreshToken' }, 60);
+    it.each([
+      ['AuthorizationCode', 'authorization_code'],
+      ['RefreshToken', 'refresh_token'],
+    ])('%s の consume の競合に負けた側は再利用として失効し invalid_grant', async (kind, reuse) => {
+      const adapter = factory(kind);
+      await adapter.upsert(RAW_TOKEN, { jti: RAW_TOKEN, kind, grantId: 'grant-1' }, 60);
       await adapter.consume(RAW_TOKEN);
-      await expect(adapter.consume(RAW_TOKEN)).rejects.toBeInstanceOf(OAuthStoreError);
+
+      await expect(adapter.consume(RAW_TOKEN)).rejects.toBeInstanceOf(errors.InvalidGrant);
+
+      expect(onGrantRevoked).toHaveBeenCalledTimes(1);
+      expect(onGrantRevoked).toHaveBeenCalledWith(
+        expect.objectContaining({ grantId: 'grant-1', kind: reuse })
+      );
+    });
+
+    it('Grant の行が無ければトークンを保存せず invalid_grant にする', async () => {
+      await expect(
+        factory('AccessToken').upsert(
+          RAW_TOKEN,
+          { jti: RAW_TOKEN, kind: 'AccessToken', grantId: 'grant-gone' },
+          60
+        )
+      ).rejects.toBeInstanceOf(errors.InvalidGrant);
+
+      expect(rows.has(hmacId('AccessToken', RAW_TOKEN))).toBe(false);
+    });
+
+    it('置き換えの記録はライブラリへ返さない', async () => {
+      const adapter = factory('RefreshToken');
+      await adapter.upsert(RAW_TOKEN, { jti: RAW_TOKEN, kind: 'RefreshToken' }, 60);
+      (rows.get(hmacId('RefreshToken', RAW_TOKEN)) as Row).payload = {
+        kind: 'RefreshToken',
+        rotation: { replacedAt: NOW.getTime(), successorId: 'RefreshToken:abc' },
+      };
+
+      await expect(adapter.find(RAW_TOKEN)).resolves.not.toHaveProperty('rotation');
     });
   });
 
@@ -314,6 +369,7 @@ describe('OAuthStoreAdapter', () => {
     });
 
     it('処理の完了より先に Grant の行を消さない', async () => {
+      rows.delete('Grant:grant-1');
       await factory('Grant').upsert('grant-1', { jti: 'grant-1', kind: 'Grant' }, 3600);
       let seenDuringHandler = false;
       onGrantRevoked.mockImplementation(async () => {
