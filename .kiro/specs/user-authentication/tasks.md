@@ -2144,7 +2144,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 73.2_
   - _Requirements: 47.10, 48.6, 48.11, 51.7_
 
-- [ ] 73.4 公開オリジンから認可の経路へ届くようにする
+- [x] 73.4 公開オリジンから認可の経路へ届くようにする
   - nginx で `/oauth/` と認可サーバーのメタデータを backend へ中継する
   - 既存の `/.well-known/jwks.json` の扱いと SPA の配信を変えない
   - 試験用の nginx 経由でメタデータの発行者とエンドポイントが公開オリジンになることを確かめた状態になる
@@ -2161,6 +2161,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 73.1: `backend/src/oauth/store-adapter.ts` を作った。AccessToken・RefreshToken・AuthorizationCode のキーは `種別:HMAC-SHA-256(値)` で、本体から `jti` を除いて保存する。ライブラリは再利用時に `refreshToken.destroy()` と Grant の失効を同時に呼ぶので、失効は進行中の処理を全モデルで共有し、Grant の `destroy` はその完了を待つ。`destroy` は使用済みの RefreshToken・AuthorizationCode の行を消さない（消すと再利用の処理の失敗後に再提示で失効できず、後継が使い続けられた）。単体 8,355 件・統合 1,937 件が緑。**73.2 の義務**: `OAUTH_COOKIE_KEYS` を `cookies.keys` へ渡す。認可と再開の要求から `_session` と `_session.sig` を外す。`end_session`・revocation・デバイスフローを載せない（Session の行と Interaction の `session.cookie` は Cookie の値を平文で持つが、署名の鍵が無いと有効な Cookie を作れない）。`getRequestSource` を要求の文脈から渡す。**73.3 の義務**: `consume` の暫定の例外を再利用と猶予の判定に置き換える。ライブラリは `consumed` の判定より先に期限や Grant を検証するので、`find` の時点で検知する。トークンの `upsert` を Grant の行のロックと同じトランザクションへ入れる。猶予の「置き換えの日時と後継」は `payload` に HMAC の ID で持つ。**76.4 の義務**: 期限切れの行の片付けで、接続が存続している使用済みの行を残し、接続の無い Grant の孤立した行を消す
 - 73.2: `backend/src/oauth/provider.ts`・`request-context.ts` を作り、本文の解析と CORS より前に載せた。設定が無ければ何も載せず、構築の失敗で起動を止める。ライブラリは Basic と post を同じ方式として受けるので、`/oauth/token` の `Authorization` は搭載層で 401 にする。認可要求の `resource` の省略は `invalid_target`。Interaction と Session の期限は 600 秒。単体 8,388 件・統合 2,002 件が緑。**73.3 への申し送り**: ライブラリは `resource` の検証より前に認可コードを消費するので、誤った `resource` の後の正しい再試行で接続を失効させるかを決めてテストする。`onRefreshGraceApplied` を呼ぶ。**74 への申し送り**: Grant を接続の `consentedAt` より前に作る。`scope=write` だけの要求に `read` で同意すると交換が `invalid_grant` になるので、`scope` の省略と未知の範囲を含めて要求の範囲の扱いを定める。Interaction の 600 秒が 2FA を含む同意に足りるかを確かめる。**75 への申し送り**: `assertActive` で接続の期限を必ず確かめる。**運用**: 本番で `DEBUG=oidc-provider:*` を設定しない（`state` などが標準エラーへ出る）
 - 73.3: 使用済みの値を `find` で期限や PKCE より先に検知する。判定はクライアント認証の後で、認証したアプリが行の持ち主のときだけ行うので、誤った secret や別のアプリでは失効も猶予も起きない。リフレッシュトークンの消費は後継の `upsert` と同じトランザクションの条件付き更新で、保存の失敗で消費も戻る。トークンの行は Grant の行のロックの中でだけ書く。誤った `resource` は消費の前に `invalid_target` で拒み、コードは未使用のまま残る。猶予は経過 30 秒ちょうどまでで、時計のずれは 5 秒まで許す（それより未来の置き換えの日時は再利用）。単体 8,392 件・統合 2,039 件が緑。**既知の動作**: 認可コードの交換の一時的な DB 障害の後に同じコードを再提示すると接続が終わる（安全側で、再度の同意で復旧する）。インスタンス間の時計のずれが 5 秒を超えると正規の再試行も再利用になるので、運用は時刻同期を前提とする。2 者が互いに 30 秒以内に更新を続ける間は再利用として検知されない（要件48.11 の再試行の連鎖の動作）
+- 73.4: nginx で `/oauth/` と `/.well-known/oauth-authorization-server` だけを backend へ中継する。`/oauth/` は `$request_uri` のパスの `..` と `%` を 400 にし、本文の上限は 64k。`client_max_body_size` は共通設定から `/api/`・`/csrf-token`（120m）へ移した。`/.well-known/jwks.json` と SPA の配信は変えていない。実 nginx の E2E 15 件と見出しの 5 件が緑。**74 への申し送り**: `/oauth/interaction/:uid` の API は `pinToIssuer` を通らないので `X-Forwarded-Host` を URL の組み立てに使わない（nginx で消すことも検討する）。トークンの成功応答の `Cache-Control: no-store` を E2E で確かめる。**別件（未対応）**: 既存の `/api/` と `/csrf-token` はパスの混同があり、`/docs/../api/x` が backend の Swagger UI の HTML に届く。Swagger は `NODE_ENV` が development・test のときだけ載る。staging の実際の値は未確認
 
 ## タスク74: 同意（要件46・47）
 
