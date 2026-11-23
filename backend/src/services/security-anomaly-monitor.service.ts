@@ -13,6 +13,10 @@
  *   溢れ分（`anomaly:overflow:*`）へ数える。溢れ分は次に送る通知の末尾に添えて消し、次の通知が無いまま
  *   時間窓が明けたときは定期処理が要約を 1 通送る（要件43.9。sendOverflowSummary）
  * - 通知には検知の種類・期間・件数・上位 5 件の送信元 IP と利用者 ID を含める（桶ごとのソート済み集合で数える）
+ * - 外部アプリのトークンの再利用（要件51.9）は閾値を持たない出来事で、1 件で通知する（要件43.7 の対象外）。
+ *   抑止は利用者ごとに 30 分で、利用者の分からない検知は共有の鍵で 30 分抑止し、抑止中の件数を次の通知に示す。
+ *   通知の総数の上限（要件43.9）の対象外で、上限に達していても送り、他の群の枠を消費しない
+ * - 送信に失敗したら抑止の鍵を解放する（要件43.6 は送った通知の重複を抑えるもので、未送信で抑止しない）
  * - observe は計数を待たずに戻り、要求の応答を待たせない。Redis が使えないときは計数を捨てて警告ログを残す
  *   （検知の欠落は要求の失敗にしない）
  */
@@ -23,10 +27,15 @@ import logger from '../utils/logger.js';
 import {
   SECURITY_ALERT_GROUPS,
   loadSecurityAlertConfig,
+  DEFAULT_SECURITY_ALERT_COOLDOWN_SECONDS,
+  type AnomalyThreshold,
   type SecurityAlertConfig,
   type SecurityAlertGroup,
 } from '../config/security-alert.js';
-import type { IAdminNotificationService } from './admin-notification.service.js';
+import type {
+  AdminNotificationKind,
+  IAdminNotificationService,
+} from './admin-notification.service.js';
 
 /** 観測の種類 */
 export type AnomalySignal =
@@ -35,7 +44,8 @@ export type AnomalySignal =
   | 'scope_denied'
   | 'rate_limited'
   | 'server_error'
-  | 'data_export';
+  | 'data_export'
+  | 'external_app_token_reuse';
 
 /** 一件の観測 */
 export interface AnomalyObservation {
@@ -64,7 +74,17 @@ export type OverflowSummaryOutcome = 'sent' | 'none' | 'pending' | 'unavailable'
 /** 計数に使う Redis の操作 */
 export type AnomalyRedisClient = Pick<
   RedisType,
-  'status' | 'incr' | 'expire' | 'zincrby' | 'mget' | 'set' | 'zrange' | 'get' | 'del' | 'multi'
+  | 'status'
+  | 'incr'
+  | 'expire'
+  | 'zincrby'
+  | 'mget'
+  | 'set'
+  | 'zrange'
+  | 'get'
+  | 'del'
+  | 'multi'
+  | 'eval'
 >;
 
 type AdminNotifier = Pick<IAdminNotificationService, 'notifyAllAdmins'>;
@@ -94,6 +114,19 @@ const UNAVAILABLE_WARNING_INTERVAL_MS = 60_000;
 /** 要約の処理の排他の鍵の有効期限（秒）。複数のインスタンスの同時の実行で要約を重ねない */
 const OVERFLOW_SUMMARY_LOCK_SECONDS = 60;
 
+/**
+ * 通知の枠を 1 つ戻すスクリプト
+ *
+ * 鍵があり正の値のときだけ減らす。期限で消えた鍵を作り直さず、負の値にせず、DECR は有効期限を保つ。
+ */
+const RETURN_BUDGET_SCRIPT = `
+local value = redis.call('GET', KEYS[1])
+if value and tonumber(value) > 0 then
+  return redis.call('DECR', KEYS[1])
+end
+return 0
+`;
+
 /** 溢れ分の記録（上限により送らなかった通知） */
 interface OverflowRecord {
   /** 送らなかった通知の件数 */
@@ -119,18 +152,46 @@ function execResults(results: [Error | null, unknown][] | null): unknown[] {
   });
 }
 
+/** 外部アプリのトークンの再利用の群 */
+const TOKEN_REUSE_GROUP = 'external_app_token_reuse';
+
+/** 数える単位（環境変数で閾値を変える群と、1 件で通知する再利用の群） */
+export type AnomalyGroup = SecurityAlertGroup | typeof TOKEN_REUSE_GROUP;
+
+/** 再利用の設定（環境変数で変えない。閾値 0 で 1 件目から通知し、時間窓は抑止と揃える。要件51.9） */
+const TOKEN_REUSE_SETTING: AnomalyThreshold = {
+  threshold: 0,
+  windowSeconds: DEFAULT_SECURITY_ALERT_COOLDOWN_SECONDS,
+  cooldownSeconds: DEFAULT_SECURITY_ALERT_COOLDOWN_SECONDS,
+};
+
+/**
+ * 利用者不明の再利用の抑止中の件数を残す秒数（検知のたびに延ばす）
+ *
+ * 次の検知が抑止の明けた後しばらく来なくても次の通知に示せるよう、抑止の時間より長く持つ。
+ */
+export const TOKEN_REUSE_SUPPRESSED_COUNT_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 /** 検知の種類の表示名 */
-const GROUP_LABELS: Record<SecurityAlertGroup, string> = {
+const GROUP_LABELS: Record<AnomalyGroup, string> = {
   login_failed: 'ログインの失敗',
   permission_denied: '権限の拒否（403）と閲覧範囲外のアクセス',
   rate_limited: '試行回数の制限による拒否（429）',
   server_error: 'サーバーエラー（5xx）',
   data_export: '同一利用者のデータ出力',
+  external_app_token_reuse: '外部アプリのトークンの再利用',
 };
 
 /** 観測の種類を閾値の単位へ写す（権限の拒否と範囲外のアクセスは合算する） */
-export function anomalyGroupOf(signal: AnomalySignal): SecurityAlertGroup {
+export function anomalyGroupOf(signal: AnomalySignal): AnomalyGroup {
   return signal === 'scope_denied' ? 'permission_denied' : signal;
+}
+
+/** 管理者へ送る通知の内容 */
+interface AnomalyMessage {
+  kind: AdminNotificationKind;
+  subject: string;
+  lines: string[];
 }
 
 interface RankedEntry {
@@ -194,10 +255,10 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
 
   private async countAndCheck(
     redis: AnomalyRedisClient,
-    group: SecurityAlertGroup,
+    group: AnomalyGroup,
     observation: AnomalyObservation
   ): Promise<AnomalyRecordOutcome> {
-    const setting = this.config[group];
+    const setting = group === TOKEN_REUSE_GROUP ? TOKEN_REUSE_SETTING : this.config[group];
     const nowMs = this.now();
     const minute = Math.floor(nowMs / (BUCKET_SECONDS * 1000));
     const bucketCount = Math.max(1, Math.ceil(setting.windowSeconds / BUCKET_SECONDS));
@@ -219,60 +280,171 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
       return 'counted';
     }
 
+    const suppressionKey = this.suppressionKey(group, observation.userId);
+    const unknownReuse = group === TOKEN_REUSE_GROUP && !observation.userId;
     const acquired = await redis.set(
-      this.suppressionKey(group, observation.userId),
+      suppressionKey,
       String(nowMs),
       'EX',
       setting.cooldownSeconds,
       'NX'
     );
     if (acquired !== 'OK') {
+      if (unknownReuse) {
+        await this.countSuppressedUnknownReuse(redis);
+      }
       return 'suppressed';
     }
 
-    // 通知の総数の上限（要件43.9）。抑止の鍵は取ったまま残し、同じ種類の再送は抑止の時間の間止める
-    if (!(await this.takeNotificationBudget(redis, nowMs))) {
-      await this.recordOverflow(redis, group, nowMs);
+    let budgetKey: string | null = null;
+    let drainedUnknownReuse = 0;
+    try {
+      // 通知の総数の上限（要件43.9）。再利用は対象外で枠を消費しない。
+      // 上限で送らないときは抑止の鍵を取ったまま残し、同じ種類の再送は抑止の時間の間止める
+      if (group !== TOKEN_REUSE_GROUP) {
+        budgetKey = await this.takeNotificationBudget(redis, group, nowMs);
+        if (budgetKey === null) {
+          await this.recordOverflow(redis, group, nowMs);
+          logger.warn(
+            { anomaly: group, count: total, threshold: setting.threshold },
+            'Security anomaly notification was not sent because the notification limit was reached'
+          );
+          return 'capped';
+        }
+      }
+
+      const [ips, users, signals] = await Promise.all([
+        this.topEntries(redis, base, minutes, 'ip'),
+        this.topEntries(redis, base, minutes, 'user'),
+        this.topEntries(redis, base, minutes, 'signal'),
+      ]);
+      const periodStart = new Date((minute - bucketCount + 1) * BUCKET_SECONDS * 1000);
+      const periodEnd = new Date(nowMs);
+      const label = GROUP_LABELS[group];
+      const perUser = group === 'data_export' || group === TOKEN_REUSE_GROUP;
+      if (unknownReuse) {
+        drainedUnknownReuse = await this.drainSuppressedUnknownReuse(redis);
+      }
+
+      const lines = [
+        `検知の種類: ${label}（${group}）`,
+        ...(signals.length > 1 ? [`内訳: ${formatEntries(signals)}`] : []),
+        ...(perUser ? [`対象の利用者 ID: ${observation.userId || '不明'}`] : []),
+        `期間: ${periodStart.toISOString()} 〜 ${periodEnd.toISOString()}（時間窓 ${setting.windowSeconds} 秒）`,
+        `件数: ${total} 件（閾値 ${setting.threshold} 件）`,
+        `主な送信元 IP: ${formatEntries(ips)}`,
+        `主な利用者 ID: ${formatEntries(users)}`,
+        ...(drainedUnknownReuse > 0
+          ? [`抑止の間に送らなかった利用者不明の検知: ${drainedUnknownReuse} 件`]
+          : []),
+        unknownReuse
+          ? `利用者不明の検知の通知は ${setting.cooldownSeconds} 秒間送らない`
+          : perUser
+            ? `同じ利用者の同じ種類の通知は ${setting.cooldownSeconds} 秒間送らない`
+            : `同じ種類の通知は ${setting.cooldownSeconds} 秒間送らない`,
+      ];
+
       logger.warn(
         { anomaly: group, count: total, threshold: setting.threshold },
-        'Security anomaly notification was not sent because the notification limit was reached'
+        'Security anomaly detected'
       );
-      return 'capped';
+      await this.sendWithOverflow(redis, {
+        kind: group === TOKEN_REUSE_GROUP ? 'EXTERNAL_APP_TOKEN_REUSE' : 'SECURITY_ANOMALY',
+        subject: `【重要】セキュリティ上の異常の検知: ${label}`,
+        lines,
+      });
+      return 'notified';
+    } catch (error) {
+      // 送っていない通知は枠も抑止も消費しない。枠は取った時間窓の鍵へ戻す
+      if (budgetKey !== null) {
+        await this.returnNotificationBudget(redis, budgetKey, group);
+      }
+      if (drainedUnknownReuse > 0) {
+        await this.restoreSuppressedUnknownReuse(redis, drainedUnknownReuse);
+      }
+      await this.releaseSuppression(redis, suppressionKey, group);
+      throw error;
     }
+  }
 
-    const [ips, users, signals] = await Promise.all([
-      this.topEntries(redis, base, minutes, 'ip'),
-      this.topEntries(redis, base, minutes, 'user'),
-      this.topEntries(redis, base, minutes, 'signal'),
-    ]);
-    const periodStart = new Date((minute - bucketCount + 1) * BUCKET_SECONDS * 1000);
-    const periodEnd = new Date(nowMs);
-    const label = GROUP_LABELS[group];
+  private suppressedUnknownReuseKey(): string {
+    return `${this.keyPrefix}suppressed:${TOKEN_REUSE_GROUP}:unknown`;
+  }
 
-    const lines = [
-      `検知の種類: ${label}（${group}）`,
-      ...(signals.length > 1 ? [`内訳: ${formatEntries(signals)}`] : []),
-      ...(group === 'data_export' && observation.userId
-        ? [`対象の利用者 ID: ${observation.userId}`]
-        : []),
-      `期間: ${periodStart.toISOString()} 〜 ${periodEnd.toISOString()}（時間窓 ${setting.windowSeconds} 秒）`,
-      `件数: ${total} 件（閾値 ${setting.threshold} 件）`,
-      `主な送信元 IP: ${formatEntries(ips)}`,
-      `主な利用者 ID: ${formatEntries(users)}`,
-      group === 'data_export'
-        ? `同じ利用者の同じ種類の通知は ${setting.cooldownSeconds} 秒間送らない`
-        : `同じ種類の通知は ${setting.cooldownSeconds} 秒間送らない`,
-    ];
+  /** 抑止した利用者不明の再利用を数える（失敗しても抑止の結果は変えない） */
+  private async countSuppressedUnknownReuse(redis: AnomalyRedisClient): Promise<void> {
+    const key = this.suppressedUnknownReuseKey();
+    try {
+      execResults(
+        await redis.multi().incr(key).expire(key, TOKEN_REUSE_SUPPRESSED_COUNT_TTL_SECONDS).exec()
+      );
+    } catch (error) {
+      logger.warn(
+        { err: error, anomaly: TOKEN_REUSE_GROUP },
+        'Failed to count a suppressed token reuse without a user'
+      );
+    }
+  }
 
-    logger.warn(
-      { anomaly: group, count: total, threshold: setting.threshold },
-      'Security anomaly detected'
-    );
-    await this.sendWithOverflow(redis, {
-      subject: `【重要】セキュリティ上の異常の検知: ${label}`,
-      lines,
-    });
-    return 'notified';
+  /** 抑止中の件数を読み出して消す（一つの MULTI。同時の取り出しの片方だけが件数を得る） */
+  private async drainSuppressedUnknownReuse(redis: AnomalyRedisClient): Promise<number> {
+    const key = this.suppressedUnknownReuseKey();
+    const [count] = execResults(await redis.multi().get(key).del(key).exec());
+    return parseInt(String(count ?? '0'), 10) || 0;
+  }
+
+  /** 送れなかった通知の抑止中の件数を戻す（取り出しの後に増えた分へ足す） */
+  private async restoreSuppressedUnknownReuse(
+    redis: AnomalyRedisClient,
+    count: number
+  ): Promise<void> {
+    const key = this.suppressedUnknownReuseKey();
+    try {
+      execResults(
+        await redis
+          .multi()
+          .incrby(key, count)
+          .expire(key, TOKEN_REUSE_SUPPRESSED_COUNT_TTL_SECONDS)
+          .exec()
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, anomaly: TOKEN_REUSE_GROUP, suppressedCount: count },
+        'Failed to restore the suppressed token reuse count after a failed notification'
+      );
+    }
+  }
+
+  /** 通知の枠を戻す（失敗は元の失敗を隠さず、警告に留める） */
+  private async returnNotificationBudget(
+    redis: AnomalyRedisClient,
+    key: string,
+    group: AnomalyGroup
+  ): Promise<void> {
+    try {
+      await redis.eval(RETURN_BUDGET_SCRIPT, 1, key);
+    } catch (error) {
+      logger.warn(
+        { err: error, anomaly: group },
+        'Failed to return the security anomaly notification budget'
+      );
+    }
+  }
+
+  /** 通知できなかったときに抑止の鍵を解放する（解放の失敗は元の失敗を隠さない） */
+  private async releaseSuppression(
+    redis: AnomalyRedisClient,
+    key: string,
+    group: AnomalyGroup
+  ): Promise<void> {
+    try {
+      await redis.del(key);
+    } catch (error) {
+      logger.warn(
+        { err: error, anomaly: group },
+        'Failed to release the security anomaly suppression key after a failed notification'
+      );
+    }
   }
 
   /**
@@ -323,6 +495,7 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
         formatOverflow(overflow),
       ];
       await this.sendOrRestore(redis, overflow, {
+        kind: 'SECURITY_ANOMALY',
         subject: '【重要】セキュリティ上の異常の検知: 上限により送らなかった通知の要約',
         lines,
       });
@@ -333,8 +506,16 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
     }
   }
 
-  /** 抑止の鍵（データの出力は利用者ごと。要件43.8） */
-  private suppressionKey(group: SecurityAlertGroup, userId: string | null): string {
+  /**
+   * 抑止の鍵（データの出力と再利用は利用者ごと。要件43.8、51.9）
+   * 利用者の分からない再利用は共有の鍵で抑止する
+   */
+  private suppressionKey(group: AnomalyGroup, userId: string | null): string {
+    if (group === TOKEN_REUSE_GROUP) {
+      return userId
+        ? `${this.keyPrefix}notified:${group}:user:${userId}`
+        : `${this.keyPrefix}notified:${group}:unknown`;
+    }
     return group === 'data_export'
       ? `${this.keyPrefix}notified:${group}:user:${userId}`
       : `${this.keyPrefix}notified:${group}`;
@@ -345,9 +526,15 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
   }
 
   /**
-   * 上限の時間窓の計数を進め、上限の内なら true を返す（INCR は原子的で、同時の観測でも上限を超えて送らない）
+   * 上限の時間窓の計数を進め、上限の内なら枠の鍵を返す（INCR は原子的で、同時の観測でも上限を超えて送らない）
+   *
+   * 上限を超えた試行の分は計数に残さない。残すと、送信の失敗で枠を戻しても上限に達したままになる。
    */
-  private async takeNotificationBudget(redis: AnomalyRedisClient, nowMs: number): Promise<boolean> {
+  private async takeNotificationBudget(
+    redis: AnomalyRedisClient,
+    group: AnomalyGroup,
+    nowMs: number
+  ): Promise<string | null> {
     const { maxNotifications, windowSeconds } = this.config.notificationLimit;
     const windowIndex = Math.floor(nowMs / (windowSeconds * 1000));
     const key = `${this.keyPrefix}notify-budget:${windowIndex}`;
@@ -358,13 +545,17 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
         .expire(key, windowSeconds + BUCKET_SECONDS)
         .exec()
     );
-    return Number(used) <= maxNotifications;
+    if (Number(used) <= maxNotifications) {
+      return key;
+    }
+    await this.returnNotificationBudget(redis, key, group);
+    return null;
   }
 
   /** 上限により送らなかった通知を溢れ分へ数える（一つの MULTI で、取り出しと交わらない） */
   private async recordOverflow(
     redis: AnomalyRedisClient,
-    group: SecurityAlertGroup,
+    group: AnomalyGroup,
     nowMs: number
   ): Promise<void> {
     execResults(
@@ -433,21 +624,21 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
   /** 送る前に溢れ分を取り出して末尾に添え、通知する（要件43.9） */
   private async sendWithOverflow(
     redis: AnomalyRedisClient,
-    message: { subject: string; lines: string[] }
+    message: AnomalyMessage
   ): Promise<void> {
     const overflow = await this.drainOverflow(redis);
     const lines = overflow ? [...message.lines, formatOverflow(overflow)] : message.lines;
-    await this.sendOrRestore(redis, overflow, { subject: message.subject, lines });
+    await this.sendOrRestore(redis, overflow, { ...message, lines });
   }
 
   private async sendOrRestore(
     redis: AnomalyRedisClient,
     overflow: OverflowRecord | null,
-    message: { subject: string; lines: string[] }
+    message: AnomalyMessage
   ): Promise<void> {
     try {
       const notifier = await this.deps.getNotifier();
-      await notifier.notifyAllAdmins({ kind: 'SECURITY_ANOMALY', ...message });
+      await notifier.notifyAllAdmins(message);
     } catch (error) {
       if (overflow) {
         try {
@@ -464,7 +655,12 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
   }
 
   /** 桶の鍵の共通部分（データの出力は利用者ごと） */
-  private counterBase(group: SecurityAlertGroup, userId: string | null): string {
+  private counterBase(group: AnomalyGroup, userId: string | null): string {
+    if (group === TOKEN_REUSE_GROUP) {
+      return userId
+        ? `${this.keyPrefix}${group}:user:${userId}`
+        : `${this.keyPrefix}${group}:no-user`;
+    }
     return group === 'data_export'
       ? `${this.keyPrefix}${group}:user:${userId}`
       : `${this.keyPrefix}${group}`;
@@ -504,7 +700,7 @@ export class SecurityAnomalyMonitor implements ISecurityAnomalyMonitor {
       .slice(0, ANOMALY_TOP_ENTRIES);
   }
 
-  private warnUnavailable(group: SecurityAlertGroup, reason: string): void {
+  private warnUnavailable(group: AnomalyGroup, reason: string): void {
     const nowMs = this.now();
     if (nowMs - this.lastUnavailableWarningAt < UNAVAILABLE_WARNING_INTERVAL_MS) {
       return;

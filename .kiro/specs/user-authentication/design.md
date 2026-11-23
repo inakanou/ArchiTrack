@@ -6283,6 +6283,8 @@ type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 
 - 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` は計数の鍵・抑止の鍵とも利用者ごと。43.4、43.8）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
 - `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）。2026-10-26 に加えた上限の 403（38.6 のロールの優先度の変更・38.7 のロールの作成・38.8 の保有しない権限の追加は `roles.routes.ts`、38.9 の割り当ての解除は `user-roles.routes.ts`、38.11 の上限より上のロールの変更・消去と 38.12 のシステムロールの優先度の変更は `roles.routes.ts`、38.13 の上限を超えるユーザーを消す要求は `user-roles.routes.ts`、無効化・再有効化・2FAの再設定は `user-inventory.routes.ts`）も同じく送る。38.10 の 400 は入力の誤りであり送らない
 - 43.2 の権限チェックの失敗（403）の定義（2026-10-26、利用者の判断）: 数えるのは、RBAC の権限の不足による拒否（`requirePermission` の `authorize` による 403）と、権限付与の上限による拒否（要件38 の 38.1〜38.3・38.6〜38.9・38.11〜38.13）の二つである。業務上の保護による拒否（`SYSTEM_ROLE_PROTECTED`、`LAST_ADMIN_PROTECTED`、`SELF_RESET_FORBIDDEN`、`TWO_FACTOR_DISABLE_NOT_ALLOWED`、2FA 未登録・初回のパスワード変更中などの利用者の状態による制限。応答の状態コードが 403 か 400 かを問わない）は数えない。これらは通常の運用の中で起きる拒否であり、数えると本当の兆候が埋もれるためである（OWASP のログの指針を踏まえた利用者の判断）
+- 外部アプリのトークンの再利用の信号 `external_app_token_reuse`（51.9。2026-11-23、利用者の判断）: 上の環境変数の 5 群とは別の、閾値を持たない出来事である。1 件目で通知し、環境変数を持たない（43.7 の対象外）。抑止は利用者ごとに 1800 秒で、鍵は `anomaly:notified:external_app_token_reuse:user:<userId>` とする。`userId` の無い検知は共有の鍵 `anomaly:notified:external_app_token_reuse:unknown` で 1800 秒抑止し、抑止中の件数を次の通知に示す。件数の鍵 `anomaly:suppressed:external_app_token_reuse:unknown` の有効期限は 7 日で、検知のたびに延ばす（次の検知が 7 日無ければ件数は消える。各検知は監査に残す）。通知の総数の上限（43.9）の対象外で、上限の枠を消費せず、溢れ分にも数えない。溢れ分が残っていれば、この通知の末尾に添えて消す
+- 通知の送信が例外で失敗したときは、全ての信号で抑止の鍵を解放し、次の検知で通知できるようにする（43.6 が禁じるのは同じ通知の重複であり、送れなかった通知の抑止ではない）。上限により送らなかった場合の鍵は残す。`notifyAllAdmins` が内部で警告ログに留めた失敗では鍵は解放されない
 - Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
 
 ##### EmailQueue（変更）
@@ -7174,7 +7176,7 @@ interface ExternalAppConnectionService {
 
 - Postconditions: `assertActive` は期限を過ぎた接続を `IDLE_EXPIRED` または `ABSOLUTE_EXPIRED` で終了して `NOT_ACTIVE` を返す。期限切れの終了の持ち主はこのメソッドであり、検証と定期処理はこれを呼ぶ。要求の中で終了したときは `source` の送信元 IP とユーザーエージェントを監査に記録し、要求の無い定期処理では `source` を渡さず送信元 IP を null として記録する
 - Postconditions: `RefreshGraceEvent` は `grantId` から接続を引いて `REFRESH_GRACE_APPLIED` の `ConnectionAuditEvent` へ写す。実行者と対象は接続の利用者、アプリと範囲は接続の値、理由は null、日時は記録の時刻、IP とユーザーエージェントはイベントの値とする
-- Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する。同じ Grant への 2 回目以降の呼び出しは何もしない
+- Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する（信号 `external_app_token_reuse` に接続の利用者を渡す。抑止は利用者ごとで、閾値と上限の対象外。51.9）。同じ Grant への 2 回目以降の呼び出しは何もしない
 - Invariants: 他の利用者の接続を `revokeOwn` で指定しても `NOT_FOUND` を返し、存在を明かさない（49.5）
 
 **Implementation Notes**

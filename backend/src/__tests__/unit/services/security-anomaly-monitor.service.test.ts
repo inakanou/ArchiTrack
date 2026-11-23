@@ -18,6 +18,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   SecurityAnomalyMonitor,
+  TOKEN_REUSE_SUPPRESSED_COUNT_TTL_SECONDS,
   anomalyGroupOf,
   type AnomalyObservation,
   type AnomalyRecordOutcome,
@@ -26,6 +27,7 @@ import {
 import {
   DEFAULT_SECURITY_ALERT_CONFIG,
   loadSecurityAlertConfig,
+  securityAlertEnvSchema,
   type SecurityAlertConfig,
 } from '../../../config/security-alert.js';
 import type { AdminNotification } from '../../../services/admin-notification.service.js';
@@ -131,6 +133,11 @@ function createFakeRedis(clock: { now: () => number }) {
     mget: vi.fn(async (...keys: string[]) => keys.map((key) => core.get(key))),
     get: vi.fn(async (key: string) => core.get(key)),
     del: vi.fn(async (...keys: string[]) => core.del(...keys)),
+    /** 通知の枠を戻すスクリプト（鍵があり正の値のときだけ 1 減らす）の代役 */
+    eval: vi.fn(async (_script: string, _numKeys: number, key: string) => {
+      const value = core.get(key);
+      return value !== null && Number(value) > 0 ? core.incrby(key, -1) : 0;
+    }),
     set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) =>
       core.set(key, value, ...args)
     ),
@@ -787,5 +794,452 @@ describe('SecurityAnomalyMonitor の利用者ごとの抑止と通知の総数�
         loadSecurityAlertConfig({ SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS: value })
       ).toThrow(/SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS must be a positive integer/);
     }
+  });
+});
+
+/**
+ * @requirement user-authentication/REQ-51.9: 再利用の検知を全てのシステム管理者へ通知し、重複は 43.6 で抑える
+ */
+describe('SecurityAnomalyMonitor の外部アプリのトークンの再利用（タスク71.4）', () => {
+  const reuse: AnomalyObservation = {
+    signal: 'external_app_token_reuse',
+    sourceIp: '192.0.2.50',
+    userId: 'user-a',
+  };
+  /** 既定より大きい閾値でも、再利用は 1 件目で通知されることを確かめる設定 */
+  const HIGH = { threshold: 1_000_000, windowSeconds: 300, cooldownSeconds: 1800 };
+  const highThresholds = config({
+    login_failed: HIGH,
+    permission_denied: HIGH,
+    rate_limited: HIGH,
+    server_error: HIGH,
+    data_export: HIGH,
+  });
+
+  let clock: ReturnType<typeof createClock>;
+  let redis: ReturnType<typeof createFakeRedis>;
+  let notifications: AdminNotification[];
+  let failNextSend: boolean;
+
+  function createMonitor(cfg: SecurityAlertConfig = highThresholds): SecurityAnomalyMonitor {
+    return new SecurityAnomalyMonitor({
+      getRedisClient: () => redis as unknown as AnomalyRedisClient,
+      getNotifier: () => ({
+        notifyAllAdmins: async (n: AdminNotification) => {
+          if (failNextSend) {
+            failNextSend = false;
+            throw new Error('send failed');
+          }
+          notifications.push(n);
+        },
+      }),
+      config: cfg,
+      now: clock.now,
+      keyPrefix: 'anomaly:',
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clock = createClock();
+    redis = createFakeRedis(clock);
+    notifications = [];
+    failNextSend = false;
+  });
+
+  it('1 件目の検知で、再利用の種別と検知の内容を通知する', async () => {
+    const outcome = await createMonitor().record(reuse);
+
+    expect(outcome).toBe('notified');
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]!.kind).toBe('EXTERNAL_APP_TOKEN_REUSE');
+    expect(notifications[0]!.subject).toContain('外部アプリのトークンの再利用');
+    const lines = notifications[0]!.lines.join('\n');
+    expect(lines).toContain('external_app_token_reuse');
+    expect(lines).toContain('192.0.2.50（1 件）');
+    expect(lines).toContain('user-a（1 件）');
+  });
+
+  it('同じ利用者の連続の検知は 30 分に 1 通で、30 分を過ぎると再び通知する', async () => {
+    const monitor = createMonitor();
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(await monitor.record(reuse)).toBe('suppressed');
+    clock.advanceSeconds(1799);
+    expect(await monitor.record(reuse)).toBe('suppressed');
+    expect(notifications).toHaveLength(1);
+
+    clock.advanceSeconds(2);
+
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(notifications).toHaveLength(2);
+  });
+
+  it('別の利用者の再利用は 30 分以内でも通知し、抑止の鍵は利用者ごとに持つ', async () => {
+    const monitor = createMonitor();
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(await monitor.record({ ...reuse, userId: 'user-b' })).toBe('notified');
+
+    expect(notifications).toHaveLength(2);
+    expect(notifications[1]!.lines.join('\n')).toContain('対象の利用者 ID: user-b');
+    expect(redis.peek('anomaly:notified:external_app_token_reuse:user:user-a')).not.toBeNull();
+    expect(redis.peek('anomaly:notified:external_app_token_reuse:user:user-b')).not.toBeNull();
+    expect(redis.peek('anomaly:notified:external_app_token_reuse')).toBeNull();
+  });
+
+  describe('利用者不明の検知', () => {
+    const unknown: AnomalyObservation = { ...reuse, userId: null };
+    const UNKNOWN_KEY = 'anomaly:notified:external_app_token_reuse:unknown';
+    const COUNT_KEY = 'anomaly:suppressed:external_app_token_reuse:unknown';
+    const COUNT_LINE = '抑止の間に送らなかった利用者不明の検知:';
+    const linesOf = (index: number): string => notifications[index]!.lines.join('\n');
+
+    async function recordTimes(monitor: SecurityAnomalyMonitor, times: number): Promise<void> {
+      for (let i = 0; i < times; i++) {
+        await monitor.record(unknown);
+      }
+    }
+
+    it('50 件でも通知は 1 通で、抑止が明けた次の通知に抑止中の件数が載る', async () => {
+      const monitor = createMonitor();
+
+      await recordTimes(monitor, 50);
+
+      expect(notifications).toHaveLength(1);
+      expect(linesOf(0)).toContain('対象の利用者 ID: 不明');
+      expect(linesOf(0)).not.toContain(COUNT_LINE);
+      expect(redis.peek(UNKNOWN_KEY)).not.toBeNull();
+      expect(redis.peek(COUNT_KEY)).toBe('49');
+
+      clock.advanceSeconds(1801);
+      expect(await monitor.record(unknown)).toBe('notified');
+
+      expect(notifications).toHaveLength(2);
+      expect(linesOf(1)).toContain(`${COUNT_LINE} 49 件`);
+    });
+
+    it('通知に載せた件数は消し、次の通知で二重に数えない', async () => {
+      const monitor = createMonitor();
+      await recordTimes(monitor, 4);
+      clock.advanceSeconds(1801);
+      await monitor.record(unknown);
+      expect(redis.peek(COUNT_KEY)).toBeNull();
+
+      clock.advanceSeconds(1801);
+      await monitor.record(unknown);
+
+      expect(notifications).toHaveLength(3);
+      expect(linesOf(2)).not.toContain(COUNT_LINE);
+    });
+
+    it('抑止中の件数の鍵は有効期限を持つ', async () => {
+      const monitor = createMonitor();
+      await recordTimes(monitor, 3);
+      expect(redis.peek(COUNT_KEY)).toBe('2');
+
+      clock.advanceSeconds(TOKEN_REUSE_SUPPRESSED_COUNT_TTL_SECONDS + 1);
+
+      expect(redis.peek(COUNT_KEY)).toBeNull();
+    });
+
+    it('送信に失敗すると抑止の鍵を解放し、抑止中の件数を失わない', async () => {
+      const monitor = createMonitor();
+      await recordTimes(monitor, 6);
+      clock.advanceSeconds(1801);
+      failNextSend = true;
+
+      expect(await monitor.record(unknown)).toBe('dropped');
+
+      expect(redis.peek(UNKNOWN_KEY)).toBeNull();
+      expect(redis.peek(COUNT_KEY)).toBe('5');
+
+      expect(await monitor.record(unknown)).toBe('notified');
+      expect(linesOf(1)).toContain(`${COUNT_LINE} 5 件`);
+      expect(redis.peek(COUNT_KEY)).toBeNull();
+    });
+
+    it('利用者ごとの抑止と利用者不明の抑止は互いに影響しない', async () => {
+      const monitor = createMonitor();
+
+      expect(await monitor.record(reuse)).toBe('notified');
+      expect(await monitor.record(unknown)).toBe('notified');
+      expect(await monitor.record({ ...reuse, userId: 'user-b' })).toBe('notified');
+      expect(await monitor.record(reuse)).toBe('suppressed');
+      expect(await monitor.record(unknown)).toBe('suppressed');
+
+      expect(redis.peek(COUNT_KEY)).toBe('1');
+      expect(notifications).toHaveLength(3);
+    });
+
+    it('総数の上限の対象外で、他の群の枠を消費しない', async () => {
+      const failure: AnomalyObservation = {
+        signal: 'login_failed',
+        sourceIp: '192.0.2.55',
+        userId: null,
+      };
+      const monitor = createMonitor(
+        config({
+          login_failed: { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 },
+          notificationLimit: { maxNotifications: 1, windowSeconds: 3600 },
+        })
+      );
+      await monitor.record(failure);
+      await monitor.record(failure);
+      const budgetKey = `anomaly:notify-budget:${Math.floor(clock.now() / 3_600_000)}`;
+
+      expect(await monitor.record(unknown)).toBe('notified');
+      expect(await monitor.record(unknown)).toBe('suppressed');
+
+      expect(redis.peek(budgetKey)).toBe('1');
+      expect(redis.peek('anomaly:overflow:count')).toBeNull();
+    });
+  });
+
+  it('CI の高い閾値の環境変数でも 1 件で通知し、再利用の環境変数を持たない', async () => {
+    const ciConfig = loadSecurityAlertConfig({
+      SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: '1000000',
+      SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD: '1000000',
+      SECURITY_ALERT_RATE_LIMITED_THRESHOLD: '1000000',
+      SECURITY_ALERT_SERVER_ERROR_THRESHOLD: '1000000',
+      SECURITY_ALERT_DATA_EXPORT_THRESHOLD: '1000000',
+      SECURITY_ALERT_NOTIFICATION_LIMIT: '1000000',
+    });
+
+    expect(await createMonitor(ciConfig).record(reuse)).toBe('notified');
+    expect(Object.keys(securityAlertEnvSchema).filter((k) => k.includes('REUSE'))).toEqual([]);
+  });
+
+  it('送信に失敗すると利用者の抑止の鍵を解放し、次の検知で通知する', async () => {
+    const monitor = createMonitor();
+    failNextSend = true;
+
+    expect(await monitor.record(reuse)).toBe('dropped');
+    expect(redis.peek('anomaly:notified:external_app_token_reuse:user:user-a')).toBeNull();
+
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(notifications).toHaveLength(1);
+  });
+
+  it('他の群でも送信に失敗すると抑止の鍵を解放する（要件43.6 は送った通知の重複を抑える）', async () => {
+    const monitor = createMonitor(
+      config({ login_failed: { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 } })
+    );
+    const failure: AnomalyObservation = {
+      signal: 'login_failed',
+      sourceIp: '192.0.2.53',
+      userId: null,
+    };
+    await monitor.record(failure);
+    failNextSend = true;
+
+    expect(await monitor.record(failure)).toBe('dropped');
+    expect(redis.peek('anomaly:notified:login_failed')).toBeNull();
+    expect(await monitor.record(failure)).toBe('notified');
+  });
+
+  it('他の種類の異常の抑止に左右されない', async () => {
+    const monitor = createMonitor(
+      config({ login_failed: { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 } })
+    );
+    const failure: AnomalyObservation = {
+      signal: 'login_failed',
+      sourceIp: '192.0.2.51',
+      userId: null,
+    };
+    await monitor.record(failure);
+    expect(await monitor.record(failure)).toBe('notified');
+
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(notifications.map((n) => n.kind)).toEqual([
+      'SECURITY_ANOMALY',
+      'EXTERNAL_APP_TOKEN_REUSE',
+    ]);
+  });
+
+  it('上限に達していても再利用は即時に送り、他の群の枠を消費しない', async () => {
+    const limited = config({
+      login_failed: { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 },
+      notificationLimit: { maxNotifications: 1, windowSeconds: 3600 },
+    });
+    const monitor = createMonitor(limited);
+    const failure: AnomalyObservation = {
+      signal: 'login_failed',
+      sourceIp: '192.0.2.52',
+      userId: null,
+    };
+    await monitor.record(failure);
+    expect(await monitor.record(failure)).toBe('notified');
+    const budgetKey = `anomaly:notify-budget:${Math.floor(clock.now() / 3_600_000)}`;
+    expect(redis.peek(budgetKey)).toBe('1');
+
+    expect(await monitor.record(reuse)).toBe('notified');
+    expect(await monitor.record({ ...reuse, userId: 'user-b' })).toBe('notified');
+
+    expect(notifications.map((n) => n.kind)).toEqual([
+      'SECURITY_ANOMALY',
+      'EXTERNAL_APP_TOKEN_REUSE',
+      'EXTERNAL_APP_TOKEN_REUSE',
+    ]);
+    expect(redis.peek(budgetKey)).toBe('1');
+    expect(redis.peek('anomaly:overflow:count')).toBeNull();
+  });
+
+  it('枠が残っているときも再利用は枠を消費せず、他の群は上限まで送れる', async () => {
+    const limited = config({
+      login_failed: { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 },
+      notificationLimit: { maxNotifications: 1, windowSeconds: 3600 },
+    });
+    const monitor = createMonitor(limited);
+    const failure: AnomalyObservation = {
+      signal: 'login_failed',
+      sourceIp: '192.0.2.54',
+      userId: null,
+    };
+
+    expect(await monitor.record(reuse)).toBe('notified');
+    await monitor.record(failure);
+    expect(await monitor.record(failure)).toBe('notified');
+  });
+});
+
+/**
+ * @requirement user-authentication/REQ-43.9: 送っていない通知で総数の上限の枠を消費しない
+ */
+describe('SecurityAnomalyMonitor の送信の失敗と通知の枠（タスク71.4）', () => {
+  const ONE = { threshold: 1, windowSeconds: 300, cooldownSeconds: 1800 };
+  const LIMIT_WINDOW_SECONDS = 3600;
+  const serverError: AnomalyObservation = {
+    signal: 'server_error',
+    sourceIp: '192.0.2.60',
+    userId: null,
+  };
+  const loginFailed: AnomalyObservation = {
+    signal: 'login_failed',
+    sourceIp: '192.0.2.61',
+    userId: null,
+  };
+
+  let clock: ReturnType<typeof createClock>;
+  let redis: ReturnType<typeof createFakeRedis>;
+  let notifications: AdminNotification[];
+  let failing: boolean;
+  let onFailure: (() => void | Promise<void>) | null;
+
+  function createMonitor(maxNotifications: number): SecurityAnomalyMonitor {
+    return new SecurityAnomalyMonitor({
+      getRedisClient: () => redis as unknown as AnomalyRedisClient,
+      getNotifier: () => ({
+        notifyAllAdmins: async (n: AdminNotification) => {
+          if (failing) {
+            await onFailure?.();
+            throw new Error('notifier is down');
+          }
+          notifications.push(n);
+        },
+      }),
+      config: config({
+        login_failed: ONE,
+        server_error: ONE,
+        notificationLimit: { maxNotifications, windowSeconds: LIMIT_WINDOW_SECONDS },
+      }),
+      now: clock.now,
+      keyPrefix: 'anomaly:',
+    });
+  }
+
+  const budgetKey = (): string =>
+    `anomaly:notify-budget:${Math.floor(clock.now() / (LIMIT_WINDOW_SECONDS * 1000))}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clock = createClock();
+    redis = createFakeRedis(clock);
+    notifications = [];
+    failing = false;
+    onFailure = null;
+  });
+
+  it('通知手段の障害中に 1 群が失敗を続けても、復旧後に他の群が capped にならない', async () => {
+    const monitor = createMonitor(10);
+    await monitor.record(serverError);
+    failing = true;
+
+    const outcomes: AnomalyRecordOutcome[] = [];
+    for (let i = 0; i < 14; i++) {
+      outcomes.push(await monitor.record(serverError));
+    }
+
+    expect(outcomes).toEqual(Array.from({ length: 14 }, () => 'dropped'));
+    expect(redis.peek(budgetKey())).toBe('0');
+    expect(redis.peek('anomaly:overflow:count')).toBeNull();
+
+    failing = false;
+    await monitor.record(loginFailed);
+    expect(await monitor.record(loginFailed)).toBe('notified');
+    expect(notifications).toHaveLength(1);
+  });
+
+  it('送信に成功した通知の枠は戻さない', async () => {
+    const monitor = createMonitor(10);
+    await monitor.record(serverError);
+    expect(await monitor.record(serverError)).toBe('notified');
+
+    expect(redis.peek(budgetKey())).toBe('1');
+  });
+
+  it('上限で送らなかった試行は計数に残さず、枠の失敗の後に上限まで送れる', async () => {
+    const monitor = createMonitor(1);
+    await monitor.record(serverError);
+    expect(await monitor.record(serverError)).toBe('notified');
+    await monitor.record(loginFailed);
+    expect(await monitor.record(loginFailed)).toBe('capped');
+
+    expect(redis.peek(budgetKey())).toBe('1');
+  });
+
+  it('送信中に時間窓が変わっても、取った窓の枠だけを戻し、次の窓を減らさない', async () => {
+    const monitor = createMonitor(10);
+    await monitor.record(serverError);
+    const takenKey = budgetKey();
+    let nextKey = '';
+    failing = true;
+    onFailure = async () => {
+      clock.advanceSeconds(LIMIT_WINDOW_SECONDS);
+      nextKey = budgetKey();
+      await redis.set(nextKey, '3', 'EX', LIMIT_WINDOW_SECONDS);
+    };
+
+    expect(await monitor.record(serverError)).toBe('dropped');
+
+    expect(redis.peek(takenKey)).toBe('0');
+    expect(redis.peek(nextKey)).toBe('3');
+  });
+
+  it('枠の鍵が期限で消えていれば作り直さず、負の値にしない', async () => {
+    const monitor = createMonitor(10);
+    await monitor.record(serverError);
+    const key = budgetKey();
+    failing = true;
+    onFailure = async () => {
+      await redis.del(key);
+    };
+
+    expect(await monitor.record(serverError)).toBe('dropped');
+
+    expect(redis.peek(key)).toBeNull();
+  });
+
+  it('枠を戻す処理の失敗は記録に留め、抑止の鍵は解放する', async () => {
+    const monitor = createMonitor(10);
+    await monitor.record(serverError);
+    redis.eval.mockRejectedValueOnce(new Error('redis failure'));
+    failing = true;
+
+    expect(await monitor.record(serverError)).toBe('dropped');
+
+    expect(redis.peek('anomaly:notified:server_error')).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ anomaly: 'server_error' }),
+      'Failed to return the security anomaly notification budget'
+    );
   });
 });

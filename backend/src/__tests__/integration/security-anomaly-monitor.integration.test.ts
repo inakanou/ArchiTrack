@@ -584,6 +584,134 @@ describe('セキュリティ上の異常の検知と通知（統合・実 DB・�
     }
   });
 
+  /**
+   * @requirement user-authentication/REQ-43.9: 送っていない通知で総数の上限の枠を消費しない（タスク71.4）
+   */
+  describe('送信の失敗で通知の枠を戻す（実 Redis のスクリプト）', () => {
+    const NOW = Date.UTC(2026, 10, 23, 12, 30, 0);
+    const LIMIT_WINDOW_SECONDS = 3600;
+    const observation = {
+      signal: 'server_error',
+      sourceIp: '192.0.2.70',
+      userId: null,
+    } as const;
+
+    function failingMonitor(onSend: (budgetKey: string) => Promise<void>): {
+      monitor: SecurityAnomalyMonitor;
+      budgetKey: string;
+    } {
+      const prefix = `${KEY_PREFIX}refund:${randomUUID()}:`;
+      const budgetKey = `${prefix}notify-budget:${Math.floor(NOW / (LIMIT_WINDOW_SECONDS * 1000))}`;
+      const monitor = new SecurityAnomalyMonitor({
+        getRedisClient: () => redisClient,
+        getNotifier: () => ({
+          notifyAllAdmins: async () => {
+            await onSend(budgetKey);
+            throw new Error('notifier is down');
+          },
+        }),
+        config: loadSecurityAlertConfig({
+          SECURITY_ALERT_SERVER_ERROR_THRESHOLD: '1',
+          SECURITY_ALERT_NOTIFICATION_LIMIT: '10',
+          SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS: String(LIMIT_WINDOW_SECONDS),
+        }),
+        now: () => NOW,
+        keyPrefix: prefix,
+      });
+      return { monitor, budgetKey };
+    }
+
+    it('消費した枠を戻し、鍵の有効期限を保つ', async () => {
+      const { monitor, budgetKey } = failingMonitor(async () => {});
+      await monitor.record(observation);
+
+      expect(await monitor.record(observation)).toBe('dropped');
+
+      expect(await redisClient.get(budgetKey)).toBe('0');
+      expect(await redisClient.ttl(budgetKey)).toBeGreaterThan(0);
+    });
+
+    it('鍵が消えていれば作り直さない', async () => {
+      const { monitor, budgetKey } = failingMonitor(async (key) => {
+        await redisClient.del(key);
+      });
+      await monitor.record(observation);
+
+      expect(await monitor.record(observation)).toBe('dropped');
+
+      expect(await redisClient.exists(budgetKey)).toBe(0);
+    });
+
+    it('値が 0 なら負の値にしない', async () => {
+      const { monitor, budgetKey } = failingMonitor(async (key) => {
+        await redisClient.set(key, '0', 'EX', LIMIT_WINDOW_SECONDS);
+      });
+      await monitor.record(observation);
+
+      expect(await monitor.record(observation)).toBe('dropped');
+
+      expect(await redisClient.get(budgetKey)).toBe('0');
+    });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-51.9: 利用者不明の再利用は共有の鍵で抑止し、抑止中の件数を次の通知に示す
+   */
+  it('利用者不明の再利用の同時の検知は 1 通で、抑止中の件数を 1 通にだけ載せて消す', async () => {
+    const prefix = `${KEY_PREFIX}reuse-unknown:${randomUUID()}:`;
+    const suppressionKey = `${prefix}notified:external_app_token_reuse:unknown`;
+    const countKey = `${prefix}suppressed:external_app_token_reuse:unknown`;
+    const delivered: string[] = [];
+    const reuseMonitor = new SecurityAnomalyMonitor({
+      getRedisClient: () => redisClient,
+      getNotifier: () => ({
+        notifyAllAdmins: async (notification) => {
+          delivered.push(notification.lines.join('\n'));
+        },
+      }),
+      config: loadSecurityAlertConfig({}),
+      keyPrefix: prefix,
+    });
+    const observation = {
+      signal: 'external_app_token_reuse',
+      sourceIp: '192.0.2.71',
+      userId: null,
+    } as const;
+
+    const first = await Promise.all(
+      Array.from({ length: 50 }, () => reuseMonitor.record(observation))
+    );
+
+    expect(first.filter((outcome) => outcome === 'notified')).toHaveLength(1);
+    expect(first.filter((outcome) => outcome === 'suppressed')).toHaveLength(49);
+    // 通知を送る前に抑止された分は最初の通知に載りうる。どちらでも過不足なく数える
+    const shownIn = (text: string | undefined): number =>
+      Number(/抑止の間に送らなかった利用者不明の検知: (\d+) 件/.exec(text ?? '')?.[1] ?? 0);
+    const remainingCount = async (): Promise<number> =>
+      Number((await redisClient.get(countKey)) ?? 0);
+    expect(delivered).toHaveLength(1);
+    expect(shownIn(delivered[0]) + (await remainingCount())).toBe(49);
+
+    // 抑止中の件数の鍵は有効期限を持つ
+    expect(await reuseMonitor.record(observation)).toBe('suppressed');
+    expect(await redisClient.ttl(countKey)).toBeGreaterThan(0);
+    const beforeSecond = await remainingCount();
+    expect(beforeSecond).toBeGreaterThan(0);
+
+    // 抑止の時間が明けた状態にして、同時の検知でも件数を 1 通にだけ載せる
+    await redisClient.del(suppressionKey);
+    const second = await Promise.all(
+      Array.from({ length: 5 }, () => reuseMonitor.record(observation))
+    );
+
+    expect(second.filter((outcome) => outcome === 'notified')).toHaveLength(1);
+    expect(second.filter((outcome) => outcome === 'suppressed')).toHaveLength(4);
+    expect(delivered).toHaveLength(2);
+    expect(shownIn(delivered[1])).toBeGreaterThanOrEqual(beforeSecond);
+    // 49 件・追加の 1 件・2 回目に抑止された 4 件を、二重に数えず失わない
+    expect(shownIn(delivered[0]) + shownIn(delivered[1]) + (await remainingCount())).toBe(54);
+  });
+
   async function settleLimited(limited: SecurityAnomalyMonitor): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await limited.flush();

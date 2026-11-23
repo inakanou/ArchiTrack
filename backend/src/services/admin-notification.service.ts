@@ -4,6 +4,7 @@
  * Requirements (user-authentication):
  * - REQ-36.4: 無効化・再有効化を全てのシステム管理者へ通知する
  * - REQ-36.9: 自動無効化を全てのシステム管理者へ通知する
+ * - REQ-51.9: 外部アプリの認可コード・リフレッシュトークンの再利用の検知を通知する（種別だけを足す）
  *
  * Requirements (project-management):
  * - 46.11: 完全削除の対象から外したプロジェクトを全てのシステム管理者へ通知する（種別だけを足す）
@@ -30,7 +31,9 @@ export type AdminNotificationKind =
   | 'SECURITY_ANOMALY'
   | 'ADMIN_ROLE_CHANGED'
   // 完全削除が 5 回続けて失敗したプロジェクトを対象から外した（project-management 要件46.11）
-  | 'PROJECT_PURGE_EXCLUDED';
+  | 'PROJECT_PURGE_EXCLUDED'
+  // 外部アプリの認可コードまたはリフレッシュトークンの再利用を検知した（要件51.9）
+  | 'EXTERNAL_APP_TOKEN_REUSE';
 
 /** 通知の内容 */
 export interface AdminNotification {

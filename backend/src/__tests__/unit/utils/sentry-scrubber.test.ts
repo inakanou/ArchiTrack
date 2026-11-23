@@ -270,3 +270,108 @@ describe('SentryScrubber の形の分岐（要求・ヘッダー・記録の欠�
     expect(options.beforeSend?.(notFound, {})).toBeNull();
   });
 });
+
+/**
+ * @requirement user-authentication/REQ-48.8: 外部アプリ用トークンの値をエラー監視へ送らない（タスク71.4）
+ */
+describe('エラー監視へ送る外部アプリの認可の値', () => {
+  const VALUE = 'oauth-sensitive-value-7f3a';
+
+  function initOptions(): InitOptions {
+    vi.stubEnv('SENTRY_DSN', 'https://public@example.ingest.sentry.io/1');
+    vi.mocked(Sentry.init).mockClear();
+    initSentry();
+    vi.unstubAllEnvs();
+    return vi.mocked(Sentry.init).mock.calls[0]![0] as InitOptions;
+  }
+
+  it('要求の無い事象でも例外の文と事象の文の機密を伏せる', () => {
+    const event: Sentry.ErrorEvent = {
+      type: undefined,
+      message: `failed client_secret=${VALUE}`,
+      exception: { values: [{ type: 'Error', value: `failed refresh_token=${VALUE}` }] },
+    };
+
+    const sent = initOptions().beforeSend?.(event, {}) as Sentry.ErrorEvent;
+
+    expect(JSON.stringify(sent)).not.toContain(VALUE);
+    expect(sent.exception?.values?.[0]?.value).toBe('failed refresh_token=[REDACTED]');
+  });
+
+  it('JSON の解析の失敗の例外の文は本文の断片を含むため送らない', () => {
+    const event: Sentry.ErrorEvent = {
+      type: undefined,
+      exception: { values: [{ type: 'SyntaxError', value: `"${VALUE}" is not valid JSON` }] },
+    };
+    const originalException = Object.assign(new SyntaxError('x'), {
+      type: 'entity.parse.failed',
+    });
+
+    const sent = initOptions().beforeSend?.(event, { originalException }) as Sentry.ErrorEvent;
+
+    expect(JSON.stringify(sent)).not.toContain(VALUE);
+  });
+
+  it('referer・location・proxy-authorization のヘッダーを伏せる', () => {
+    const event: Sentry.ErrorEvent = {
+      type: undefined,
+      request: {
+        url: '/x',
+        headers: {
+          Referer: `https://a.example/oauth/consent?state=${VALUE}`,
+          location: `https://claude.ai/cb?code=${VALUE}`,
+          'Proxy-Authorization': `Basic ${VALUE}`,
+          accept: 'application/json',
+        },
+      },
+    };
+
+    const sent = initOptions().beforeSend?.(event, {}) as Sentry.ErrorEvent;
+
+    expect(JSON.stringify(sent)).not.toContain(VALUE);
+    expect(sent.request?.headers?.accept).toBe('application/json');
+  });
+
+  it('連結された例外の値も同じ規則で伏せる', () => {
+    const event: Sentry.ErrorEvent = {
+      type: undefined,
+      exception: {
+        values: [
+          { type: 'Error', value: 'outer' },
+          { type: 'SyntaxError', value: `Unexpected {"code":"${VALUE}"` },
+        ],
+      },
+    };
+
+    const sent = initOptions().beforeSend?.(event, {}) as Sentry.ErrorEvent;
+
+    expect(JSON.stringify(sent)).not.toContain(VALUE);
+    expect(sent.exception?.values?.[0]?.value).toBe('outer');
+  });
+
+  it('cause に JSON の解析の失敗を持つ例外は、連結された全ての文を送らない', () => {
+    const parse = Object.assign(new SyntaxError('x'), { type: 'entity.parse.failed' });
+    const originalException = new Error('wrapped', { cause: parse });
+    const event: Sentry.ErrorEvent = {
+      type: undefined,
+      exception: {
+        values: [
+          { type: 'Error', value: 'wrapped' },
+          { type: 'SyntaxError', value: `"${VALUE}" is not valid JSON` },
+        ],
+      },
+    };
+
+    const sent = initOptions().beforeSend?.(event, { originalException }) as Sentry.ErrorEvent;
+
+    expect(JSON.stringify(sent)).not.toContain(VALUE);
+  });
+
+  it('breadcrumb の文の機密を伏せる', () => {
+    const crumb = initOptions().beforeBreadcrumb?.({
+      message: `POST /oauth/token code_verifier=${VALUE}`,
+    });
+
+    expect(JSON.stringify(crumb)).not.toContain(VALUE);
+  });
+});
