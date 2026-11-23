@@ -400,6 +400,12 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'manage',
       description: '単価台帳の管理',
     },
+    // 外部アプリの接続の権限（user-authentication 要件46.2。システム管理者が *:* で持ち、一般ユーザーへは割り当てない）
+    {
+      resource: 'external_app',
+      action: 'connect',
+      description: '外部アプリの接続',
+    },
 
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     {

@@ -2041,7 +2041,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク71: 外部アプリの認可の土台（要件46・48・51）
 
-- [ ] 71.1 接続と認可サーバーの保存データのモデル、権限「外部アプリの接続」を足す
+- [x] 71.1 接続と認可サーバーの保存データのモデル、権限「外部アプリの接続」を足す
   - 設計のデータモデルどおりに 2 つのモデルを足すマイグレーションを作り、既存の環境にも権限が入るようにする
   - 新しい環境の seed でも同じ権限が入り、システム管理者はワイルドカードで持つ
   - マイグレーションを空の DB と既存のデータのある DB の両方へ適用でき、利用者とアプリの組の一意制約が効くことを統合テストで確かめた状態になる
@@ -2071,6 +2071,9 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: AdminNotificationService, SecurityAnomalyMonitor, ログの伏せ字_
   - _Depends: 70.2_
   - _Requirements: 48.8, 51.9_
+
+**タスク71の記録（2026-11-23）**:
+- 71.1: migration `20261123000000_external_app_connections` で 2 つの表と権限 `external_app:connect` を足した。`scopes` の `read` 必須は Prisma で書けないため CHECK 制約で守る。Prisma の配列の列は NULL を許し、NULL は `ANY` の比較を素通りするので、`IS NOT NULL` も条件に含めた。`oauth_store_records.grant_id` は接続より先に作られる行があるため外部キーを持たず、孤立した行の片付けは後続のタスクで確かめる。単体 8,014 件・統合 1,809 件が緑。反実仮想: 一意索引と CHECK 制約を落とすと新しい統合テストの 5 件が赤になる
 
 ## タスク72: 接続の管理（要件47〜51）
 

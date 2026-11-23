@@ -66,6 +66,9 @@ model User {
   // Estimate Creation リレーション（見積書の編集セッション、REQ-11.7）
   estimateEditSessions EstimateEditSession[]
 
+  // 外部アプリの接続（要件47.8）
+  externalAppConnections ExternalAppConnection[]
+
   @@index([email])
   @@index([isLocked])
   @@index([isActive, lastLoginAt])
@@ -114,6 +117,44 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// 外部アプリの接続。利用者とアプリの組で一つ（要件47.8）
+model ExternalAppConnection {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  grantId     String    @unique @map("grant_id")
+  // read を必ず含む（Prisma で書けないため、migration の CHECK 制約で守る）
+  scopes      String[]
+  consentedAt DateTime  @map("consented_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime  @map("expires_at") // 同意 + 90 日
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([clientId])
+  @@index([lastUsedAt])
+  @@index([expiresAt])
+  @@map("external_app_connections")
+}
+
+// 認可サーバーの保存データ。トークンの値は保存しない（要件48.7）
+// 接続より先に作られる行があるため、grantId に外部キーは持たない
+model OAuthStoreRecord {
+  id         String    @id // モデル種別と HMAC 値の組
+  kind       String
+  grantId    String?   @map("grant_id")
+  uid        String?
+  payload    Json
+  consumedAt DateTime? @map("consumed_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@index([grantId])
+  @@index([uid])
+  @@index([expiresAt])
+  @@map("oauth_store_records")
 }
 
 model Role {

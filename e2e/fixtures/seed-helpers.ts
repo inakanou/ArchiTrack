@@ -318,6 +318,12 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'manage',
       description: '単価台帳の管理',
     },
+    // 外部アプリの接続の権限（user-authentication 要件46.2。システム管理者が *:* で持ち、一般ユーザーへは割り当てない。backend の seed-helpers.ts と同じ）
+    {
+      resource: 'external_app',
+      action: 'connect',
+      description: '外部アプリの接続',
+    },
 
     // 受領見積書関連権限
     {
