@@ -24,6 +24,7 @@ import type {
   ExternalAppConnectionView,
   ExternalAppScope,
   PaginatedConnections,
+  RefreshGraceEvent,
   TokenReuseEvent,
 } from '../oauth/oauth.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
@@ -610,6 +611,31 @@ export class ExternalAppConnectionService {
       },
       tx
     );
+  }
+
+  /**
+   * 更新の猶予の適用を、接続の値で監査に記録する（要件48.11、51.7）。接続が無ければ何もしない
+   *
+   * @param event - 猶予の出来事
+   */
+  async recordRefreshGrace(event: RefreshGraceEvent): Promise<void> {
+    const row = await this.deps.prisma.externalAppConnection.findUnique({
+      where: { grantId: event.grantId },
+    });
+    if (!row) {
+      return;
+    }
+    await this.recordEvent({
+      kind: 'REFRESH_GRACE_APPLIED',
+      actorUserId: row.userId,
+      targetUserId: row.userId,
+      clientId: row.clientId,
+      scopes: toScopes(row.scopes),
+      reason: null,
+      occurredAt: new Date(),
+      ipAddress: event.ipAddress,
+      userAgent: event.userAgent,
+    });
   }
 
   /**

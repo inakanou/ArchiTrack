@@ -64,6 +64,16 @@ export interface TokenReuseEvent {
 /** 再利用の処理。保存アダプターへ注入し、アダプターから接続のサービスを参照しない */
 export type TokenReuseHandler = (event: TokenReuseEvent) => Promise<void>;
 
+/** 更新の猶予（要件48.11）を適用した出来事。トークンの値と HMAC の ID を持たない */
+export interface RefreshGraceEvent {
+  readonly grantId: string;
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
+}
+
+/** 猶予の監査の処理。保存アダプターへ注入する */
+export type RefreshGraceHandler = (event: RefreshGraceEvent) => Promise<void>;
+
 /** 接続の作成・置き換えの入力 */
 export interface CreateConnectionInput {
   readonly userId: string;

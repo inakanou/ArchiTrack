@@ -2118,7 +2118,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 71.1_
   - _Requirements: 48.7, 48.8_
 
-- [ ] 73.2 認可サーバーの設定を作り、Express へ載せる
+- [x] 73.2 認可サーバーの設定を作り、Express へ載せる
   - 発行者を設定値に固定して Host と転送ヘッダーを置き換え、`provider.proxy` を有効にし、https の構成で手続きの Cookie に `Secure` が付き、偽の Host が窓口の URL に使われないことを確かめる
   - 認可と再開の要求から認可サーバーのセッションの Cookie を外し、同じブラウザで別の利用者が同意しても認可コードが返ることを確かめる
   - 許可するアプリだけを受け付け、自己登録・開発用の画面・イントロスペクション・トークンの失効の窓口を無効にする
@@ -2152,6 +2152,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **タスク73の記録（2026-11-24）**:
 - 73.1: `backend/src/oauth/store-adapter.ts` を作った。AccessToken・RefreshToken・AuthorizationCode のキーは `種別:HMAC-SHA-256(値)` で、本体から `jti` を除いて保存する。ライブラリは再利用時に `refreshToken.destroy()` と Grant の失効を同時に呼ぶので、失効は進行中の処理を全モデルで共有し、Grant の `destroy` はその完了を待つ。`destroy` は使用済みの RefreshToken・AuthorizationCode の行を消さない（消すと再利用の処理の失敗後に再提示で失効できず、後継が使い続けられた）。単体 8,355 件・統合 1,937 件が緑。**73.2 の義務**: `OAUTH_COOKIE_KEYS` を `cookies.keys` へ渡す。認可と再開の要求から `_session` と `_session.sig` を外す。`end_session`・revocation・デバイスフローを載せない（Session の行と Interaction の `session.cookie` は Cookie の値を平文で持つが、署名の鍵が無いと有効な Cookie を作れない）。`getRequestSource` を要求の文脈から渡す。**73.3 の義務**: `consume` の暫定の例外を再利用と猶予の判定に置き換える。ライブラリは `consumed` の判定より先に期限や Grant を検証するので、`find` の時点で検知する。トークンの `upsert` を Grant の行のロックと同じトランザクションへ入れる。猶予の「置き換えの日時と後継」は `payload` に HMAC の ID で持つ。**76.4 の義務**: 期限切れの行の片付けで、接続が存続している使用済みの行を残し、接続の無い Grant の孤立した行を消す
+- 73.2: `backend/src/oauth/provider.ts`・`request-context.ts` を作り、本文の解析と CORS より前に載せた。設定が無ければ何も載せず、構築の失敗で起動を止める。ライブラリは Basic と post を同じ方式として受けるので、`/oauth/token` の `Authorization` は搭載層で 401 にする。認可要求の `resource` の省略は `invalid_target`。Interaction と Session の期限は 600 秒。単体 8,388 件・統合 2,002 件が緑。**73.3 への申し送り**: ライブラリは `resource` の検証より前に認可コードを消費するので、誤った `resource` の後の正しい再試行で接続を失効させるかを決めてテストする。`onRefreshGraceApplied` を呼ぶ。**74 への申し送り**: Grant を接続の `consentedAt` より前に作る。`scope=write` だけの要求に `read` で同意すると交換が `invalid_grant` になるので、`scope` の省略と未知の範囲を含めて要求の範囲の扱いを定める。Interaction の 600 秒が 2FA を含む同意に足りるかを確かめる。**75 への申し送り**: `assertActive` で接続の期限を必ず確かめる。**運用**: 本番で `DEBUG=oidc-provider:*` を設定しない（`state` などが標準エラーへ出る）
 
 ## タスク74: 同意（要件46・47）
 

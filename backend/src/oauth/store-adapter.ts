@@ -13,7 +13,7 @@
 import { createHmac } from 'crypto';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
 import type { RequestContext } from '../types/auth.types.js';
-import type { TokenReuseHandler } from './oauth.types.js';
+import type { RefreshGraceHandler, TokenReuseHandler } from './oauth.types.js';
 
 /** 値を HMAC にして保存する種別 */
 const HMAC_KEYED_KINDS: ReadonlySet<string> = new Set([
@@ -51,6 +51,8 @@ export interface OAuthStoreAdapterDeps {
   readonly tokenHmacKey: string;
   /** ライブラリの Grant の失効を受け取る処理 */
   readonly onGrantRevoked: TokenReuseHandler;
+  /** 更新の猶予を適用したときの監査の処理（判定はタスク73.3） */
+  readonly onRefreshGraceApplied: RefreshGraceHandler;
   /** 現在の要求の送信元 */
   readonly getRequestSource: () => RequestContext;
   readonly now?: () => Date;

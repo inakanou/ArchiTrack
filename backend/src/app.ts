@@ -26,6 +26,7 @@ import {
 } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
+import { mountExternalAppOAuth } from './oauth/provider.js';
 import { getStorageType } from './storage/index.js';
 import adminRoutes from './routes/admin.routes.js';
 import adminSettingsRoutes from './routes/admin-settings.routes.js';
@@ -107,6 +108,10 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
+
+// 外部アプリの認可サーバー（要件46〜48）。本文の解析と CORS より前に載せ、担当の経路だけを扱う。
+// 許可するアプリが無ければ何も載せない。構築の失敗は例外で起動を止める
+mountExternalAppOAuth(app, getPrismaClient());
 
 app.use(
   cors({

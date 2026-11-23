@@ -158,6 +158,7 @@ describe('OAuthStoreAdapter（統合・実 DB と実ライブラリ）', () => {
         prisma,
         tokenHmacKey: HMAC_KEY,
         onGrantRevoked,
+        onRefreshGraceApplied: async () => undefined,
         getRequestSource: () => ({ ipAddress: '203.0.113.10', userAgent: 'integration' }),
       }),
       clients: [

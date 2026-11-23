@@ -90,6 +90,7 @@ describe('OAuthStoreAdapter', () => {
       prisma: fakeDb(rows),
       tokenHmacKey: HMAC_KEY,
       onGrantRevoked,
+      onRefreshGraceApplied: async () => undefined,
       getRequestSource: () => ({ ipAddress: '203.0.113.9', userAgent: 'unit-test' }),
       now: () => NOW,
     });
@@ -104,6 +105,7 @@ describe('OAuthStoreAdapter', () => {
           prisma: fakeDb(rows),
           tokenHmacKey: badKey,
           onGrantRevoked,
+          onRefreshGraceApplied: async () => undefined,
           getRequestSource: () => ({}),
         });
       } catch (error) {
@@ -365,6 +367,7 @@ describe('OAuthStoreAdapter', () => {
         prisma: db,
         tokenHmacKey: HMAC_KEY,
         onGrantRevoked,
+        onRefreshGraceApplied: async () => undefined,
         getRequestSource: () => ({}),
       })('AccessToken');
 
