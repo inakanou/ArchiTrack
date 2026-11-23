@@ -2110,7 +2110,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク73: 認可サーバー（要件46〜48）
 
-- [ ] 73.1 値を復元できない形で保存するアダプターを作る
+- [x] 73.1 値を復元できない形で保存するアダプターを作る
   - アクセストークン・リフレッシュトークン・認可コードのキーを HMAC にし、本体からトークンの値を除いて保存する
   - 読み出しで認可サーバーが必要とする形へ戻す
   - ライブラリからの Grant の失効の呼び出しは、注入された再利用の処理へ渡す。アダプターは接続のサービスを参照しない
@@ -2149,6 +2149,9 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 既存の `/.well-known/jwks.json` の扱いと SPA の配信を変えない
   - 試験用の nginx 経由でメタデータの発行者とエンドポイントが公開オリジンになることを確かめた状態になる
   - _Requirements: 46.1_
+
+**タスク73の記録（2026-11-24）**:
+- 73.1: `backend/src/oauth/store-adapter.ts` を作った。AccessToken・RefreshToken・AuthorizationCode のキーは `種別:HMAC-SHA-256(値)` で、本体から `jti` を除いて保存する。ライブラリは再利用時に `refreshToken.destroy()` と Grant の失効を同時に呼ぶので、失効は進行中の処理を全モデルで共有し、Grant の `destroy` はその完了を待つ。`destroy` は使用済みの RefreshToken・AuthorizationCode の行を消さない（消すと再利用の処理の失敗後に再提示で失効できず、後継が使い続けられた）。単体 8,355 件・統合 1,937 件が緑。**73.2 の義務**: `OAUTH_COOKIE_KEYS` を `cookies.keys` へ渡す。認可と再開の要求から `_session` と `_session.sig` を外す。`end_session`・revocation・デバイスフローを載せない（Session の行と Interaction の `session.cookie` は Cookie の値を平文で持つが、署名の鍵が無いと有効な Cookie を作れない）。`getRequestSource` を要求の文脈から渡す。**73.3 の義務**: `consume` の暫定の例外を再利用と猶予の判定に置き換える。ライブラリは `consumed` の判定より先に期限や Grant を検証するので、`find` の時点で検知する。トークンの `upsert` を Grant の行のロックと同じトランザクションへ入れる。猶予の「置き換えの日時と後継」は `payload` に HMAC の ID で持つ。**76.4 の義務**: 期限切れの行の片付けで、接続が存続している使用済みの行を残し、接続の無い Grant の孤立した行を消す
 
 ## タスク74: 同意（要件46・47）
 
