@@ -73,6 +73,41 @@ export interface ExternalAppConnectionView {
   readonly expiresAt: string;
 }
 
+/** 管理者の一覧の一行。Grant とトークンの情報を含めない（要件49.6） */
+export interface AdminExternalAppConnectionView extends ExternalAppConnectionView {
+  readonly clientId: string;
+  readonly user: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly email: string;
+  };
+}
+
+/** 全利用者の一覧の絞り込みとページ（要件49.7） */
+export interface ConnectionFilter {
+  readonly userId?: string;
+  readonly clientId?: string;
+  readonly page: number;
+  readonly limit: number;
+}
+
+/** 全利用者の一覧のページ（他の一覧の API と同じ形） */
+export interface PaginatedConnections {
+  readonly data: readonly AdminExternalAppConnectionView[];
+  readonly pagination: {
+    readonly page: number;
+    readonly limit: number;
+    readonly total: number;
+    readonly totalPages: number;
+  };
+}
+
+/** 接続を操作した実行者と要求の送信元（要件51.7） */
+export interface AuditActor {
+  readonly userId: string;
+  readonly source?: RequestContext;
+}
+
 /** 有効と判定した接続 */
 export interface ActiveConnection {
   readonly id: string;

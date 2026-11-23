@@ -8,6 +8,8 @@
  * - 48.10: 利用の記録は最終ログインを更新しない
  * - 51.7: 実行者・対象・アプリ・範囲・理由・日時・送信元 IP を監査に残す
  * - 48.8: 監査にトークンの値と HMAC の ID を書かない
+ * - 49.1, 49.6, 49.7: 本人の一覧と、絞り込みとページの切り替えのある全利用者の一覧（タスク 72.2）
+ * - 49.4, 49.5, 49.8: 接続と全トークンの行の取り消し。他の利用者の接続は存在を明かさず拒む（タスク 72.2）
  *
  * Design: Requirements 46-51 > ExternalAppConnectionService
  */
@@ -26,6 +28,8 @@ import { AuditLogService } from '../../services/audit-log.service.js';
 import {
   CONNECTION_ABSOLUTE_MS,
   CONNECTION_IDLE_MS,
+  CONNECTION_LIST_MAX_LIMIT,
+  CONNECTION_LIST_MAX_OFFSET,
   CONNECTION_TOUCH_INTERVAL_MS,
   ExternalAppConnectionService,
 } from '../../services/external-app-connection.service.js';
@@ -75,6 +79,8 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
 
   async function createConnection(
     overrides: {
+      userId?: string;
+      clientId?: string;
       grantId?: string;
       scopes?: ExternalAppScope[];
       consentedAt?: Date;
@@ -86,8 +92,8 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
     const view = await prisma.$transaction((tx) =>
       service.createOrReplace(
         {
-          userId,
-          clientId: CLIENT_ID,
+          userId: overrides.userId ?? userId,
+          clientId: overrides.clientId ?? CLIENT_ID,
           grantId,
           scopes: overrides.scopes ?? ['read'],
           consentedAt: overrides.consentedAt ?? CONSENTED_AT,
@@ -214,7 +220,7 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
   });
 
   describe('createOrReplace', () => {
-    it('初回の同意で 90 日の期限の接続を作り、置き換えの監査を残さない', async () => {
+    it('初回の同意で 90 日の期限を保存し、表示は未使用の 30 日とし、置き換えの監査を残さない', async () => {
       const { grantId, view } = await createConnection({ scopes: ['read', 'write'] });
 
       expect(view).toEqual({
@@ -223,7 +229,7 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
         scopes: ['read', 'write'],
         consentedAt: CONSENTED_AT.toISOString(),
         lastUsedAt: null,
-        expiresAt: at(CONSENTED_AT, 90 * DAY_MS).toISOString(),
+        expiresAt: at(CONSENTED_AT, 30 * DAY_MS).toISOString(),
       });
       const row = await prisma.externalAppConnection.findUniqueOrThrow({ where: { grantId } });
       expect(row.expiresAt).toEqual(at(CONSENTED_AT, 90 * DAY_MS));
@@ -486,6 +492,7 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
 
     it('判定の読み取りの後に利用が記録されたら、接続を終了せず有効を返す', async () => {
       const { grantId, view } = await createConnection();
+      const token = await addTokenRow(grantId);
       const now = at(CONSENTED_AT, 30 * DAY_MS);
       const original = prisma.externalAppConnection.findUnique.bind(prisma.externalAppConnection);
       let raced = false;
@@ -511,6 +518,7 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
 
       expect(result.ok).toBe(true);
       expect(await prisma.externalAppConnection.count({ where: { grantId } })).toBe(1);
+      expect(await prisma.oAuthStoreRecord.count({ where: { id: token } })).toBe(1);
       expect(await auditLogs('CONNECTION_ENDED')).toHaveLength(0);
     });
 
@@ -785,6 +793,369 @@ describe('ExternalAppConnectionService（統合・実 DB）', () => {
       const metadata = logs[0]?.metadata as { userAgent: string; userAgentTruncated: boolean };
       expect(metadata.userAgent.length).toBeLessThan(5000);
       expect(metadata.userAgentTruncated).toBe(true);
+    });
+  });
+
+  describe('一覧と取り消し（タスク 72.2）', () => {
+    const SOURCE = { ipAddress: '198.51.100.7', userAgent: 'revoke-browser' };
+
+    async function newUser(displayName: string) {
+      const user = await createTestUser(prisma, {
+        email: `${MARK}-${randomUUID()}@example.com`,
+        displayName,
+        passwordHash: 'x',
+      });
+      return { id: user.id, email: user.email, displayName };
+    }
+
+    function endedLogsFor(targetId: string) {
+      return prisma.auditLog.findMany({ where: { action: 'CONNECTION_ENDED', targetId } });
+    }
+
+    function failingAuditService(): ExternalAppConnectionService {
+      const realAudit = new AuditLogService({ prisma });
+      return new ExternalAppConnectionService({
+        prisma,
+        auditLogService: {
+          createLog: async (input, tx) => {
+            await realAudit.createLog(input, tx);
+            throw new Error('audit written then failed');
+          },
+        },
+        clientRegistry: { loadAllowedClients: () => [] },
+      });
+    }
+
+    describe('listOwn', () => {
+      it('本人の接続だけを同意の新しい順に返し、Grant とトークンを含めない（49.1）', async () => {
+        const other = await newUser('Other');
+        const older = await createConnection({ scopes: ['read', 'write'] });
+        const newer = await createConnection({
+          clientId: `${MARK}-unlisted-a`,
+          consentedAt: at(CONSENTED_AT, DAY_MS),
+        });
+        await createConnection({ userId: other.id });
+        await addTokenRow(older.grantId);
+
+        const list = await service.listOwn(userId);
+
+        expect(list.map((item) => item.id)).toEqual([newer.view.id, older.view.id]);
+        expect(list[1]).toEqual({
+          id: older.view.id,
+          appName: APP_NAME,
+          scopes: ['read', 'write'],
+          consentedAt: CONSENTED_AT.toISOString(),
+          lastUsedAt: null,
+          expiresAt: at(CONSENTED_AT, 30 * DAY_MS).toISOString(),
+        });
+        expect(JSON.stringify(list)).not.toContain(older.grantId);
+      });
+
+      it('接続が無ければ空を返す', async () => {
+        await expect(service.listOwn(userId)).resolves.toEqual([]);
+      });
+
+      it('許可の一覧から外れたアプリの接続はクライアント ID を名称として返す', async () => {
+        const clientId = `${MARK}-removed-client`;
+        await createConnection({ clientId });
+
+        const list = await service.listOwn(userId);
+
+        expect(list[0]?.appName).toBe(clientId);
+      });
+    });
+
+    describe('一覧の期限（49.1、49.6、48.2、48.3）', () => {
+      it.each([
+        {
+          name: '未使用なら同意から 30 日',
+          lastUsedOffset: null,
+          expectedOffset: 30 * DAY_MS,
+        },
+        {
+          name: '利用があれば最後の利用から 30 日',
+          lastUsedOffset: 10 * DAY_MS,
+          expectedOffset: 40 * DAY_MS,
+        },
+        {
+          name: '最後の利用から 30 日より同意から 90 日が先なら同意から 90 日',
+          lastUsedOffset: 70 * DAY_MS,
+          expectedOffset: 90 * DAY_MS,
+        },
+      ])('$name を本人と管理者の一覧に返し、その時刻に終了する', async (testCase) => {
+        const { grantId, view } = await createConnection();
+        if (testCase.lastUsedOffset !== null) {
+          await prisma.externalAppConnection.update({
+            where: { id: view.id },
+            data: { lastUsedAt: at(CONSENTED_AT, testCase.lastUsedOffset) },
+          });
+        }
+        const expected = at(CONSENTED_AT, testCase.expectedOffset);
+
+        const own = await service.listOwn(userId);
+        const all = await service.listAll({ userId, page: 1, limit: 10 });
+
+        expect(own[0]?.expiresAt).toBe(expected.toISOString());
+        expect(all.data[0]?.expiresAt).toBe(expected.toISOString());
+        const row = await prisma.externalAppConnection.findUniqueOrThrow({ where: { grantId } });
+        expect(row.expiresAt).toEqual(at(CONSENTED_AT, 90 * DAY_MS));
+        expect((await service.assertActive(grantId, at(expected, -1))).ok).toBe(true);
+        expect((await service.assertActive(grantId, expected)).ok).toBe(false);
+      });
+    });
+
+    describe('listAll', () => {
+      it('利用者の情報を付けて全利用者の接続を返し、秘密の値を含めない（49.6）', async () => {
+        const other = await newUser('Other User');
+        const own = await createConnection();
+        const others = await createConnection({ userId: other.id, scopes: ['read', 'write'] });
+        await addTokenRow(others.grantId);
+
+        const page = await service.listAll({ page: 1, limit: CONNECTION_LIST_MAX_LIMIT });
+
+        const ids = page.data.map((item) => item.id);
+        expect(ids).toEqual(expect.arrayContaining([own.view.id, others.view.id]));
+        expect(page.data.find((item) => item.id === others.view.id)).toEqual({
+          ...others.view,
+          clientId: CLIENT_ID,
+          user: { id: other.id, displayName: 'Other User', email: other.email },
+        });
+        const serialized = JSON.stringify(page);
+        expect(serialized).not.toContain(others.grantId);
+        expect(serialized).not.toContain('passwordHash');
+        expect(serialized).not.toContain('clientSecret');
+      });
+
+      it('利用者とアプリで絞り込む（49.7）', async () => {
+        const other = await newUser('Other');
+        const clientB = `${MARK}-client-b`;
+        const a = await createConnection();
+        const b = await createConnection({ clientId: clientB });
+        const c = await createConnection({ userId: other.id, clientId: clientB });
+
+        const byUser = await service.listAll({ userId, page: 1, limit: 10 });
+        const byClient = await service.listAll({ clientId: clientB, page: 1, limit: 10 });
+        const byBoth = await service.listAll({ userId, clientId: clientB, page: 1, limit: 10 });
+
+        expect(byUser.data.map((item) => item.id).sort()).toEqual([a.view.id, b.view.id].sort());
+        expect(byClient.data.map((item) => item.id).sort()).toEqual([b.view.id, c.view.id].sort());
+        expect(byBoth.data.map((item) => item.id)).toEqual([b.view.id]);
+        expect(byBoth.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
+      });
+
+      it('同意の日時が同じ行も ID の順で並び、ページの間で欠けも重複もしない（49.7）', async () => {
+        const created: string[] = [];
+        for (let index = 0; index < 5; index += 1) {
+          const { view } = await createConnection({ clientId: `${MARK}-page-${index}` });
+          created.push(view.id);
+        }
+
+        const pages = [];
+        for (const pageNumber of [1, 2, 3]) {
+          pages.push(await service.listAll({ userId, page: pageNumber, limit: 2 }));
+        }
+
+        expect(pages.map((page) => page.data.length)).toEqual([2, 2, 1]);
+        expect(pages.flatMap((page) => page.data.map((item) => item.id))).toEqual(
+          [...created].sort()
+        );
+        expect(pages[1]?.pagination).toEqual({ page: 2, limit: 2, total: 5, totalPages: 3 });
+      });
+
+      it('最後のページより後は空の一覧と総数を返す', async () => {
+        await createConnection();
+
+        const page = await service.listAll({ userId, page: 9, limit: 10 });
+
+        expect(page.data).toEqual([]);
+        expect(page.pagination).toEqual({ page: 9, limit: 10, total: 1, totalPages: 1 });
+      });
+
+      it.each([
+        { page: 0, limit: 10 },
+        { page: -1, limit: 10 },
+        { page: 1.5, limit: 10 },
+        { page: Number.NaN, limit: 10 },
+        { page: 1, limit: 0 },
+        { page: 1, limit: 2.5 },
+        { page: 1, limit: CONNECTION_LIST_MAX_LIMIT + 1 },
+        { page: CONNECTION_LIST_MAX_OFFSET + 2, limit: 1 },
+      ])('範囲外のページと件数 $page / $limit を拒む', async (bounds) => {
+        await expect(service.listAll({ userId, ...bounds })).rejects.toThrow(RangeError);
+      });
+
+      it('上限ちょうどの件数とオフセットは受け付ける', async () => {
+        await expect(
+          service.listAll({ userId, page: 1, limit: CONNECTION_LIST_MAX_LIMIT })
+        ).resolves.toMatchObject({ data: [] });
+        await expect(
+          service.listAll({ userId, page: CONNECTION_LIST_MAX_OFFSET + 1, limit: 1 })
+        ).resolves.toMatchObject({ data: [] });
+      });
+    });
+
+    describe('revokeOwn', () => {
+      it('接続と全トークンの行を消し、取り消しを監査に残す（49.4、51.7）', async () => {
+        const { grantId, view } = await createConnection({ scopes: ['read', 'write'] });
+        const access = await addTokenRow(grantId);
+        const refresh = await addTokenRow(grantId, 'RefreshToken');
+        const unrelated = await createConnection({ clientId: `${MARK}-unrelated` });
+        const unrelatedToken = await addTokenRow(unrelated.grantId);
+
+        const result = await service.revokeOwn(userId, view.id, { userId, source: SOURCE });
+
+        expect(result).toEqual({ ok: true, value: undefined });
+        expect(await prisma.externalAppConnection.count({ where: { id: view.id } })).toBe(0);
+        expect(
+          await prisma.oAuthStoreRecord.count({ where: { id: { in: [access, refresh] } } })
+        ).toBe(0);
+        expect(await prisma.oAuthStoreRecord.count({ where: { id: unrelatedToken } })).toBe(1);
+        const logs = await endedLogsFor(userId);
+        expect(logs).toHaveLength(1);
+        expect(logs[0]?.actorId).toBe(userId);
+        expect(logs[0]?.targetId).toBe(userId);
+        expect(logs[0]?.metadata).toEqual({
+          clientId: CLIENT_ID,
+          scopes: ['read', 'write'],
+          reason: 'USER_REVOKED',
+          occurredAt: expect.any(String),
+          ipAddress: SOURCE.ipAddress,
+          userAgent: SOURCE.userAgent,
+        });
+        const serialized = JSON.stringify(logs);
+        expect(serialized).not.toContain(grantId);
+        expect(serialized).not.toContain(access);
+      });
+
+      it('他の利用者の接続は存在しない ID と同じ結果で拒み、何も変えない（49.5）', async () => {
+        const other = await newUser('Other');
+        const { grantId, view } = await createConnection({ userId: other.id });
+        const token = await addTokenRow(grantId);
+
+        const foreign = await service.revokeOwn(userId, view.id, { userId, source: SOURCE });
+        const missing = await service.revokeOwn(userId, randomUUID(), { userId, source: SOURCE });
+        const malformed = await service.revokeOwn(userId, 'not-a-uuid', { userId, source: SOURCE });
+
+        expect(foreign).toEqual({ ok: false, error: 'NOT_FOUND' });
+        expect(missing).toEqual(foreign);
+        expect(malformed).toEqual(foreign);
+        expect(await prisma.externalAppConnection.count({ where: { id: view.id } })).toBe(1);
+        expect(await prisma.oAuthStoreRecord.count({ where: { id: token } })).toBe(1);
+        expect(await endedLogsFor(other.id)).toHaveLength(0);
+        expect(await endedLogsFor(userId)).toHaveLength(0);
+      });
+
+      it('監査を書いた直後の失敗では、接続・トークンの行・監査がすべて戻る', async () => {
+        const { grantId, view } = await createConnection();
+        const token = await addTokenRow(grantId);
+
+        await expect(
+          failingAuditService().revokeOwn(userId, view.id, { userId, source: SOURCE })
+        ).rejects.toThrow('audit written then failed');
+
+        expect(await prisma.externalAppConnection.count({ where: { id: view.id } })).toBe(1);
+        expect(await prisma.oAuthStoreRecord.count({ where: { id: token } })).toBe(1);
+        expect(await endedLogsFor(userId)).toHaveLength(0);
+      });
+
+      it('同時の取り消しは 1 件だけが成功し、監査も 1 件になる', async () => {
+        const { grantId, view } = await createConnection();
+        await prisma.oAuthStoreRecord.create({
+          data: { id: `Grant:${MARK}-${randomUUID()}`, kind: 'Grant', grantId, payload: {} },
+        });
+        await addTokenRow(grantId);
+
+        const results = await Promise.all(
+          Array.from({ length: 5 }, () =>
+            service.revokeOwn(userId, view.id, { userId, source: SOURCE })
+          )
+        );
+
+        expect(results.filter((result) => result.ok)).toHaveLength(1);
+        expect(results.filter((result) => !result.ok)).toEqual(
+          Array.from({ length: 4 }, () => ({ ok: false, error: 'NOT_FOUND' }))
+        );
+        expect(await endedLogsFor(userId)).toHaveLength(1);
+        expect(await prisma.oAuthStoreRecord.count({ where: { grantId } })).toBe(0);
+      });
+
+      it('Grant の行のロックを待った後に保存されたトークンの行も消す', async () => {
+        const { grantId, view } = await createConnection();
+        await prisma.oAuthStoreRecord.create({
+          data: { id: `Grant:${MARK}-${randomUUID()}`, kind: 'Grant', grantId, payload: {} },
+        });
+        const tokenId = `AccessToken:${MARK}-${randomUUID()}`;
+
+        const result = await raceWithTokenInsert(grantId, tokenId, () =>
+          service.revokeOwn(userId, view.id, { userId, source: SOURCE })
+        );
+
+        expect(result.ok).toBe(true);
+        expect(await prisma.oAuthStoreRecord.count({ where: { grantId } })).toBe(0);
+      });
+    });
+
+    describe('revokeByAdmin', () => {
+      it('他の利用者の接続と全トークンの行を消し、管理者を実行者として残す（49.8、51.7）', async () => {
+        const admin = await newUser('Admin');
+        const { grantId, view } = await createConnection();
+        await addTokenRow(grantId);
+
+        const result = await service.revokeByAdmin(view.id, { userId: admin.id, source: SOURCE });
+
+        expect(result).toEqual({ ok: true, value: undefined });
+        expect(await prisma.externalAppConnection.count({ where: { id: view.id } })).toBe(0);
+        expect(await prisma.oAuthStoreRecord.count({ where: { grantId } })).toBe(0);
+        const logs = await endedLogsFor(userId);
+        expect(logs).toHaveLength(1);
+        expect(logs[0]?.actorId).toBe(admin.id);
+        expect(logs[0]?.targetId).toBe(userId);
+        expect(logs[0]?.metadata).toMatchObject({
+          clientId: CLIENT_ID,
+          scopes: ['read'],
+          reason: 'ADMIN_REVOKED',
+          ipAddress: SOURCE.ipAddress,
+          userAgent: SOURCE.userAgent,
+        });
+        expect(JSON.stringify(logs)).not.toContain(grantId);
+      });
+
+      it('存在しない接続は NOT_FOUND を返し、監査を残さない', async () => {
+        const admin = await newUser('Admin');
+
+        const result = await service.revokeByAdmin(randomUUID(), { userId: admin.id });
+
+        expect(result).toEqual({ ok: false, error: 'NOT_FOUND' });
+        expect(
+          await prisma.auditLog.count({ where: { action: 'CONNECTION_ENDED', actorId: admin.id } })
+        ).toBe(0);
+      });
+
+      it('送信元が無い取り消しは監査の IP とユーザーエージェントを null にする', async () => {
+        const admin = await newUser('Admin');
+        const { view } = await createConnection();
+
+        await service.revokeByAdmin(view.id, { userId: admin.id });
+
+        const logs = await endedLogsFor(userId);
+        expect(logs[0]?.metadata).toMatchObject({ ipAddress: null, userAgent: null });
+      });
+
+      it('本人と管理者の同時の取り消しでも監査は 1 件になる', async () => {
+        const admin = await newUser('Admin');
+        const { grantId, view } = await createConnection();
+        await prisma.oAuthStoreRecord.create({
+          data: { id: `Grant:${MARK}-${randomUUID()}`, kind: 'Grant', grantId, payload: {} },
+        });
+
+        const results = await Promise.all([
+          service.revokeOwn(userId, view.id, { userId, source: SOURCE }),
+          service.revokeByAdmin(view.id, { userId: admin.id, source: SOURCE }),
+        ]);
+
+        expect(results.filter((result) => result.ok)).toHaveLength(1);
+        expect(await endedLogsFor(userId)).toHaveLength(1);
+      });
     });
   });
 

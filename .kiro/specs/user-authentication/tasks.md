@@ -2088,7 +2088,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 71.1, 71.3_
   - _Requirements: 47.8, 48.2, 48.3, 48.10, 51.7_
 
-- [ ] 72.2 本人と管理者の一覧と取り消しを作る
+- [x] 72.2 本人と管理者の一覧と取り消しを作る
   - 本人の一覧、全利用者の一覧（利用者とアプリの絞り込み、ページの切り替え）を返す
   - 取り消しは接続と全トークンの行の消去と監査を同じトランザクションで処理する。トランザクションの中の行の消去は接続の管理が持ち、保存アダプターを経由しない
   - 他の利用者の接続を本人の取り消しで指定すると、存在を明かさずに拒むことを統合テストで確かめた状態になる
@@ -2105,6 +2105,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **タスク72の記録（2026-11-23）**:
 - 72.1: `ExternalAppConnectionService` の `createOrReplace`・`assertActive`・`touch`・`recordEvent` を作った。期限は到達した時刻を含めて切れとし、両方を過ぎたら `ABSOLUTE_EXPIRED`。接続の終了は private の `deleteConnectionAndGrantRows` に集約し、Grant の行を `FOR UPDATE` でロックしてから接続を条件付きで消し、消せたときだけ別の文で保存データの行を消す（READ COMMITTED が前提。1 文の削除では競合で保存されたトークンの行が 10/10 で残った）。単体 8,321 件・統合 1,845 件が緑。**申し送り**: 72.2・72.3 の終了はこの処理を通す。73.1 は Grant 自身の行に `grant_id` を必ず入れる（欠けるとロックが無言で効かない）。73.3 はトークンの行の更新でも先に Grant の行をロックする（順序が逆だとデッドロックしうる）。74.2 は `CONSENT_GRANTED`・`CONSENT_DENIED` を `recordEvent` で同じトランザクションに記録し、READ COMMITTED で呼ぶ。75.1 は Grant の行のロック待ちの期限切れの例外を 401 でなく 5xx として扱うかを決める。**利用者の判断事項**: 監査の画面は `metadata`（アプリ・範囲・理由・IP）を表示しない
+- 72.2: `listOwn`・`listAll`・`revokeOwn`・`revokeByAdmin` を作った。他の利用者の接続・存在しない ID・不正な形の ID は同じ `NOT_FOUND` を返す。画面に返す `expiresAt` は実際に切れる時刻（DB の同意 + 90 日と、最終利用または同意 + 30 日の早い方）で、DB の `expires_at` は同意 + 90 日のまま。許可の一覧から外れたアプリの `appName` は client ID を返す。期限切れで未終了の接続は定期処理（76.4）まで一覧に残り、過去の期限が表示される。単体 8,321 件・統合 1,873 件が緑。**申し送り**: 77.1 は `CONNECTION_LIST_MAX_LIMIT`・`CONNECTION_LIST_MAX_OFFSET` を zod で検証して 400 にし、既定の limit 20 を経路で与える（範囲外は `listAll` が `RangeError`）。72.3 は実行者なしの処理のため `AuditActor.userId` を null 可に広げるかを決める。74・78.1 は同意画面で未使用 30 日と同意から 90 日の 2 つの期限の伝え方を確かめる（`createOrReplace` の戻り値は新しい接続で同意 + 30 日）
 
 ## タスク73: 認可サーバー（要件46〜48）
 
