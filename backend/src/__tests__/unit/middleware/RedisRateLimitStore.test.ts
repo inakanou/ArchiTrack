@@ -10,9 +10,7 @@ describe('RedisRateLimitStore', () => {
 
   beforeEach(() => {
     mockRedisClient = {
-      incr: vi.fn(),
-      pexpire: vi.fn(),
-      pttl: vi.fn(),
+      eval: vi.fn(),
       decr: vi.fn(),
       del: vi.fn(),
     };
@@ -68,41 +66,59 @@ describe('RedisRateLimitStore', () => {
       expect(other.totalHits).toBe(1);
     });
 
-    it('初回アクセス時にカウントをインクリメントしてTTLを設定すること', async () => {
-      vi.mocked(mockRedisClient.incr!).mockResolvedValue(1);
-      vi.mocked(mockRedisClient.pttl!).mockResolvedValue(60000);
+    it('加算と期限の設定を 1 回のスクリプトで行い、回数と期限を返すこと', async () => {
+      vi.mocked(mockRedisClient.eval!).mockResolvedValue([1, 60000]);
 
       const result = await store.increment('test-key');
 
-      expect(mockRedisClient.incr).toHaveBeenCalledWith('test:test-key');
-      expect(mockRedisClient.pexpire).toHaveBeenCalledWith('test:test-key', 60000);
-      expect(mockRedisClient.pttl).toHaveBeenCalledWith('test:test-key');
+      expect(mockRedisClient.eval).toHaveBeenCalledTimes(1);
+      expect(mockRedisClient.eval).toHaveBeenCalledWith(
+        expect.stringContaining('PEXPIRE'),
+        1,
+        'test:test-key',
+        60000
+      );
       expect(result.totalHits).toBe(1);
       expect(result.resetTime).toBeInstanceOf(Date);
     });
 
-    it('2回目以降のアクセスではTTLを設定しないこと', async () => {
-      vi.mocked(mockRedisClient.incr!).mockResolvedValue(2);
-      vi.mocked(mockRedisClient.pttl!).mockResolvedValue(50000);
+    it('2回目以降の回数をそのまま返すこと', async () => {
+      vi.mocked(mockRedisClient.eval!).mockResolvedValue([2, 50000]);
 
       const result = await store.increment('test-key');
 
-      expect(mockRedisClient.incr).toHaveBeenCalledWith('test:test-key');
-      expect(mockRedisClient.pexpire).not.toHaveBeenCalled();
       expect(result.totalHits).toBe(2);
+      expect(result.resetTime!.getTime()).toBeLessThanOrEqual(Date.now() + 50000);
     });
 
     it('TTLが0以下の場合、resetTimeをundefinedにすること', async () => {
-      vi.mocked(mockRedisClient.incr!).mockResolvedValue(1);
-      vi.mocked(mockRedisClient.pttl!).mockResolvedValue(-1);
+      vi.mocked(mockRedisClient.eval!).mockResolvedValue([1, 0]);
 
       const result = await store.increment('test-key');
 
       expect(result.resetTime).toBeUndefined();
     });
 
+    it.each([[null], ['1'], [[1]], [['1', 60000]], [[1, '60000']]])(
+      'スクリプトの応答が想定外（%j）ならメモリの記録へ退避すること',
+      async (reply) => {
+        vi.mocked(mockRedisClient.eval!).mockResolvedValue(reply);
+        const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const result = await store.increment('test-key');
+
+        expect(result.totalHits).toBe(1);
+        expect(result.resetTime).toBeInstanceOf(Date);
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          'Redis error during increment, falling back to memory store:',
+          expect.any(Error)
+        );
+        consoleWarnSpy.mockRestore();
+      }
+    );
+
     it('Redisエラー時にメモリの記録へ退避して数え続けること', async () => {
-      vi.mocked(mockRedisClient.incr!).mockRejectedValue(new Error('Redis connection error'));
+      vi.mocked(mockRedisClient.eval!).mockRejectedValue(new Error('Redis connection error'));
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

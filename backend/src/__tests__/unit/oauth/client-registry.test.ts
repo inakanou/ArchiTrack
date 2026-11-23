@@ -93,6 +93,74 @@ describe('parseExternalAppOAuthConfig', () => {
     });
   });
 
+  describe('認可の窓口の回数制限（要件51.10）', () => {
+    it('未設定なら 1 分あたり認可 60 回・トークン 300 回になる', () => {
+      expect(parseExternalAppOAuthConfig(source())?.rateLimit).toEqual({
+        authorizeMax: 60,
+        tokenMax: 300,
+        windowMs: 60_000,
+      });
+    });
+
+    it('空の値は未設定として扱う', () => {
+      const config = parseExternalAppOAuthConfig(
+        source({
+          OAUTH_RATE_LIMIT_AUTHORIZE_MAX: '',
+          OAUTH_RATE_LIMIT_TOKEN_MAX: '  ',
+          OAUTH_RATE_LIMIT_WINDOW_MS: '',
+        })
+      );
+      expect(config?.rateLimit).toEqual({ authorizeMax: 60, tokenMax: 300, windowMs: 60_000 });
+    });
+
+    it('環境変数で変えられる（範囲の両端を含む）', () => {
+      expect(
+        parseExternalAppOAuthConfig(
+          source({
+            OAUTH_RATE_LIMIT_AUTHORIZE_MAX: '1',
+            OAUTH_RATE_LIMIT_TOKEN_MAX: '100000',
+            OAUTH_RATE_LIMIT_WINDOW_MS: '1000',
+          })
+        )?.rateLimit
+      ).toEqual({ authorizeMax: 1, tokenMax: 100_000, windowMs: 1000 });
+      expect(
+        parseExternalAppOAuthConfig(source({ OAUTH_RATE_LIMIT_WINDOW_MS: '86400000' }))?.rateLimit
+          .windowMs
+      ).toBe(86_400_000);
+    });
+
+    it.each([
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '0'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '-1'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '1.5'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '1e3'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '0x10'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', ' 10'],
+      ['OAUTH_RATE_LIMIT_AUTHORIZE_MAX', '100001'],
+      ['OAUTH_RATE_LIMIT_TOKEN_MAX', 'abc'],
+      ['OAUTH_RATE_LIMIT_TOKEN_MAX', '100001'],
+      ['OAUTH_RATE_LIMIT_TOKEN_MAX', '9'.repeat(400)],
+      ['OAUTH_RATE_LIMIT_WINDOW_MS', '999'],
+      ['OAUTH_RATE_LIMIT_WINDOW_MS', '86400001'],
+    ])('%s が %j なら起動を止め、値を文に含めない', (name, value) => {
+      const error = failure(source({ [name]: value }));
+      const text = [error.message, ...error.issues].join('\n');
+      expect(text).toContain(name);
+      expect(text).not.toContain(value.trim());
+    });
+
+    it('許可するアプリが無ければ不正な値でも読まない', () => {
+      expect(
+        parseExternalAppOAuthConfig({
+          NODE_ENV: 'production',
+          OAUTH_RATE_LIMIT_AUTHORIZE_MAX: 'abc',
+          OAUTH_RATE_LIMIT_TOKEN_MAX: '0',
+          OAUTH_RATE_LIMIT_WINDOW_MS: '-1',
+        } as NodeJS.ProcessEnv)
+      ).toBeNull();
+    });
+  });
+
   describe('必須の鍵', () => {
     it.each([
       'OAUTH_ISSUER',

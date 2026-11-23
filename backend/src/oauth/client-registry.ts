@@ -15,6 +15,13 @@ const MIN_SECRET_LENGTH = 32;
 const MIN_RSA_MODULUS_BITS = 2048;
 const TOKEN_HMAC_KEY_PATTERN = /^[0-9a-f]{64}$/i;
 const ASYMMETRIC_KEY_TYPES: readonly unknown[] = ['RSA', 'EC', 'OKP'];
+const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
+const RATE_LIMIT_MAX_BOUND = 100_000;
+const RATE_LIMIT_WINDOW_MIN_MS = 1000;
+const RATE_LIMIT_WINDOW_MAX_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_AUTHORIZE_RATE_LIMIT = 60;
+const DEFAULT_TOKEN_RATE_LIMIT = 300;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 
 /** HTTP と試験用の値を許す環境。未設定や未知の値は本番と同じく閉じる側に倒す */
 const NON_PRODUCTION_ENVS: readonly unknown[] = ['development', 'test'];
@@ -40,6 +47,13 @@ export interface AllowedExternalApp {
   readonly tokenEndpointAuthMethod: 'client_secret_post';
 }
 
+/** 認可の窓口の送信元 IP ごとの回数制限（要件51.10） */
+export interface ExternalAppOAuthRateLimit {
+  readonly authorizeMax: number;
+  readonly tokenMax: number;
+  readonly windowMs: number;
+}
+
 export interface ExternalAppOAuthConfig {
   readonly issuer: string;
   readonly resourceUrl: string;
@@ -47,6 +61,7 @@ export interface ExternalAppOAuthConfig {
   readonly cookieKeys: readonly string[];
   readonly tokenHmacKey: string;
   readonly clients: readonly AllowedExternalApp[];
+  readonly rateLimit: ExternalAppOAuthRateLimit;
 }
 
 export interface ExternalAppClientRegistry {
@@ -318,6 +333,56 @@ function checkClientSecrets(
   });
 }
 
+/** 回数制限の値を読む。未設定と空は既定値。不正なら欄の名前だけを issues に足す */
+function readRateLimitValue(
+  source: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+  issues: string[]
+): number {
+  const raw = source[name];
+  if (raw === undefined || raw.trim() === '') {
+    return fallback;
+  }
+  const value = POSITIVE_INTEGER_PATTERN.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    issues.push(`${name}: 許容範囲の正の整数にしてください`);
+    return fallback;
+  }
+  return value;
+}
+
+function parseRateLimit(source: NodeJS.ProcessEnv, issues: string[]): ExternalAppOAuthRateLimit {
+  return {
+    authorizeMax: readRateLimitValue(
+      source,
+      'OAUTH_RATE_LIMIT_AUTHORIZE_MAX',
+      DEFAULT_AUTHORIZE_RATE_LIMIT,
+      1,
+      RATE_LIMIT_MAX_BOUND,
+      issues
+    ),
+    tokenMax: readRateLimitValue(
+      source,
+      'OAUTH_RATE_LIMIT_TOKEN_MAX',
+      DEFAULT_TOKEN_RATE_LIMIT,
+      1,
+      RATE_LIMIT_MAX_BOUND,
+      issues
+    ),
+    windowMs: readRateLimitValue(
+      source,
+      'OAUTH_RATE_LIMIT_WINDOW_MS',
+      DEFAULT_RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_WINDOW_MIN_MS,
+      RATE_LIMIT_WINDOW_MAX_MS,
+      issues
+    ),
+  };
+}
+
 /**
  * 環境変数から設定を読む
  *
@@ -364,6 +429,7 @@ export function parseExternalAppOAuthConfig(
     }
   }
   const cookieKeys = parseCookieKeys(source, tokenHmacKey, strict, issues);
+  const rateLimit = parseRateLimit(source, issues);
 
   if (clients !== undefined) {
     const otherSecrets = reservedSecrets(source);
@@ -384,7 +450,7 @@ export function parseExternalAppOAuthConfig(
   ) {
     throw new ExternalAppConfigError(issues);
   }
-  return { issuer, resourceUrl, jwks, cookieKeys, tokenHmacKey, clients };
+  return { issuer, resourceUrl, jwks, cookieKeys, tokenHmacKey, clients, rateLimit };
 }
 
 export function createExternalAppClientRegistry(

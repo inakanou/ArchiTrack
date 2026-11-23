@@ -115,7 +115,7 @@ const emailKey = (req: Request): string =>
     .update((bodyEmail(req) ?? '').trim().toLowerCase())
     .digest('hex');
 
-interface LimiterSpec {
+export interface LimiterSpec {
   windowMs: number;
   max: number;
   prefix: string;
@@ -134,14 +134,21 @@ interface LimiterSpec {
   skipAlso?: (req: Request) => boolean;
   /** 超過時の応答（省略時は error の 429） */
   handler?: (req: Request, res: Response, next: NextFunction) => void;
+  /** handler が 429 を返すとき true にして、異常の検知へ送る（要件43.3） */
+  observeLimited?: boolean;
   /** RateLimit-* ヘッダーを返すか（既定 true） */
   standardHeaders?: boolean;
 }
 
 /**
- * 実行環境の判定とキャッシュ基盤の接続を受け取り、制限の一式を組み立てる
+ * 実行環境の判定とキャッシュ基盤の接続を受け取り、1 つの制限を組み立てる関数を返す
+ *
+ * @param deps - 実行環境の判定とキャッシュ基盤の接続
+ * @returns 制限の仕様から制限を作る関数
  */
-export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimiters {
+export function createLimiterBuilder(
+  deps: RateLimiterDependencies = {}
+): (spec: LimiterSpec) => RateLimitRequestHandler {
   const mode = deps.runtimeMode ?? processRuntimeMode;
   const getRedisClient = deps.getRedisClient ?? (() => redis.getClient());
 
@@ -149,7 +156,7 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
   const skip = (req: Request): boolean =>
     req.method === 'OPTIONS' || mode.isRateLimitBypassAllowed();
 
-  const build = (spec: LimiterSpec): RateLimitRequestHandler =>
+  return (spec: LimiterSpec): RateLimitRequestHandler =>
     rateLimit({
       windowMs: spec.windowMs,
       max: spec.max,
@@ -165,6 +172,9 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
       handler: (req: Request, res: Response, next: NextFunction, options: RateLimitOptions) => {
         if (spec.handler !== undefined) {
           // 超過を 429 以外で返す制限（メールアドレスごとのリセットの要求）は 429 として数えない
+          if (spec.observeLimited) {
+            observeRateLimited(req);
+          }
           spec.handler(req, res, next);
           return;
         }
@@ -188,6 +198,13 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
         });
       },
     });
+}
+
+/**
+ * 実行環境の判定とキャッシュ基盤の接続を受け取り、制限の一式を組み立てる
+ */
+export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimiters {
+  const build = createLimiterBuilder(deps);
 
   return {
     // 一般的なAPIエンドポイント用: 15分間で100リクエストまで

@@ -2150,7 +2150,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 試験用の nginx 経由でメタデータの発行者とエンドポイントが公開オリジンになることを確かめた状態になる
   - _Requirements: 46.1_
 
-- [ ] 73.5 認可の窓口に送信元 IP ごとの回数制限を掛ける
+- [x] 73.5 認可の窓口に送信元 IP ごとの回数制限を掛ける
   - `/oauth/authorize`（再開を含む）と `/oauth/token` に、既存の回数制限の仕組みで上限を掛け、超えたら 429 と再試行までの時間を返して手続きやトークンを作らない
   - 上限と集計期間を環境変数で変更でき、本番では無効化の設定を無視する。送信元は `TRUST_PROXY_HOPS` の判定を使い、偽の転送ヘッダーで回避できない
   - 設定が無い環境では窓口と同じく何も載せず、既存の API の回数制限を変えないことを統合テストで確かめた状態になる
@@ -2162,6 +2162,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 73.2: `backend/src/oauth/provider.ts`・`request-context.ts` を作り、本文の解析と CORS より前に載せた。設定が無ければ何も載せず、構築の失敗で起動を止める。ライブラリは Basic と post を同じ方式として受けるので、`/oauth/token` の `Authorization` は搭載層で 401 にする。認可要求の `resource` の省略は `invalid_target`。Interaction と Session の期限は 600 秒。単体 8,388 件・統合 2,002 件が緑。**73.3 への申し送り**: ライブラリは `resource` の検証より前に認可コードを消費するので、誤った `resource` の後の正しい再試行で接続を失効させるかを決めてテストする。`onRefreshGraceApplied` を呼ぶ。**74 への申し送り**: Grant を接続の `consentedAt` より前に作る。`scope=write` だけの要求に `read` で同意すると交換が `invalid_grant` になるので、`scope` の省略と未知の範囲を含めて要求の範囲の扱いを定める。Interaction の 600 秒が 2FA を含む同意に足りるかを確かめる。**75 への申し送り**: `assertActive` で接続の期限を必ず確かめる。**運用**: 本番で `DEBUG=oidc-provider:*` を設定しない（`state` などが標準エラーへ出る）
 - 73.3: 使用済みの値を `find` で期限や PKCE より先に検知する。判定はクライアント認証の後で、認証したアプリが行の持ち主のときだけ行うので、誤った secret や別のアプリでは失効も猶予も起きない。リフレッシュトークンの消費は後継の `upsert` と同じトランザクションの条件付き更新で、保存の失敗で消費も戻る。トークンの行は Grant の行のロックの中でだけ書く。誤った `resource` は消費の前に `invalid_target` で拒み、コードは未使用のまま残る。猶予は経過 30 秒ちょうどまでで、時計のずれは 5 秒まで許す（それより未来の置き換えの日時は再利用）。単体 8,392 件・統合 2,039 件が緑。**既知の動作**: 認可コードの交換の一時的な DB 障害の後に同じコードを再提示すると接続が終わる（安全側で、再度の同意で復旧する）。インスタンス間の時計のずれが 5 秒を超えると正規の再試行も再利用になるので、運用は時刻同期を前提とする。2 者が互いに 30 秒以内に更新を続ける間は再利用として検知されない（要件48.11 の再試行の連鎖の動作）
 - 73.4: nginx で `/oauth/` と `/.well-known/oauth-authorization-server` だけを backend へ中継する。`/oauth/` は `$request_uri` のパスの `..` と `%` を 400 にし、本文の上限は 64k。`client_max_body_size` は共通設定から `/api/`・`/csrf-token`（120m）へ移した。`/.well-known/jwks.json` と SPA の配信は変えていない。実 nginx の E2E 15 件と見出しの 5 件が緑。**74 への申し送り**: `/oauth/interaction/:uid` の API は `pinToIssuer` を通らないので `X-Forwarded-Host` を URL の組み立てに使わない（nginx で消すことも検討する）。トークンの成功応答の `Cache-Control: no-store` を E2E で確かめる。**別件（未対応）**: 既存の `/api/` と `/csrf-token` はパスの混同があり、`/docs/../api/x` が backend の Swagger UI の HTML に届く。Swagger は `NODE_ENV` が development・test のときだけ載る。staging の実際の値は未確認
+- 73.5: `backend/src/oauth/rate-limit.ts` で認可とトークンを別の枠で数える（既定は毎分 60 回・300 回）。トークンの 429 は `temporarily_unavailable` と `Retry-After` で返し、接続の破棄を促さない。既存の `RedisRateLimitStore` は `pexpire` の一度の失敗でキーが期限なしで残り、送信元が恒久的に 429 になっていたので、`INCR` と期限の設定を Lua にして、残ったキーも回復するようにした（全ての制限に効く）。単体 8,413 件・統合 2,065 件が緑。**配備時の確認**: 本番の Redis で `EVAL` が使えること（拒まれるとインスタンスごとのメモリで数える）。`TRUST_PROXY_HOPS` が実際の段数に合うこと。Claude が 429 の `temporarily_unavailable` をどう扱うか（未確認）。**別件（未対応・利用者の判断）**: Redis が接続を保ったまま応答しなくなると、認可の窓口とログインの応答が返らない（`commandTimeout` が無い）
 
 ## タスク74: 同意（要件46・47）
 

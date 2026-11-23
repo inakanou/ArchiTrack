@@ -15,6 +15,7 @@
  * @requirement user-authentication/REQ-48.4
  * @requirement user-authentication/REQ-48.5
  * @requirement user-authentication/REQ-48.8
+ * @requirement user-authentication/REQ-51.10
  *
  * @module oauth/provider
  */
@@ -26,8 +27,10 @@ import Provider, {
   type OidcContext,
   type OidcGrant,
 } from 'oidc-provider';
+import { createRuntimeMode } from '../config/runtime-mode.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getClientIp } from '../middleware/client-ip.js';
+import type { RateLimiterDependencies } from '../middleware/rateLimit.middleware.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import { ExternalAppConnectionService } from '../services/external-app-connection.service.js';
 import logger from '../utils/logger.js';
@@ -37,6 +40,7 @@ import {
   parseExternalAppOAuthConfig,
   type ExternalAppOAuthConfig,
 } from './client-registry.js';
+import { createOAuthRateLimiters, type OAuthRateLimiters } from './rate-limit.js';
 import { getRequestSource, runWithRequestSource } from './request-context.js';
 import { createOAuthStoreAdapterFactory } from './store-adapter.js';
 
@@ -72,6 +76,8 @@ export interface OAuthProviderHostDeps {
     ExternalAppConnectionService,
     'handleReuse' | 'recordRefreshGrace'
   >;
+  /** 回数制限の実行環境の判定と Redis の接続（省略時は process.env と共有の Redis） */
+  readonly rateLimit?: RateLimiterDependencies;
 }
 
 export interface OAuthProviderHost {
@@ -98,6 +104,17 @@ export function isOAuthProviderRoute(method: string, path: string): boolean {
     default:
       return method === 'GET' && RESUME_PATH_PATTERN.test(path);
   }
+}
+
+/** 回数制限の対象の枠。対象外の経路（メタデータ・JWKS・OPTIONS）は null */
+function rateLimitedEndpoint(method: string, path: string): keyof OAuthRateLimiters | null {
+  if (method === 'POST' && path === TOKEN_PATH) {
+    return 'token';
+  }
+  if (method === 'GET' && (path === AUTHORIZE_PATH || RESUME_PATH_PATTERN.test(path))) {
+    return 'authorize';
+  }
+  return null;
 }
 
 function epochSeconds(): number {
@@ -383,12 +400,9 @@ export function createOAuthProviderHost(
   observeProviderErrors(provider);
   provider.use(hideOpenIdScopeFromMetadata);
 
+  const limiters = createOAuthRateLimiters(config.rateLimit, deps.rateLimit);
   const handle = provider.callback();
-  const middleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
-    if (!isOAuthProviderRoute(req.method, req.path)) {
-      next();
-      return;
-    }
+  const dispatch = (req: Request, res: Response, next: NextFunction): void => {
     // ライブラリは Basic と本文の送信を同じ方式として受け付けるので、登録した方式だけに絞る
     if (req.method === 'POST' && req.path === TOKEN_PATH && req.headers.authorization) {
       res.status(401).set('Cache-Control', 'no-store').json({ error: 'invalid_client' });
@@ -398,6 +412,25 @@ export function createOAuthProviderHost(
     pinToIssuer(req, issuer);
     stripSessionCookies(req);
     runWithRequestSource(source, () => handle(req, res)).catch(next);
+  };
+  const middleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+    if (!isOAuthProviderRoute(req.method, req.path)) {
+      next();
+      return;
+    }
+    const endpoint = rateLimitedEndpoint(req.method, req.path);
+    if (endpoint === null) {
+      dispatch(req, res, next);
+      return;
+    }
+    // 転送ヘッダーの置き換えとライブラリの書き込みより前に、信頼する段数で決めた送信元で数える
+    void limiters[endpoint](req, res, (error?: unknown) => {
+      if (error !== undefined) {
+        next(error);
+        return;
+      }
+      dispatch(req, res, next);
+    });
   };
 
   return { provider, middleware };
@@ -426,7 +459,12 @@ export function mountExternalAppOAuth(
     auditLogService: new AuditLogService({ prisma }),
     clientRegistry: createExternalAppClientRegistry(config),
   });
-  const host = createOAuthProviderHost(config, { prisma, connectionService });
+  const host = createOAuthProviderHost(config, {
+    prisma,
+    connectionService,
+    // 設定と同じ環境変数で実行環境を判定する（本番・未設定・未知の値では無効化を読まない）
+    rateLimit: { runtimeMode: createRuntimeMode(source) },
+  });
   app.use(host.middleware);
   return host;
 }

@@ -34,9 +34,7 @@ vi.mock('../../db.js', () => ({
 vi.mock('../../redis.js', () => {
   const mockRedisClient = {
     ping: vi.fn(),
-    incr: vi.fn().mockResolvedValue(1),
-    pexpire: vi.fn().mockResolvedValue(1),
-    pttl: vi.fn().mockResolvedValue(60000),
+    eval: vi.fn().mockResolvedValue([1, 60000]),
     decr: vi.fn().mockResolvedValue(0),
     del: vi.fn().mockResolvedValue(1),
   };
