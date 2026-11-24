@@ -39,6 +39,7 @@ export type ConnectionEndReason =
   | 'ACCOUNT_DEACTIVATED'
   | 'ACCOUNT_DELETED'
   | 'PERMISSION_LOST'
+  | 'TWO_FACTOR_RESET'
   | 'CLIENT_REMOVED'
   | 'TOKEN_REUSE';
 

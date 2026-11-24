@@ -2244,7 +2244,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 72.3_
   - _Requirements: 50.4, 51.7_
 
-- [ ] 76.5 管理者の 2FA の再設定で接続を失効する
+- [x] 76.5 管理者の 2FA の再設定で接続を失効する
   - 再設定のトランザクションの中で、理由 `TWO_FACTOR_RESET` で利用者の全接続を失効し、監査に実行者の管理者と送信元 IP を残す
   - 再設定と同時に進んだ同意の接続が残らないことと、トランザクションを戻すと失効も戻ることを統合テストで確かめた状態になる
   - _Depends: 72.3_
@@ -2262,6 +2262,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 76.1: パスワードの変更・リセット（`PASSWORD_CHANGED`）と、`POST /logout-all`・`DELETE /sessions`（`LOGOUT_ALL`）で、同じトランザクションの中で全接続を失効し、`access_token_generation` を進めて発行済みの画面用トークンを直ちに 401 にする（`backend/src/utils/access-token-generation.ts`）。ロックの順序はリフレッシュトークンの取引ロック → users の行 → 失効のロック → Grant の行 → 接続の行で、users の行を先に取るとデッドロックした。画面の `AuthContext.logout` は、失効の直後のログアウトの 401 で再認証のモーダルを出さずにログイン画面へ移る。2 つの全デバイスのログアウトの DB 障害は 500 `INTERNAL_ERROR` に揃えた（`POST /logout-all` は 400 から変更）。親の承認で既存テスト 9 件と E2E `auth-audit-log.spec.ts` の期待値を新しい動作に合わせた（主張は弱めていない）。単体 8,500 件・統合 2,280 件・frontend 13,577 件が緑。**既知の動作（2026-11-24 の利用者の判断で受け入れ）**: パスワード変更の後のログアウトは 401 で `LOGOUT` の監査が残らず、Cookie は次のリフレッシュで消える。**76.5 への申し送り**: `two-factor.service.ts` の `resetUndecryptableByOperatorScript` は users の行の後にリフレッシュトークンの取引ロックを取っていて順序が逆なので揃える
 - 76.2: 手動・自動の無効化（`ACCOUNT_DEACTIVATED`）と削除（`ACCOUNT_DELETED`）で、同じトランザクションの中で全接続を失効する。削除は接続がカスケードで監査なしに消える前に、リフレッシュトークンの取引ロック → users の行の `FOR UPDATE` → `revokeAllForUser` → `tx.user.delete` の順で失効と監査を済ませる（`FOR UPDATE` は上限の判定の無い構成で同意とのデッドロックを防ぐ）。自動の無効化は実行者も送信元も null で記録する。画面用トークンの世代は進めない（既存の利用者の状態の照合で直ちに 401 になる）。親の承認で `user-roles.routes.test.ts` の期待値に送信元の引数を足した。単体 8,511 件・統合 2,300 件が緑。**後続への申し送り**: 上限の判定の無い構成では、手動の無効化が users の行の後にリフレッシュトークンの取引ロックを取るので、無効化の取引の最初で `lockUserRefreshTokens` を取るよう揃えると構成によらず順序が一致する
 - 76.3: ロールの解除（1 件・一括）とロールの権限の解除（1 件・一括）で、外したロールや権限が `external_app:connect` を包含するとき（`coversExternalAppConnect`。RBAC と同じ照合）だけ、同じトランザクションの中でロックの後の DB の値から権限を失った利用者を判定し、`PERMISSION_LOST` で失効する。渡すのはその利用者かロールの保有者で、`'ALL'` は使わない。権限の解除の取引の上限は 60 秒（親の承認で `auth-transaction-connect-budget.test.ts` の 2 件の期待値に `timeout` を足した）。ロールの解除は紐付けを消す前に users の行を `FOR NO KEY UPDATE` で取る（外すと利用者の削除とデッドロックした）。一括の置き換えの API は無く、サービスの段で送信元を受ける。単体 8,524 件・統合 2,331 件が緑。**後続への申し送り**: `PermissionService.deletePermission` は使用中の確認と削除がトランザクションの外にあるので、経路を足すときは権限の行を `FOR UPDATE` で取るか喪失の判定に通す。`removePermissions` が保有者をロックなしで読むので、同時の割り当てと同意が重なる狭い場面で世代が進まないことがある（トークンは要求ごとの権限の判定で拒まれる）。硬くするなら包含する権限を外すときだけロールの行を最初に `FOR UPDATE` で取る
+- 76.5: 管理者の 2FA の再設定（`resetByAdmin`）で、同じトランザクションの中で理由 `TWO_FACTOR_RESET`・実行者の管理者・送信元 IP で全接続を失効する（`ConnectionEndReason` に `TWO_FACTOR_RESET` を足した）。運用者のスクリプト（`resetUndecryptableByOperatorScript`）も、2FA を未登録へ戻す `full` のときだけ実行者・送信元なしで失効する（既存のコードがこのスクリプトを要件34.7 の再設定として扱っており、要件50 の目的に沿うため。要件50.7 の文言は「管理者が」なので、利用者に報告する）。スクリプトのロックの順序を「リフレッシュトークンの取引ロック → users の行」へ直した（逆順は全デバイスのログアウト・パスワード変更・削除と実 DB でデッドロックした）。単体 8,530 件・統合 2,347 件が緑
 
 ## タスク77: 接続の API と出力記録（要件49・51）
 

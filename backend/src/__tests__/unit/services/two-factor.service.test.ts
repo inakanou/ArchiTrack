@@ -41,6 +41,8 @@ const mockPrismaClient = {
   auditLog: {
     create: vi.fn(),
   },
+  // 利用者単位のリフレッシュトークンの取引ロック（pg_advisory_xact_lock。タスク76.5）
+  $executeRaw: vi.fn(),
   // $transactionは配列版とコールバック版の両方をサポート
   $transaction: vi.fn(defaultTransactionImpl),
 };
