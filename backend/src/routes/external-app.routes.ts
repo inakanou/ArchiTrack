@@ -10,6 +10,8 @@
  * - 外部アプリ用の窓口の確認用の経路（`/oauth/resource/whoami` と `/write-access`。タスク75.2）は
  *   範囲とアプリ名だけを返し、業務データを返さない。claude-connector の窓口が載るまで、本番の入口からの到達と
  *   統合テストに使う
+ * - 接続の一覧と取り消し（タスク77.1）は本人用と管理者用の経路を持ち、画面用のアクセストークンで認証する。
+ *   管理者用はロール `admin` を確かめ、取り消しは CSRF を検証する。応答に Grant の ID とトークンを含めない
  *
  * Design: Requirements 46-51 > ExternalAppRoutes
  *
@@ -19,6 +21,12 @@
  * @requirement user-authentication/REQ-47.1
  * @requirement user-authentication/REQ-47.3
  * @requirement user-authentication/REQ-47.11
+ * @requirement user-authentication/REQ-49.1
+ * @requirement user-authentication/REQ-49.4
+ * @requirement user-authentication/REQ-49.5
+ * @requirement user-authentication/REQ-49.6
+ * @requirement user-authentication/REQ-49.8
+ * @requirement user-authentication/REQ-49.9
  * @requirement user-authentication/REQ-51.2
  *
  * @module routes/external-app
@@ -45,9 +53,17 @@ import {
   type ExternalAppAuth,
 } from '../middleware/external-app-auth.middleware.js';
 import { rateLimiters } from '../middleware/rateLimit.middleware.js';
+import { requireSystemAdmin } from '../middleware/require-system-admin.middleware.js';
+import { validate } from '../middleware/validate.middleware.js';
+import { NotFoundError } from '../errors/apiError.js';
 import type { ExternalAppClientRegistry } from '../oauth/client-registry.js';
 import { OAUTH_ERROR_PAGE, type MountedExternalAppOAuth } from '../oauth/provider.js';
 import redis from '../redis.js';
+import {
+  CONNECTION_LIST_MAX_LIMIT,
+  CONNECTION_LIST_MAX_OFFSET,
+  type ExternalAppConnectionService,
+} from '../services/external-app-connection.service.js';
 import {
   ConsentInteractionService,
   type ConsentError,
@@ -379,4 +395,382 @@ export function mountExternalAppResourceRoutes(
     '/oauth/resource',
     createExternalAppResourceRoutes(mounted.externalAppAuth, mounted.clientRegistry)
   );
+}
+
+/** 全利用者の一覧の 1 ページの既定の件数（他の一覧の API と同じ） */
+const CONNECTION_LIST_DEFAULT_LIMIT = 20;
+/** アプリの client ID の形（表示できる ASCII、255 文字まで。完全一致で絞り込む） */
+const CLIENT_ID_FILTER_PATTERN = /^[\x20-\x7e]{1,255}$/;
+
+/** 全利用者の一覧のクエリ（要件49.7）。範囲はサービスの上限（タスク72.2）と同じ */
+const adminConnectionListQuerySchema = z
+  .object({
+    userId: z.uuid({ message: 'userId must be a UUID' }).optional(),
+    clientId: z
+      .string({ message: 'clientId must be a string' })
+      .regex(CLIENT_ID_FILTER_PATTERN, 'clientId must be 1 to 255 printable ASCII characters')
+      .optional(),
+    page: z.coerce
+      .number({ message: 'page must be a number' })
+      .int('page must be an integer')
+      .min(1, 'page must be at least 1')
+      .default(1),
+    limit: z.coerce
+      .number({ message: 'limit must be a number' })
+      .int('limit must be an integer')
+      .min(1, 'limit must be at least 1')
+      .max(CONNECTION_LIST_MAX_LIMIT, `limit must be at most ${CONNECTION_LIST_MAX_LIMIT}`)
+      .default(CONNECTION_LIST_DEFAULT_LIMIT),
+  })
+  .refine(({ page, limit }) => (page - 1) * limit <= CONNECTION_LIST_MAX_OFFSET, {
+    message: 'page is out of range',
+    path: ['page'],
+  });
+
+type AdminConnectionListQuery = z.infer<typeof adminConnectionListQuerySchema>;
+
+const connectionIdSchema = z.uuid();
+
+export type ConnectionRouteService = Pick<
+  ExternalAppConnectionService,
+  'listOwn' | 'listAll' | 'revokeOwn' | 'revokeByAdmin'
+>;
+
+export interface ExternalAppConnectionRoutesDeps {
+  readonly connections: ConnectionRouteService;
+  /** システム管理者の確認（省略時はロール `admin` を DB で確かめる） */
+  readonly systemAdminGuard?: RequestHandler;
+}
+
+export interface ExternalAppConnectionRouters {
+  /** `/api/v1/external-app-connections` に載せる本人用 */
+  readonly own: Router;
+  /** `/api/v1/admin/external-app-connections` に載せる管理者用 */
+  readonly admin: Router;
+}
+
+const noStore: RequestHandler = (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+};
+
+function connectionNotFound(): NotFoundError {
+  return new NotFoundError('External app connection not found', 'CONNECTION_NOT_FOUND');
+}
+
+/**
+ * 取り消しの対象の ID。UUID の形でなければ null（存在しない ID と同じ 404 にし、形の違いで区別させない）
+ */
+function connectionIdOf(req: Request): string | null {
+  const parsed = connectionIdSchema.safeParse(req.params.id);
+  return parsed.success ? parsed.data : null;
+}
+
+function requestSource(req: Request) {
+  return { ipAddress: getClientIp(req), userAgent: req.get('user-agent') };
+}
+
+/**
+ * 接続の一覧と取り消しのルーターを作る（タスク77.1）
+ *
+ * @param deps - 接続の管理とシステム管理者の確認
+ * @returns 本人用と管理者用のルーター
+ */
+export function createExternalAppConnectionRoutes(
+  deps: ExternalAppConnectionRoutesDeps
+): ExternalAppConnectionRouters {
+  const { connections } = deps;
+  const systemAdminGuard = deps.systemAdminGuard ?? requireSystemAdmin();
+
+  const own = Router();
+  own.use(noStore);
+
+  /**
+   * @swagger
+   * /api/v1/external-app-connections:
+   *   get:
+   *     summary: 本人の外部アプリの接続の一覧
+   *     description: |
+   *       本人の接続ごとに、アプリの名称・操作の範囲・同意の日時・最後に使われた日時・期限を返す（要件49.1）。
+   *       期限は実際に使えなくなる時刻（同意から 90 日と、最後の利用（未使用なら同意）から 30 日の早い方）。
+   *       許可の一覧から外れたアプリの名称は client ID を返す。並びは同意の新しい順。
+   *       画面用のアクセストークンだけを受け付け、外部アプリ用のトークンは 401。Grant の ID とトークンは返さない。
+   *       応答は `Cache-Control: no-store`。
+   *     tags:
+   *       - External App Connections
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: 本人の接続の一覧（無ければ空の配列）
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               required: [data]
+   *               properties:
+   *                 data:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/ExternalAppConnection'
+   *       401:
+   *         $ref: '#/components/responses/Unauthorized'
+   *       403:
+   *         description: パスワードの変更または 2FA の登録が必要（code は PASSWORD_CHANGE_REQUIRED・TWO_FACTOR_SETUP_REQUIRED。要件34.2）
+   */
+  own.get(
+    '/',
+    authenticate,
+    asyncHandler(async (req, res) => {
+      const data = await connections.listOwn(authenticatedUserId(req));
+      res.json({ data });
+    })
+  );
+
+  /**
+   * @swagger
+   * /api/v1/external-app-connections/{id}:
+   *   delete:
+   *     summary: 本人の外部アプリの接続の取り消し
+   *     description: |
+   *       接続と、その接続の全ての外部アプリ用トークンを直ちに使用不能にする（要件49.4）。監査（CONNECTION_ENDED、
+   *       理由 USER_REVOKED）に送信元 IP と User-Agent を残す。他の利用者の接続・存在しない ID・UUID でない ID は
+   *       同じ 404 で、存在を明かさない（要件49.5）。同時の取り消しでは 1 件だけが 204 で、残りは 404。
+   *       CSRF の検証（`X-CSRF-Token` と Cookie `csrf-token` の一致、Origin）を通す。
+   *     tags:
+   *       - External App Connections
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: 接続の ID
+   *       - in: header
+   *         name: X-CSRF-Token
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       204:
+   *         description: 取り消しの完了
+   *       401:
+   *         $ref: '#/components/responses/Unauthorized'
+   *       403:
+   *         description: CSRF の検証の失敗（code は CSRF_TOKEN_MISSING・CSRF_TOKEN_INVALID など）、または利用者の状態による制限（要件34.2）
+   *       404:
+   *         description: 本人の接続に無い（code は CONNECTION_NOT_FOUND）
+   */
+  own.delete(
+    '/:id',
+    authenticate,
+    csrfProtection,
+    asyncHandler(async (req, res) => {
+      const userId = authenticatedUserId(req);
+      const connectionId = connectionIdOf(req);
+      if (connectionId === null) {
+        throw connectionNotFound();
+      }
+      const result = await connections.revokeOwn(userId, connectionId, {
+        userId,
+        source: requestSource(req),
+      });
+      if (!result.ok) {
+        throw connectionNotFound();
+      }
+      res.status(204).end();
+    })
+  );
+
+  const admin = Router();
+  admin.use(noStore);
+
+  /**
+   * @swagger
+   * /api/v1/admin/external-app-connections:
+   *   get:
+   *     summary: 全利用者の外部アプリの接続の一覧（システム管理者）
+   *     description: |
+   *       全利用者の接続を、利用者・アプリの名称と client ID・操作の範囲・同意の日時・最後に使われた日時・期限とともに
+   *       返す（要件49.6）。利用者とアプリの完全一致で絞り込み、ページを切り替える（要件49.7）。並びは同意の新しい順。
+   *       ロール admin を DB で確かめ、持たない利用者は権限（`*:*` を含む）があっても 403（要件49.9）。
+   *       応答は `Cache-Control: no-store`。Grant の ID とトークンは返さない。
+   *     tags:
+   *       - External App Connections
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: userId
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: 利用者の ID（完全一致）
+   *       - in: query
+   *         name: clientId
+   *         schema:
+   *           type: string
+   *           minLength: 1
+   *           maxLength: 255
+   *         description: アプリの client ID（完全一致）
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         description: ページ番号（読み飛ばす行数 (page - 1) × limit は 2147483647 まで）
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           maximum: 100
+   *           default: 20
+   *         description: 1 ページの件数
+   *     responses:
+   *       200:
+   *         description: 接続のページ
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               required: [data, pagination]
+   *               properties:
+   *                 data:
+   *                   type: array
+   *                   items:
+   *                     allOf:
+   *                       - $ref: '#/components/schemas/ExternalAppConnection'
+   *                       - type: object
+   *                         required: [clientId, user]
+   *                         properties:
+   *                           clientId:
+   *                             type: string
+   *                           user:
+   *                             type: object
+   *                             required: [id, displayName, email]
+   *                             properties:
+   *                               id:
+   *                                 type: string
+   *                               displayName:
+   *                                 type: string
+   *                               email:
+   *                                 type: string
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     page:
+   *                       type: integer
+   *                     limit:
+   *                       type: integer
+   *                     total:
+   *                       type: integer
+   *                     totalPages:
+   *                       type: integer
+   *       400:
+   *         description: クエリの不正（code は VALIDATION_ERROR）
+   *       401:
+   *         $ref: '#/components/responses/Unauthorized'
+   *       403:
+   *         description: システム管理者でない（code は SYSTEM_ADMIN_REQUIRED）、または利用者の状態による制限（要件34.2）
+   */
+  admin.get(
+    '/',
+    authenticate,
+    systemAdminGuard,
+    validate(adminConnectionListQuerySchema, 'query'),
+    asyncHandler(async (req, res) => {
+      const query = req.validatedQuery as AdminConnectionListQuery;
+      res.json(
+        await connections.listAll({
+          page: query.page,
+          limit: query.limit,
+          ...(query.userId !== undefined ? { userId: query.userId } : {}),
+          ...(query.clientId !== undefined ? { clientId: query.clientId } : {}),
+        })
+      );
+    })
+  );
+
+  /**
+   * @swagger
+   * /api/v1/admin/external-app-connections/{id}:
+   *   delete:
+   *     summary: 外部アプリの接続の取り消し（システム管理者）
+   *     description: |
+   *       接続と、その接続の全ての外部アプリ用トークンを直ちに使用不能にする（要件49.8）。監査（CONNECTION_ENDED、
+   *       理由 ADMIN_REVOKED）に実行者の管理者・送信元 IP・User-Agent を残す。ロール admin を持たない利用者は、
+   *       接続の有無にかかわらず 403（要件49.9）。存在しない ID と UUID でない ID は 404。
+   *       CSRF の検証（`X-CSRF-Token` と Cookie `csrf-token` の一致、Origin）を通す。
+   *     tags:
+   *       - External App Connections
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: 接続の ID
+   *       - in: header
+   *         name: X-CSRF-Token
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       204:
+   *         description: 取り消しの完了
+   *       401:
+   *         $ref: '#/components/responses/Unauthorized'
+   *       403:
+   *         description: システム管理者でない（code は SYSTEM_ADMIN_REQUIRED）、CSRF の検証の失敗、または利用者の状態による制限
+   *       404:
+   *         description: 接続が無い（code は CONNECTION_NOT_FOUND）
+   */
+  admin.delete(
+    '/:id',
+    authenticate,
+    systemAdminGuard,
+    csrfProtection,
+    asyncHandler(async (req, res) => {
+      const connectionId = connectionIdOf(req);
+      if (connectionId === null) {
+        throw connectionNotFound();
+      }
+      const result = await connections.revokeByAdmin(connectionId, {
+        userId: authenticatedUserId(req),
+        source: requestSource(req),
+      });
+      if (!result.ok) {
+        throw connectionNotFound();
+      }
+      res.status(204).end();
+    })
+  );
+
+  return { own, admin };
+}
+
+/**
+ * 接続の一覧と取り消しの経路を載せる（タスク77.1）
+ *
+ * 認可サーバーの有無にかかわらず載せる。既にある接続を利用者と管理者が確かめて止める経路であり、
+ * 認可サーバーの設定を要しないためである（設定が無い環境では、表示名は client ID になる）。
+ *
+ * @param app - Express のアプリ
+ * @param connections - 接続の管理
+ */
+export function mountExternalAppConnectionRoutes(
+  app: Express,
+  connections: ConnectionRouteService
+): void {
+  const routers = createExternalAppConnectionRoutes({ connections });
+  app.use('/api/v1/external-app-connections', routers.own);
+  app.use('/api/v1/admin/external-app-connections', routers.admin);
 }

@@ -66,6 +66,24 @@ describe('app.ts への搭載（設定なし）', () => {
     expect(response.headers['www-authenticate']).toBeUndefined();
   });
 
+  // 接続の一覧と取り消し（タスク77.1）は、既にある接続を利用者と管理者が確かめて止められるよう、
+  // 認可サーバーの有無にかかわらず載せる（認証を求める 401 で、404 ではない）
+  it.each([
+    ['get', '/api/v1/external-app-connections'],
+    [
+      'delete',
+      `/api/v1/external-app-connections/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}`,
+    ],
+    ['get', '/api/v1/admin/external-app-connections'],
+    [
+      'delete',
+      `/api/v1/admin/external-app-connections/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}`,
+    ],
+  ] as const)('接続の API の %s %s は載っていて、認証が無ければ 401', async (method, path) => {
+    const response = await request(app)[method](path);
+    expect(response.status).toBe(401);
+  });
+
   it('既存の /.well-known/jwks.json は動く', async () => {
     const response = await request(app).get('/.well-known/jwks.json');
     expect(response.status).toBe(200);

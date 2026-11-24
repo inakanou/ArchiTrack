@@ -2267,7 +2267,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク77: 接続の API と出力記録（要件49・51）
 
-- [ ] 77.1 接続の一覧と取り消しの API を作る
+- [x] 77.1 接続の一覧と取り消しの API を作る
   - 本人用と管理者用の経路を設け、管理者用はロール `admin` の確認を掛け、状態を変える経路に CSRF の検証を掛ける
   - 管理者以外が管理者用の経路で 403 になることを統合テストで確かめた状態になる
   - _Depends: 72.2_
@@ -2277,6 +2277,9 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 記録の入力に外部アプリの欄を足し、API の本文では受け付けない
   - 欄の有無で監査の内容が設計どおりになり、本文に欄を入れた要求が拒まれることを統合テストで確かめた状態になる
   - _Requirements: 51.8_
+
+**タスク77の記録（2026-11-25）**:
+- 77.1: 本人用 `GET/DELETE /api/v1/external-app-connections[/:id]` と管理者用 `GET/DELETE /api/v1/admin/external-app-connections[/:id]` を作った。管理者の確認は `require-system-admin.middleware.ts` で DB の `user_roles` のロール `admin` を見る（`*:*` の権限だけでは 403）。拒否は `PERMISSION_CHECK_FAILED`（対象 `Role`/`admin`）で監査する。2 本の DELETE に CSRF を掛け、送信元 IP と UA を渡す。不正な形の `:id` も 404。OAuth が未設定でも載せる（既存の接続を確かめて止められるように）。制限中の利用者（要件34.2）は 4 経路とも 403。単体 8,551 件・統合 2,406 件が緑。**79.4 への申し送り**: design.md の ExternalAppRoutes の表のエラー欄に、管理者用の GET の 400 と DELETE の CSRF の 403 を足す
 
 ## タスク78: 画面（要件46・47・49）
 

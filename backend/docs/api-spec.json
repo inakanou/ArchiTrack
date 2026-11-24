@@ -60,6 +60,53 @@
           }
         }
       },
+      "ExternalAppConnection": {
+        "type": "object",
+        "description": "External app connection. Never includes the grant ID, token values or client secrets",
+        "required": [
+          "id",
+          "appName",
+          "scopes",
+          "consentedAt",
+          "lastUsedAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Connection ID"
+          },
+          "appName": {
+            "type": "string",
+            "description": "Display name of the app (the client ID when the app is no longer allowed)"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write"
+              ]
+            }
+          },
+          "consentedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the connection actually stops working: the earlier of consent + 90 days and last use (or consent) + 30 days"
+          }
+        }
+      },
       "UserRef": {
         "type": "object",
         "description": "User reference with id and display name",
@@ -8093,6 +8140,286 @@
           },
           "400": {
             "description": "トークンが無効、期限切れ、または使用済み"
+          }
+        }
+      }
+    },
+    "/api/v1/external-app-connections": {
+      "get": {
+        "summary": "本人の外部アプリの接続の一覧",
+        "description": "本人の接続ごとに、アプリの名称・操作の範囲・同意の日時・最後に使われた日時・期限を返す（要件49.1）。\n期限は実際に使えなくなる時刻（同意から 90 日と、最後の利用（未使用なら同意）から 30 日の早い方）。\n許可の一覧から外れたアプリの名称は client ID を返す。並びは同意の新しい順。\n画面用のアクセストークンだけを受け付け、外部アプリ用のトークンは 401。Grant の ID とトークンは返さない。\n応答は `Cache-Control: no-store`。\n",
+        "tags": [
+          "External App Connections"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "本人の接続の一覧（無ければ空の配列）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ExternalAppConnection"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "パスワードの変更または 2FA の登録が必要（code は PASSWORD_CHANGE_REQUIRED・TWO_FACTOR_SETUP_REQUIRED。要件34.2）"
+          }
+        }
+      }
+    },
+    "/api/v1/external-app-connections/{id}": {
+      "delete": {
+        "summary": "本人の外部アプリの接続の取り消し",
+        "description": "接続と、その接続の全ての外部アプリ用トークンを直ちに使用不能にする（要件49.4）。監査（CONNECTION_ENDED、\n理由 USER_REVOKED）に送信元 IP と User-Agent を残す。他の利用者の接続・存在しない ID・UUID でない ID は\n同じ 404 で、存在を明かさない（要件49.5）。同時の取り消しでは 1 件だけが 204 で、残りは 404。\nCSRF の検証（`X-CSRF-Token` と Cookie `csrf-token` の一致、Origin）を通す。\n",
+        "tags": [
+          "External App Connections"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "接続の ID"
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "取り消しの完了"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "CSRF の検証の失敗（code は CSRF_TOKEN_MISSING・CSRF_TOKEN_INVALID など）、または利用者の状態による制限（要件34.2）"
+          },
+          "404": {
+            "description": "本人の接続に無い（code は CONNECTION_NOT_FOUND）"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/external-app-connections": {
+      "get": {
+        "summary": "全利用者の外部アプリの接続の一覧（システム管理者）",
+        "description": "全利用者の接続を、利用者・アプリの名称と client ID・操作の範囲・同意の日時・最後に使われた日時・期限とともに\n返す（要件49.6）。利用者とアプリの完全一致で絞り込み、ページを切り替える（要件49.7）。並びは同意の新しい順。\nロール admin を DB で確かめ、持たない利用者は権限（`*:*` を含む）があっても 403（要件49.9）。\n応答は `Cache-Control: no-store`。Grant の ID とトークンは返さない。\n",
+        "tags": [
+          "External App Connections"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "userId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "利用者の ID（完全一致）"
+          },
+          {
+            "in": "query",
+            "name": "clientId",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "description": "アプリの client ID（完全一致）"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "ページ番号（読み飛ばす行数 (page - 1) × limit は 2147483647 まで）"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "1 ページの件数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "接続のページ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ExternalAppConnection"
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "clientId",
+                              "user"
+                            ],
+                            "properties": {
+                              "clientId": {
+                                "type": "string"
+                              },
+                              "user": {
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "displayName",
+                                  "email"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "email": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "クエリの不正（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "システム管理者でない（code は SYSTEM_ADMIN_REQUIRED）、または利用者の状態による制限（要件34.2）"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/external-app-connections/{id}": {
+      "delete": {
+        "summary": "外部アプリの接続の取り消し（システム管理者）",
+        "description": "接続と、その接続の全ての外部アプリ用トークンを直ちに使用不能にする（要件49.8）。監査（CONNECTION_ENDED、\n理由 ADMIN_REVOKED）に実行者の管理者・送信元 IP・User-Agent を残す。ロール admin を持たない利用者は、\n接続の有無にかかわらず 403（要件49.9）。存在しない ID と UUID でない ID は 404。\nCSRF の検証（`X-CSRF-Token` と Cookie `csrf-token` の一致、Origin）を通す。\n",
+        "tags": [
+          "External App Connections"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "接続の ID"
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "取り消しの完了"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "システム管理者でない（code は SYSTEM_ADMIN_REQUIRED）、CSRF の検証の失敗、または利用者の状態による制限"
+          },
+          "404": {
+            "description": "接続が無い（code は CONNECTION_NOT_FOUND）"
           }
         }
       }

@@ -69,9 +69,12 @@ import progressRoutes from './routes/progress.routes.js';
 import costMonthlyCloseRoutes from './routes/cost-monthly-close.routes.js';
 import exportRoutes from './routes/export.routes.js';
 import {
+  mountExternalAppConnectionRoutes,
   mountExternalAppConsentRoutes,
   mountExternalAppResourceRoutes,
 } from './routes/external-app.routes.js';
+import { AuditLogService } from './services/audit-log.service.js';
+import { ExternalAppConnectionService } from './services/external-app-connection.service.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -354,6 +357,14 @@ app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes
 app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// 外部アプリの接続の一覧と取り消し（要件49）。本人用と管理者用（ロール admin）の経路。既にある接続を確かめて
+// 止める経路なので、認可サーバーが載っていない環境でも載せる（そのとき表示名は client ID になる）
+mountExternalAppConnectionRoutes(
+  app,
+  externalAppOAuth?.connectionService ??
+    new ExternalAppConnectionService({ prisma, auditLogService: new AuditLogService({ prisma }) })
+);
 
 // 運用設定（ログレベル）の管理。認証と ops:manage の権限を経路ごとに課す（認証の無い旧経路 /admin は設けない）
 app.use('/api/v1/admin', adminRoutes);
