@@ -2321,7 +2321,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 74.3, 75.2, 76.4, 77.1_
   - _Requirements: 46.1, 47.2, 47.6, 47.8, 47.9, 47.10, 48.1, 48.4, 48.5, 48.6, 48.9, 51.1, 51.2_
 
-- [ ] 79.2 同意の流れを E2E で確かめる
+- [x] 79.2 同意の流れを E2E で確かめる
   - nginx 経由で、ログインと 2FA を通した同意、書き込みの既定の未選択、拒否、権限の無い利用者の拒否を確かめる
   - 同意画面の応答に `frame-ancestors 'none'` があることを確かめる
   - `--repeat-each=5 --retries=0` で全件が通り、E2E の追加の前後で `check:design-measurement-freshness` を比べて必要な宣言を測り直した状態になる
@@ -2355,6 +2355,20 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - **79.4 への申し送り**:
     - 統合の全件の後に Session の行が 43 件残る。external-app-consent.routes・external-app-auth.routes・external-app-auth-rate-limit・external-app-connection.routes・external-app-revocation-on-{account-status,permission-loss,two-factor-reset} の 7 ファイルの `afterAll` に、accountId を指定した削除を足す。
     - 新しいファイルの 600 秒の試験は、残りを 10 秒にしてから同意を通す。この残りを 30〜60 秒に広げる。
+- 79.2: `e2e/specs/auth/oauth-consent.spec.ts`（6 件）と補助 `e2e/helpers/oauth-consent-flow.ts` で、nginx 経由の同意の流れを確かめた。
+  - 未ログインからログインと 2FA を経て、読み取りだけの接続ができること。コードを交換してトークンを使えること（whoami 200・書き込み 403）。2 回目の申し込みで 2FA と同意へ戻ること。
+  - 2FA の段階と同意の段階の拒否が `access_denied` になること。権限の無い利用者が拒否できること。
+  - 要件46.7 の 2 つの状態（パスワードの変更と 2FA の登録を求められている）で、案内だけが出て API が 403 になること。
+  - CSRF の無い approve を拒むこと。`frame-ancestors 'none'` と `X-Frame-Options: DENY` で、別オリジンの枠に読み込まれないこと。
+  - 本番のコードは変えていない。
+  - 79.1 の申し送りは、nginx 経由で確かめた。`_interaction` の Cookie は同意の API へ届く。未ログインから戻り先までは 17〜26 秒（600 秒に収まる）。開発サーバー（別オリジン）での Cookie はブラウザでは確かめていない。
+  - 戻り先は試験の中の loopback の受け口（127.0.0.1:4999、workers=1 が前提）で受ける。Playwright の route は認可サーバーの 303 に効かなかった。
+  - 2FA は、次の TOTP の時間ステップを実際に待つ。
+  - 鮮度の宣言 `t13-anchor-references-after-115303` を、2474 から 2485 へ測り直した。
+  - 独立レビューで 1 回差し戻された（46.7 のパスワードの変更の場合が無かった）。直して承認。
+  - `--repeat-each=5 --retries=0` で 30 件が緑。
+  - 46.7 は authenticate と同意のサービスの `checkEligibility` の二重で守られている。片方だけの退行は E2E では見つからない。
+  - **79.4 への申し送り**: 鮮度の宣言 `req-coverage-selftest-total-after-115314` と `featureless-inline-id-headers-after-115308` は、79.2 より前から赤（機能名を欠くヘッダー 1982 件で、上限は 1980）。試験 DB に、73.4 の `oauth-public-origin-proxy.spec.ts` が後始末しない Interaction の行が残る。
 
 ## Implementation Notes
 
