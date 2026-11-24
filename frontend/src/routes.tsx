@@ -66,6 +66,7 @@ import UnitPriceLedgerPage from './pages/UnitPriceLedgerPage';
 import LedgerQuotationDetailPage from './pages/LedgerQuotationDetailPage';
 import { OAuthConsentPage } from './pages/OAuthConsentPage';
 import { ConnectedAppsPage } from './pages/ConnectedAppsPage';
+import { AdminExternalAppConnectionsPage } from './pages/AdminExternalAppConnectionsPage';
 
 /**
  * アプリケーションのルート設定
@@ -612,6 +613,11 @@ export const routes: RouteObject[] = [
       {
         path: '/admin/user-inventory',
         element: <UserInventoryPage />,
+      },
+      // 外部アプリの接続の管理（user-authentication 要件49.6〜49.8、タスク78.3）
+      {
+        path: '/admin/external-app-connections',
+        element: <AdminExternalAppConnectionsPage />,
       },
       // システム設定（estimate-request の design.md の D8、タスク119.2）
       {

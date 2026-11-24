@@ -273,6 +273,16 @@ const Icons = {
       />
     </svg>
   ),
+  ExternalApp: () => (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+      />
+    </svg>
+  ),
   Settings: () => (
     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path
@@ -471,6 +481,13 @@ export function AppHeader(): ReactElement {
       onClick: () => navigate('/admin/audit-logs'),
       testId: 'admin-menu-audit-logs',
       icon: <Icons.AuditLog />,
+    },
+    // user-authentication 要件49.6〜49.8: 外部アプリの接続の管理画面（タスク78.3）
+    {
+      label: '外部アプリの接続',
+      onClick: () => navigate('/admin/external-app-connections'),
+      testId: 'admin-menu-external-app-connections',
+      icon: <Icons.ExternalApp />,
     },
     // estimate-request の design.md の D8: 外部の AI での読み取りの停止・再開（タスク119.2）
     {

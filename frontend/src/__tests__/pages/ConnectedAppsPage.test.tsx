@@ -442,10 +442,129 @@ describe('ConnectedAppsPage（連携中のアプリ）', () => {
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(await findItem('積算ツール')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      '「Claude」の接続はすでに終了していました。一覧を更新しました。'
+    // 「一覧を更新しました」は読み直しが済んでから知らせる（タスク78.3 で読み直しの後へ移した）
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        '「Claude」の接続はすでに終了していました。一覧を更新しました。'
+      )
     );
     expect(callsTo(fetchMock, 'GET', LIST_PATH)).toHaveLength(2);
+  });
+
+  // タスク78.2 の申し送り（タスク78.3 で直す）
+  it('404 の後の読み直しが遅れて届いても、その間に取り消した接続を一覧へ戻さない', async () => {
+    const user = userEvent.setup();
+    const staleRefresh = deferred<Response>();
+    const fetchMock = installFetch({
+      [`GET ${LIST_PATH}`]: [
+        json(200, { data: [claudeConnection, toolConnection] }),
+        staleRefresh.promise,
+      ],
+      [`DELETE ${LIST_PATH}/${CLAUDE_ID}`]: [
+        json(404, { error: 'External app connection not found', code: 'CONNECTION_NOT_FOUND' }),
+      ],
+      [`DELETE ${LIST_PATH}/${TOOL_ID}`]: [new Response(null, { status: 204 })],
+    });
+
+    renderRoute();
+    let dialog = await openRevokeDialog(user, 'Claude');
+    await user.click(within(dialog).getByRole('button', { name: '取り消す' }));
+    await waitFor(() => expect(callsTo(fetchMock, 'GET', LIST_PATH)).toHaveLength(2));
+
+    // 読み直しの応答が届く前に、残った接続を取り消す
+    dialog = await openRevokeDialog(user, '積算ツール');
+    await user.click(within(dialog).getByRole('button', { name: '取り消す' }));
+    expect(await screen.findByText('連携中のアプリはありません。')).toBeInTheDocument();
+
+    await act(async () => {
+      staleRefresh.resolve(json(200, { data: [toolConnection] }));
+    });
+
+    expect(screen.getByText('連携中のアプリはありません。')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: '積算ツール' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('「積算ツール」の接続を取り消しました。');
+  });
+
+  it('404 の後の読み直しに失敗したら「一覧を更新しました」を残さず、失敗の案内へフォーカスを移す', async () => {
+    const user = userEvent.setup();
+    const unavailable = () => json(503, { code: 'SERVICE_UNAVAILABLE' });
+    installFetch({
+      [`GET ${LIST_PATH}`]: [
+        json(200, { data: [claudeConnection, toolConnection] }),
+        unavailable(),
+        unavailable(),
+        unavailable(),
+        unavailable(),
+      ],
+      [`DELETE ${LIST_PATH}/${CLAUDE_ID}`]: [
+        json(404, { error: 'External app connection not found', code: 'CONNECTION_NOT_FOUND' }),
+      ],
+    });
+
+    renderRoute();
+    const dialog = await openRevokeDialog(user, 'Claude');
+    await user.click(within(dialog).getByRole('button', { name: '取り消す' }));
+
+    const alert = await screen.findByRole('alert', {}, { timeout: 5000 });
+    expect(alert).toHaveTextContent('連携中のアプリを読み込めませんでした');
+    await waitFor(() => expect(alert).toHaveFocus());
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('「Claude」の接続はすでに終了していました。');
+    expect(status).not.toHaveTextContent('一覧を更新しました');
+  });
+
+  it('取り消しの送信中はダイアログの見出しに、失敗の後は失敗の案内にフォーカスを置く', async () => {
+    const user = userEvent.setup();
+    const pending = deferred<Response>();
+    installFetch({
+      [`GET ${LIST_PATH}`]: [json(200, { data: [claudeConnection] })],
+      [`DELETE ${LIST_PATH}/${CLAUDE_ID}`]: [pending.promise],
+    });
+
+    renderRoute();
+    const dialog = await openRevokeDialog(user, 'Claude');
+    await user.click(within(dialog).getByRole('button', { name: '取り消す' }));
+
+    expect(within(dialog).getByRole('heading', { name: '接続の取り消し' })).toHaveFocus();
+
+    await act(async () => {
+      pending.resolve(json(503, { code: 'SERVICE_UNAVAILABLE' }));
+    });
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(alert).toHaveFocus());
+  });
+
+  it('一覧の再試行の間は見出しに、再び失敗したら失敗の案内にフォーカスを置く', async () => {
+    const user = userEvent.setup();
+    const unavailable = () => json(503, { code: 'SERVICE_UNAVAILABLE' });
+    const retry = deferred<Response>();
+    installFetch({
+      [`GET ${LIST_PATH}`]: [
+        unavailable(),
+        unavailable(),
+        unavailable(),
+        unavailable(),
+        // 再試行の最初の応答を止めて、待っている間のフォーカスを確かめる
+        retry.promise,
+        unavailable(),
+      ],
+    });
+
+    renderRoute();
+
+    const first = await screen.findByRole('alert', {}, { timeout: 5000 });
+    await user.click(within(first).getByRole('button', { name: '再試行' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '連携中のアプリ' })).toHaveFocus();
+    await act(async () => {
+      retry.resolve(unavailable());
+    });
+
+    const second = await screen.findByRole('alert', {}, { timeout: 5000 });
+    expect(second).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(second).toHaveFocus());
   });
 
   it('取り消しに失敗したらダイアログに再試行を促し、もう一度確定すると取り消せる', async () => {

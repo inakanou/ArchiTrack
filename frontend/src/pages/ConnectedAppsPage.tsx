@@ -9,6 +9,8 @@
  * - 取り消しはアプリの名称を示した確認のダイアログの後に、CSRF トークン付きの手段で DELETE を送る（49.3、49.4）。
  *   成功したら一覧から消して知らせ、404 は一覧を読み直して終了済みと知らせ、失敗は再試行を促す
  * - 接続の ID・Grant・トークンは表示しない（ID は取り消しの要求にだけ使う）
+ * - 一覧の要求に世代の番号を振り、古い応答を捨てる。読み直しが済んでから「一覧を更新しました」と知らせる。
+ *   送信中・失敗の後・再試行の後のフォーカスを body へ落とさない（タスク78.3 で 78.2 の申し送りを直した）
  *
  * @requirement user-authentication/REQ-49.1
  * @requirement user-authentication/REQ-49.2
@@ -21,20 +23,15 @@ import {
   listOwnExternalAppConnections,
   revokeOwnExternalAppConnection,
   type ExternalAppConnection,
-  type ExternalAppScope,
 } from '../api/external-apps';
 import FocusManager from '../components/FocusManager';
+import { formatExternalAppScopes } from '../utils/external-app-scopes';
 import { formatDateTime } from '../utils/formatters';
 
 /** 最後に使われてから接続が切れるまでの日数（backend の CONNECTION_IDLE_MS。要件48.2） */
 const CONNECTION_IDLE_DAYS = 30;
 /** 同意から接続が切れるまでの日数（backend の CONNECTION_ABSOLUTE_MS。要件48.3） */
 const CONNECTION_ABSOLUTE_DAYS = 90;
-
-const SCOPE_LABELS: Record<ExternalAppScope, string> = {
-  read: '読み取り',
-  write: '書き込み',
-};
 
 const LOAD_ERROR_MESSAGE = '連携中のアプリを読み込めませんでした。時間をおいて再試行してください。';
 const LOAD_NETWORK_ERROR_MESSAGE =
@@ -52,14 +49,11 @@ function isNetworkError(error: unknown): boolean {
   return error instanceof ApiError && error.statusCode === 0;
 }
 
-/** 操作の範囲を読める日本語にする（未知の値は出さない） */
-function scopeText(scopes: readonly ExternalAppScope[]): string {
-  return scopes
-    .filter((scope): scope is ExternalAppScope =>
-      Object.prototype.hasOwnProperty.call(SCOPE_LABELS, scope)
-    )
-    .map((scope) => SCOPE_LABELS[scope])
-    .join('、');
+/** 一覧の要求の結果（`stale` は新しい要求や取り消しに追い越された） */
+type LoadOutcome = 'ok' | 'error' | 'stale';
+
+function loadErrorMessage(error: unknown): string {
+  return isNetworkError(error) ? LOAD_NETWORK_ERROR_MESSAGE : LOAD_ERROR_MESSAGE;
 }
 
 const buttonBase: CSSProperties = {
@@ -93,7 +87,6 @@ function disabledLook(style: CSSProperties, disabled: boolean): CSSProperties {
  */
 export function ConnectedAppsPage() {
   const [list, setList] = useState<ListState>({ status: 'loading' });
-  const [loadCount, setLoadCount] = useState(0);
   /** 確認中の取り消しの対象。null はダイアログを閉じている */
   const [target, setTarget] = useState<ExternalAppConnection | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -101,11 +94,18 @@ export function ConnectedAppsPage() {
   /** 取り消しの結果の知らせ（常に置いた role="status" の領域で読み上げる） */
   const [announcement, setAnnouncement] = useState('');
 
+  /** 一覧の要求の世代。要求を出すたびと行を手元で消すたびに進め、古い応答を捨てる */
+  const generationRef = useRef(0);
+  /** 次に一覧の読み込みが失敗したら失敗の案内へフォーカスを移すか */
+  const focusLoadErrorRef = useRef(false);
   /** 送信中か（同期で判定して二重の送信を防ぐ） */
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const loadErrorRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogTitleRef = useRef<HTMLHeadingElement>(null);
+  const revokeErrorRef = useRef<HTMLDivElement>(null);
   /** ダイアログを閉じた後のフォーカスの戻り先。null なら開く前の要素（取り消しのボタン）へ戻る */
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -121,44 +121,54 @@ export function ConnectedAppsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    listOwnExternalAppConnections()
-      .then((connections) => {
-        if (!cancelled) setList({ status: 'ready', connections });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setList({
-          status: 'error',
-          message: isNetworkError(error) ? LOAD_NETWORK_ERROR_MESSAGE : LOAD_ERROR_MESSAGE,
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadCount]);
-
-  const retryLoad = () => {
-    setList({ status: 'loading' });
-    setLoadCount((count) => count + 1);
-  };
-
-  /** 表示中の一覧を残したまま読み直す（404 の後に使う） */
-  const refreshList = async () => {
+  /** 一覧を読む。新しい要求や手元での取り消しに追い越された応答は捨てる */
+  const loadList = useCallback(async (focusErrorOnFail: boolean): Promise<LoadOutcome> => {
+    generationRef.current += 1;
+    const generation = generationRef.current;
     try {
       const connections = await listOwnExternalAppConnections();
-      if (mountedRef.current) setList({ status: 'ready', connections });
+      if (!mountedRef.current || generation !== generationRef.current) return 'stale';
+      setList({ status: 'ready', connections });
+      return 'ok';
     } catch (error) {
-      if (!mountedRef.current) return;
-      setList({
-        status: 'error',
-        message: isNetworkError(error) ? LOAD_NETWORK_ERROR_MESSAGE : LOAD_ERROR_MESSAGE,
-      });
+      if (!mountedRef.current || generation !== generationRef.current) return 'stale';
+      focusLoadErrorRef.current = focusErrorOnFail;
+      setList({ status: 'error', message: loadErrorMessage(error) });
+      return 'error';
     }
+  }, []);
+
+  useEffect(() => {
+    void loadList(false);
+  }, [loadList]);
+
+  // 再試行や 404 の後の読み直しが失敗したら、失敗の案内へフォーカスを移す（body へ落とさない）
+  useEffect(() => {
+    if (list.status === 'error' && focusLoadErrorRef.current) {
+      focusLoadErrorRef.current = false;
+      loadErrorRef.current?.focus();
+      // 閉じたダイアログが後からフォーカスを戻す先も失敗の案内にする（見出しへ戻して案内から外さない）
+      returnFocusRef.current = loadErrorRef.current;
+    }
+  }, [list]);
+
+  // 取り消しの失敗の案内が出たら、そこへフォーカスを移す
+  useEffect(() => {
+    if (revokeError) {
+      revokeErrorRef.current?.focus();
+    }
+  }, [revokeError]);
+
+  const retryLoad = () => {
+    // 押した「再試行」は消えるので、先に見出しへフォーカスを移す
+    headingRef.current?.focus();
+    setList({ status: 'loading' });
+    void loadList(true);
   };
 
   const removeFromList = (connectionId: string) => {
+    // 取り消しの前に出した一覧の要求の応答は、消した行を含みうるので捨てる
+    generationRef.current += 1;
     setList((current) =>
       current.status === 'ready'
         ? {
@@ -198,6 +208,8 @@ export function ConnectedAppsPage() {
     setSubmitting(true);
     setRevokeError('');
     setAnnouncement('');
+    // 押したボタンは送信中に無効になるので、フォーカスをダイアログの見出しへ移す（body へ落とさない）
+    dialogTitleRef.current?.focus();
     const { id, appName } = target;
     try {
       await revokeOwnExternalAppConnection(id);
@@ -208,8 +220,16 @@ export function ConnectedAppsPage() {
       if (!mountedRef.current) return;
       if (error instanceof ApiError && error.statusCode === 404) {
         removeFromList(id);
-        finishRevoke(`「${appName}」の接続はすでに終了していました。一覧を更新しました。`);
-        void refreshList();
+        const message = `「${appName}」の接続はすでに終了していました。`;
+        finishRevoke(message);
+        void loadList(true).then((outcome) => {
+          // 読み直せたときだけ一覧の更新を知らせる（失敗・追い越しでは残さない）
+          if (outcome === 'ok' && mountedRef.current) {
+            setAnnouncement((current) =>
+              current === message ? `${message}一覧を更新しました。` : current
+            );
+          }
+        });
         return;
       }
       setRevokeError(isNetworkError(error) ? REVOKE_NETWORK_ERROR_MESSAGE : REVOKE_ERROR_MESSAGE);
@@ -305,7 +325,9 @@ export function ConnectedAppsPage() {
 
       {list.status === 'error' && (
         <div
+          ref={loadErrorRef}
           role="alert"
+          tabIndex={-1}
           style={{
             ...alertStyle,
             display: 'flex',
@@ -411,7 +433,7 @@ export function ConnectedAppsPage() {
                 }}
               >
                 <dt style={termStyle}>許可している操作</dt>
-                <dd style={valueStyle}>{scopeText(connection.scopes)}</dd>
+                <dd style={valueStyle}>{formatExternalAppScopes(connection.scopes)}</dd>
                 <dt style={termStyle}>同意した日時</dt>
                 <dd style={valueStyle}>{formatDateTime(connection.consentedAt)}</dd>
                 <dt style={termStyle}>最後に使われた日時</dt>
@@ -443,6 +465,8 @@ export function ConnectedAppsPage() {
           >
             <h2
               id={dialogTitleId}
+              ref={dialogTitleRef}
+              tabIndex={-1}
               style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.75rem' }}
             >
               接続の取り消し
@@ -458,7 +482,12 @@ export function ConnectedAppsPage() {
             </div>
 
             {revokeError && (
-              <div role="alert" style={{ ...alertStyle, marginBottom: '0.75rem' }}>
+              <div
+                ref={revokeErrorRef}
+                role="alert"
+                tabIndex={-1}
+                style={{ ...alertStyle, marginBottom: '0.75rem' }}
+              >
                 {revokeError}
               </div>
             )}

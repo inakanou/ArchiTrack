@@ -1,8 +1,9 @@
 /**
- * @fileoverview 外部アプリの接続の API クライアント（user-authentication タスク78.1・78.2）
+ * @fileoverview 外部アプリの接続の API クライアント（user-authentication タスク78.1・78.2・78.3）
  *
  * design.md「Requirements 46-51」の ExternalAppRoutes の同意の API（`/oauth/interaction/:uid/...`）と、
- * 本人の接続の一覧・取り消しの API（`/api/v1/external-app-connections`）を呼ぶ。
+ * 本人の接続の一覧・取り消しの API（`/api/v1/external-app-connections`）と、管理者用の全利用者の
+ * 接続の一覧・取り消しの API（`/api/v1/admin/external-app-connections`）を呼ぶ。
  * - 申し込みの内容と接続の一覧は画面用のアクセストークンで GET する
  * - 2FA・同意・拒否・取り消しは状態を変えるので、CSRF トークン付きの手段（`apiClient.sendWithCsrf`）で送る
  * - 同意の範囲は利用者の選択だけを送る。戻り先の URL は画面で組み立てず、応答の `redirectTo` を使う
@@ -12,6 +13,9 @@
  * @requirement user-authentication/REQ-47.11
  * @requirement user-authentication/REQ-49.1
  * @requirement user-authentication/REQ-49.4
+ * @requirement user-authentication/REQ-49.6
+ * @requirement user-authentication/REQ-49.7
+ * @requirement user-authentication/REQ-49.8
  */
 
 import { apiClient } from './client';
@@ -166,5 +170,78 @@ export async function revokeOwnExternalAppConnection(connectionId: string): Prom
   await apiClient.sendWithCsrf<unknown>(
     'DELETE',
     `${OWN_CONNECTIONS_PATH}/${encodeURIComponent(connectionId)}`
+  );
+}
+
+// ============================================================================
+// 全利用者の接続の一覧と取り消し（タスク78.3。要件49.6〜49.8）
+// ============================================================================
+
+/** 管理者用の接続の API の経路（design.md の ExternalAppRoutes。ロール admin でなければ 403） */
+const ADMIN_CONNECTIONS_PATH = '/api/v1/admin/external-app-connections';
+
+/** 全利用者の一覧の 1 行（本人用の形に、アプリの client ID と利用者を足したもの） */
+export interface AdminExternalAppConnection extends ExternalAppConnection {
+  /** アプリの client ID（絞り込みに使う完全一致の値） */
+  readonly clientId: string;
+  readonly user: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly email: string;
+  };
+}
+
+/** 全利用者の一覧のページ情報 */
+export interface AdminExternalAppConnectionPagination {
+  readonly page: number;
+  readonly limit: number;
+  readonly total: number;
+  readonly totalPages: number;
+}
+
+export interface AdminExternalAppConnectionPage {
+  readonly data: readonly AdminExternalAppConnection[];
+  readonly pagination: AdminExternalAppConnectionPagination;
+}
+
+/** 全利用者の一覧の条件。未指定の絞り込みは送らない（値の検証は画面が送る前に行う） */
+export interface AdminExternalAppConnectionQuery {
+  readonly page: number;
+  readonly limit: number;
+  /** 利用者の ID（UUID。完全一致） */
+  readonly userId?: string;
+  /** アプリの client ID（完全一致） */
+  readonly clientId?: string;
+}
+
+/**
+ * 全利用者の接続の一覧を取得する（同意の新しい順）
+ */
+export function listAdminExternalAppConnections(
+  query: AdminExternalAppConnectionQuery
+): Promise<AdminExternalAppConnectionPage> {
+  const params = new URLSearchParams();
+  params.set('page', String(query.page));
+  params.set('limit', String(query.limit));
+  if (query.userId !== undefined) {
+    params.set('userId', query.userId);
+  }
+  if (query.clientId !== undefined) {
+    params.set('clientId', query.clientId);
+  }
+  return apiClient.get<AdminExternalAppConnectionPage>(
+    `${ADMIN_CONNECTIONS_PATH}?${params.toString()}`
+  );
+}
+
+/**
+ * 管理者として接続を取り消す（成功は 204。終了済み・存在しない接続は 404）
+ *
+ * 状態を変えるので CSRF トークン付きの手段（`apiClient.sendWithCsrf`）で送る
+ */
+export async function revokeExternalAppConnectionByAdmin(connectionId: string): Promise<void> {
+  await apiClient.sendWithCsrf<unknown>(
+    'DELETE',
+    `${ADMIN_CONNECTIONS_PATH}/${encodeURIComponent(connectionId)}`
   );
 }
