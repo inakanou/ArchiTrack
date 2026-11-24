@@ -17,6 +17,7 @@
  * @module oauth/store-adapter
  */
 
+import { AsyncLocalStorage } from 'async_hooks';
 import { createHmac } from 'crypto';
 import Provider, { errors, type OidcContext } from 'oidc-provider';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
@@ -105,6 +106,36 @@ export class OAuthStoreError extends Error {
   }
 }
 
+/** 申し込み（Interaction）の読み書きに使うトランザクション。`active` は文脈の終了で false になる */
+interface InteractionTransactionScope {
+  readonly tx: StoreReader;
+  active: boolean;
+}
+
+const interactionTransaction = new AsyncLocalStorage<InteractionTransactionScope>();
+
+/**
+ * `run` の中の Interaction の `find` と `upsert` だけを、呼び出し元のトランザクションで行う
+ *
+ * 同意の結果を接続の作成と同じトランザクションで確定させ、未確定の結果を再開の要求から読めなくする。
+ * 他のモデルの経路は変えない。`run` の終了後に残った処理は、終わった `tx` を使わず失敗する。
+ *
+ * @param tx - 呼び出し元のトランザクション
+ * @param run - 同じトランザクションで申し込みを読み書きする処理
+ * @returns `run` の結果
+ */
+export async function withInteractionTransaction<T>(
+  tx: Prisma.TransactionClient,
+  run: () => Promise<T>
+): Promise<T> {
+  const scope: InteractionTransactionScope = { tx, active: true };
+  try {
+    return await interactionTransaction.run(scope, run);
+  } finally {
+    scope.active = false;
+  }
+}
+
 function safeErrorCode(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === 'string' && PRISMA_ERROR_CODE_PATTERN.test(code) ? code : undefined;
@@ -151,7 +182,7 @@ export class OAuthStoreAdapter {
       const data = this.toColumns(id, payload, expiresIn);
       const { grantId } = data;
       if (grantId === null || this.model === 'Grant') {
-        await this.deps.prisma.oAuthStoreRecord.upsert({
+        await this.recordClient().oAuthStoreRecord.upsert({
           where: { id: recordId },
           create: { id: recordId, ...data },
           update: data,
@@ -199,7 +230,7 @@ export class OAuthStoreAdapter {
    */
   async find(id: string): Promise<OAuthStorePayload | undefined> {
     return this.guard('find', async () => {
-      const row = await this.deps.prisma.oAuthStoreRecord.findUnique({
+      const row = await this.recordClient().oAuthStoreRecord.findUnique({
         where: { id: this.recordId(id) },
       });
       if (!row || !this.isReadable(row)) {
@@ -467,6 +498,18 @@ export class OAuthStoreAdapter {
       data: { consumedAt: now, payload: withRotation(successor.payload, rotation) },
     });
     return count === 1 ? 'grace' : 'reuse';
+  }
+
+  /** 行を読み書きする接続。文脈の中の Interaction だけが呼び出し元のトランザクションを使う */
+  private recordClient(): StoreReader {
+    const scope = this.model === 'Interaction' ? interactionTransaction.getStore() : undefined;
+    if (!scope) {
+      return this.deps.prisma;
+    }
+    if (!scope.active) {
+      throw new OAuthStoreError('interaction transaction ended');
+    }
+    return scope.tx;
   }
 
   private recordId(id: string): string {

@@ -6846,6 +6846,7 @@ stateDiagram-v2
 | 50.3 | 無効化・削除で失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
 | 50.4 | 権限の喪失で失効 | ExternalAppConnectionService | revokeForUsersWithoutPermission | 接続の状態 |
 | 50.5 | 1 端末のログアウトでは失効しない | ExternalAppConnectionService | 呼び出さない | — |
+| 50.7 | 管理者の 2FA の再設定で失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
 | 50.6 | 許可の一覧から外れたアプリの失効 | ExternalAppClientRegistry, ExternalAppMaintenanceJob, ExternalAppConnectionService | revokeForRemovedClients | 接続の状態 |
 | 51.1 | 範囲・権限・閲覧範囲の全てで判定 | ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
 | 51.2 | 読み取りだけの接続の書き込みは 403 | ExternalAppAuthMiddleware | requireExternalScope | — |
@@ -6904,6 +6905,7 @@ type ConnectionEndReason =
   | 'ACCOUNT_DEACTIVATED'
   | 'ACCOUNT_DELETED'
   | 'PERMISSION_LOST'
+  | 'TWO_FACTOR_RESET'
   | 'CLIENT_REMOVED'
   | 'TOKEN_REUSE';
 
@@ -7089,12 +7091,18 @@ interface ConsentInteractionView {
   readonly secondFactorVerified: boolean;
 }
 
+// タスク74.2 で、応答を分けるために 10 種のオブジェクト形式へ広げた
 type ConsentError =
-  | 'INTERACTION_NOT_FOUND'
-  | 'PERMISSION_REQUIRED'
-  | 'SECOND_FACTOR_REQUIRED'
-  | 'SECOND_FACTOR_FAILED'
-  | 'READ_SCOPE_REQUIRED';
+  | { readonly type: 'INTERACTION_NOT_FOUND' }
+  | { readonly type: 'PERMISSION_REQUIRED' }
+  | { readonly type: 'ACCOUNT_RESTRICTED'; readonly restriction: ConsentRestriction }
+  | { readonly type: 'SECOND_FACTOR_REQUIRED' }
+  | { readonly type: 'SECOND_FACTOR_FAILED' }
+  | { readonly type: 'SECOND_FACTOR_LOCKED'; readonly unlockAt: Date }
+  | { readonly type: 'READ_SCOPE_REQUIRED' }
+  | { readonly type: 'SCOPE_NOT_REQUESTED' }
+  | { readonly type: 'RECONNECT_REQUIRED' }
+  | { readonly type: 'SERVICE_UNAVAILABLE' };
 
 interface ConsentInteractionService {
   getInteraction(ctx: InteractionContext, userId: string): Promise<Result<ConsentInteractionView, ConsentError>>;
@@ -7182,6 +7190,7 @@ interface ExternalAppConnectionService {
 - Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する（信号 `external_app_token_reuse` に接続の利用者を渡す。抑止は利用者ごとで、閾値と上限の対象外。51.9）。同じ Grant への 2 回目以降の呼び出しは何もしない
 - Postconditions（接続の無い Grant の再利用。2026-11-24、利用者の判断）: `handleReuse` は Grant の保存データの行を消し、行を実際に消せた呼び出しだけが監査と通知を行う。監査の対象の利用者とアプリは Grant の行の payload の `accountId` と `clientId` を検証して使い、読めないときだけ不明として記録する。これが 51.7 の唯一の例外である
 - Invariants（失効の世代。50.1〜50.4、2026-11-24、利用者の判断）: `users.external_app_revocation_generation`（整数、既定 0）を失効の世代とする。`revokeAllForUser` と `revokeForUsersWithoutPermission` は呼び出し元のトランザクションの中で、利用者単位の排他の取引ロックを Grant の行より先に（複数の利用者はキーの昇順で）取り、接続の有無によらず対象の利用者の世代を 1 進めてから、ロックの後の文で接続を読んで失効する。`createOrReplace` は最初に同じキーの共有の取引ロックを取り、同意の手続きの開始時に読んだ世代（入力 `expectedRevocationGeneration`）と現在の世代を比べ、違えば接続を作らず失敗する。これにより、失効と同時に進んだ同意の接続が失効の後に残らない
+- 既知の制約（2026-11-24、利用者の判断）: 同意の途中で失効が起き、さらに Redis の障害で結び付けた世代が消えた後に同意の画面を開き直すと、その時点の世代で新しい手続きとして扱う。権限と状態の確認と 2FA はやり直す。失効で画面用のトークンも無効になるため影響は小さいと判断した
 - Invariants（ロックの順序）: 「users の行 → 利用者の取引ロック → 利用者とアプリの取引ロック → Grant の行 → 接続の行」とする。失効は users の行を `FOR NO KEY UPDATE`、`createOrReplace` は `FOR KEY SHARE` で最初に取る（呼び出し元が利用者の行を更新してから失効を呼ぶ経路とのデッドロックを防ぐ。`FOR UPDATE` にしないのは、同意の `FOR KEY SHARE` と他の表の外部キーの検査を待たせないため）。世代の不一致と利用者の不在は `ConnectionRevocationConflictError`（`CONNECTION_REVOCATION_CONFLICT`）を投げ、同意のトランザクション全体を戻す
 - Invariants（アクセストークンの即失効。2026-11-24、利用者の判断）: パスワードの変更・リセットと全デバイスのログアウトは、接続の失効と同じトランザクションで `users.access_token_generation` を 1 進める。発行済みの画面用アクセストークンは直ちに使えなくなり、漏れたトークンから新しい同意を始められない。パスワードを変更した本人の画面の続け方は、既存の変更後の動作を確かめて 76.1 で定める
 - 再利用の監査は `ConnectionAuditEvent` に再利用の種類 `reuseKind`（`TokenReuseEvent.kind`）を持つ。管理者への通知は注入した `observeAnomaly`（省略時は共有の監視）を、コミットの後に勝者だけが呼ぶ

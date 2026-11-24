@@ -12,8 +12,12 @@ declare module 'oidc-provider' {
     iat?: number;
     addOIDCScope(scope: string): void;
     addResourceScope(resource: string, scope: string): void;
+    rejectResourceScope(resource: string, scope: string): void;
     getOIDCScope(): string;
+    getResourceScope(resource: string): string;
+    getRejectedResourceScope(resource: string): string;
     save(): Promise<string>;
+    destroy(): Promise<void>;
   }
 
   export interface OidcToken {
@@ -24,7 +28,12 @@ declare module 'oidc-provider' {
   }
 
   export interface OidcInteraction {
+    uid: string;
+    exp: number;
+    params: Record<string, unknown>;
     prompt: { name: string; reasons: string[] };
+    result?: Record<string, unknown>;
+    returnTo: string;
     session?: { accountId?: string };
   }
 
@@ -52,6 +61,7 @@ declare module 'oidc-provider' {
     use(middleware: (ctx: OidcContext, next: () => Promise<void>) => Promise<void>): this;
     on(event: string, listener: (...args: never[]) => void): this;
     emit(event: string, ...args: unknown[]): boolean;
+    interactionDetails(req: IncomingMessage, res: ServerResponse): Promise<OidcInteraction>;
     interactionResult(
       req: IncomingMessage,
       res: ServerResponse,
