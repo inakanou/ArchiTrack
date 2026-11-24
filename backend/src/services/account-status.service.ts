@@ -9,9 +9,12 @@
  * - REQ-36.8: 最終ログイン・作成・最後の再有効化のうち最も新しい日時から 90 日を過ぎた有効な利用者を自動で無効化する
  * - REQ-36.9: 自動無効化を全システム管理者へ通知し、監査に自動無効化であることを記録する
  * - REQ-38.13: 保有ロールの優先度の最大値が実行者の上限を超える他の利用者の無効化・再有効化を拒否する
+ * - REQ-50.3: 無効化（自動を含む）で外部アプリの全ての接続を直ちに失効させる（タスク76.2）
+ * - REQ-51.7: 接続の終了の監査に実行者と送信元 IP を残す。要求の無い自動無効化は送信元を持たない（IP は null）
  *
  * 責任と境界:
- * - 状態の記録・全リフレッシュトークンの失効・監査は一つのトランザクションで行う
+ * - 状態の記録・全リフレッシュトークンの失効・外部アプリの全ての接続の失効・監査は一つのトランザクションで行う
+ * - 再有効化は接続を戻さない（失効した接続は利用者が同意し直す）
  * - 状態のキャッシュの無効化と通知はコミットの後に行い、その失敗は結果を変えない
  * - 再有効化（管理者の操作と復旧のスクリプト）は最後の再有効化の日時を書き、最終ログイン日時は変えない
  * - 自動無効化は利用者ごとの取引で行い、対象の一覧を一通の通知にまとめる。最後の有効なシステム管理者も
@@ -29,7 +32,11 @@ import {
   type TargetUserExceedsActorError,
 } from './privilege-ceiling.js';
 import { Ok, Err, type Result } from '../types/result.js';
-import { snapshotAuditActor } from './audit-log.service.js';
+import { AuditLogService, snapshotAuditActor } from './audit-log.service.js';
+import {
+  ExternalAppConnectionService,
+  type UserConnectionRevoker,
+} from './external-app-connection.service.js';
 import { lockAdminRoleForLastAdminCheck } from './user-role.service.js';
 import {
   lockUserRefreshTokens,
@@ -60,6 +67,11 @@ export interface AccountStatusServiceDeps {
   privilegeCeiling?: PrivilegeCeilingPort;
   /** 上限による拒否を権限チェックの失敗（PERMISSION_CHECK_FAILED）として記録する（要件38.13） */
   auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /**
+   * 外部アプリの接続の失効（要件50.3。タスク76.2）。省略時は接続の管理を監査ログとともに作る
+   * （定期処理の組み立てを含め、認可サーバーを載せない環境でも失効させる）
+   */
+  connectionRevoker?: UserConnectionRevoker;
 }
 
 /** システム管理者のロール名 */
@@ -133,6 +145,7 @@ export class AccountStatusService {
   private readonly adminNotificationService: AccountStatusServiceDeps['adminNotificationService'];
   private readonly privilegeCeiling: AccountStatusServiceDeps['privilegeCeiling'];
   private readonly auditLogService: AccountStatusServiceDeps['auditLogService'];
+  private readonly connectionRevoker: UserConnectionRevoker;
 
   constructor(deps: AccountStatusServiceDeps) {
     this.prisma = deps.prisma;
@@ -140,13 +153,22 @@ export class AccountStatusService {
     this.adminNotificationService = deps.adminNotificationService;
     this.privilegeCeiling = deps.privilegeCeiling;
     this.auditLogService = deps.auditLogService;
+    this.connectionRevoker =
+      deps.connectionRevoker ??
+      new ExternalAppConnectionService({
+        prisma: deps.prisma,
+        auditLogService: deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma }),
+      });
   }
 
   /**
    * 管理者による無効化
    *
    * admin ロールの行のロックで最後の有効なシステム管理者の判定を直列化し、状態の記録・全リフレッシュ
-   * トークンの失効・監査 `USER_DEACTIVATED` を一つのトランザクションで行う。
+   * トークンの失効・外部アプリの全ての接続の失効（理由 `ACCOUNT_DEACTIVATED`、送信元は `ctx`）・監査
+   * `USER_DEACTIVATED` を一つのトランザクションで行う。
+   * ロックの順序は「リフレッシュトークンの取引ロック → users の行 → 失効の取引ロック → Grant の行 → 接続の行」
+   * （上限の判定が取引ロックと users の行を先に取る。タスク45.2・72.3・76.1）。
    * 存在の確認の後、状態と最後の有効なシステム管理者の判定より前に、他のユーザーの管理の上限（要件38.13）を
    * 判定する。拒否では何も書かず、トランザクションの外で権限チェックの失敗を記録する。
    * @requirement user-authentication/REQ-36.1
@@ -212,6 +234,14 @@ export class AccountStatusService {
 
       // ローテーションと直列化して全リフレッシュトークンを失効させる（要件36.1）
       const revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, targetUserId);
+
+      // 外部アプリの全ての接続を同じ取引で失効させる（取引を戻すと失効も戻る。要件50.3・51.7）
+      await this.connectionRevoker.revokeAllForUser(
+        targetUserId,
+        'ACCOUNT_DEACTIVATED',
+        { userId: actorId, source: ctx },
+        tx
+      );
 
       const actor = await snapshotAuditActor(tx, actorId);
       await tx.auditLog.create({
@@ -317,8 +347,9 @@ export class AccountStatusService {
    * 90 日の自動無効化
    *
    * 最終ログイン・作成・最後の再有効化のうち最も新しい日時が `now` の 90 日前より前の有効な利用者を、
-   * 利用者ごとの取引で無効化する（状態・全リフレッシュトークンの失効・実行者の無い監査
-   * `USER_AUTO_DEACTIVATED`（`metadata.trigger='inactivity'`））。取引の中の条件付きの更新で条件を
+   * 利用者ごとの取引で無効化する（状態・全リフレッシュトークンの失効・外部アプリの全ての接続の失効（理由
+   * `ACCOUNT_DEACTIVATED`、実行者と送信元なし）・実行者の無い監査 `USER_AUTO_DEACTIVATED`
+   * （`metadata.trigger='inactivity'`））。一人の失敗はその利用者の取引だけを戻す。取引の中の条件付きの更新で条件を
    * 再判定するため、並行するログイン・再有効化に先を越された利用者は無効化しない。コミットの後に対象者ごとに
    * 状態のキャッシュを無効化し、対象の一覧を一通の通知で全システム管理者へ送る（対象が無ければ送らない）。
    * 何度実行しても、対象が無効になった後は何もしない（冪等）。最後の有効なシステム管理者も対象とする。
@@ -431,6 +462,15 @@ export class AccountStatusService {
       // ローテーションと直列化して全リフレッシュトークンを失効させる（無効な利用者は有効なリフレッシュ
       // トークンを持たない）
       const revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, userId);
+
+      // 外部アプリの全ての接続を同じ取引で失効させる。要求が無いので送信元を渡さない（監査の IP は null。
+      // 要件50.3・51.7）
+      await this.connectionRevoker.revokeAllForUser(
+        userId,
+        'ACCOUNT_DEACTIVATED',
+        { userId: null },
+        tx
+      );
 
       await tx.auditLog.create({
         data: {

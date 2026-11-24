@@ -289,7 +289,8 @@ describe('User Role Routes', () => {
       expect(response.status).toBe(204);
       expect(mockUserRoleService.deleteUser).toHaveBeenCalledWith(
         'target-user-id',
-        'admin-user-id'
+        'admin-user-id',
+        { ipAddress: expect.any(String), userAgent: undefined }
       );
     });
 

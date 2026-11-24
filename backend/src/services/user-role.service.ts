@@ -5,6 +5,8 @@
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
  *   （全システム管理者への通知の手段で送る。user-authentication タスク49.1）
+ * - user-authentication 50.3・51.7: 利用者の削除で、同じトランザクションの中で利用者の行を消す前に外部アプリの
+ *   全ての接続を失効させ、実行者・対象・アプリ・送信元 IP を監査に残す（タスク76.2）
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -17,6 +19,12 @@ import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { IAdminNotificationService } from './admin-notification.service.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
+import type { RequestContext } from '../types/auth.types.js';
+import { AuditLogService } from './audit-log.service.js';
+import {
+  ExternalAppConnectionService,
+  type UserConnectionRevoker,
+} from './external-app-connection.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
@@ -97,6 +105,8 @@ export type DeleteUserError =
  * 外部への通知（アラートメール・Sentry）と権限キャッシュの無効化はコミット後に行う。
  */
 export class UserRoleService implements IUserRoleService {
+  private readonly connectionRevoker: UserConnectionRevoker;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
@@ -112,8 +122,20 @@ export class UserRoleService implements IUserRoleService {
      * 利用者の削除に、保有ロールの優先度の最大値が実行者の上限を超える利用者の削除を拒否する（タスク62.1）。
      * API の経路（user-roles.routes.ts）は必ず渡す
      */
-    private readonly privilegeCeiling?: PrivilegeCeilingPort
-  ) {}
+    private readonly privilegeCeiling?: PrivilegeCeilingPort,
+    /**
+     * 外部アプリの接続の失効（利用者の削除で呼ぶ。user-authentication タスク76.2）。省略時は接続の管理を
+     * 監査ログとともに作る（認可サーバーを載せない環境でも失効させる）
+     */
+    connectionRevoker?: UserConnectionRevoker
+  ) {
+    this.connectionRevoker =
+      connectionRevoker ??
+      new ExternalAppConnectionService({
+        prisma,
+        auditLogService: auditLogService ?? new AuditLogService({ prisma }),
+      });
+  }
 
   /**
    * ユーザーにロールを追加
@@ -573,14 +595,23 @@ export class UserRoleService implements IUserRoleService {
    * トランザクションのクライアントで対象の利用者の行をロックしてから判定する（admin ロールの行のロックの後）。
    * 拒否では何も書かず、トランザクションの外で権限チェックの失敗（PERMISSION_CHECK_FAILED）を記録する
    *
+   * 外部アプリの接続（user-authentication 要件50.3・51.7。タスク76.2）: 接続は利用者の行の削除でカスケードして
+   * 監査なしに消えるため、利用者の行を消す前に、同じトランザクションで理由 `ACCOUNT_DELETED` で全ての接続を
+   * 失効させ、実行者・対象・アプリ・送信元を監査に残す（監査は利用者を外部キーで参照しないので削除の後も残る）。
+   * ロックの順序は「リフレッシュトークンの取引ロック → users の行（FOR UPDATE）→ 失効の取引ロック → Grant の行 →
+   * 接続の行」とする。失効より前に users の行を FOR UPDATE で取り、同意（users の行を FOR KEY SHARE で取ってから
+   * 失効の共有の取引ロックを待つ）が削除の行の消去と互いに待たないようにする
+   *
    * @param userId - 削除するユーザーID
    * @param actorId - 削除を実行するユーザーID（監査ログ用）
+   * @param source - 要求の送信元（接続の終了の監査に残す。要件51.7）
    * @returns 削除したユーザーのメールアドレス、または業務上のエラー
    * @throws データベースの例外（Prisma のエラー）と監査の記録の失敗はそのまま投げる
    */
   async deleteUser(
     userId: string,
-    actorId: string
+    actorId: string,
+    source: RequestContext = {}
   ): Promise<Result<{ email: string }, DeleteUserError>> {
     // 業務上の結果（不在・最後の管理者）だけを Err で返す。データベースの例外は捕まえずに投げ、
     // 呼び出し側（ルート）がエラーハンドラーへ渡して Prisma のエラーコードごとに応答を分類させる
@@ -652,6 +683,15 @@ export class UserRoleService implements IUserRoleService {
       // 取らないと、ローテーションが後継の INSERT の外部キーの検査で users の行を待ち、削除の連鎖が
       // ローテーションの更新した行を待って、デッドロックになる（タスク45.2）
       await lockUserRefreshTokens(tx, userId);
+      // users の行を消去と同じ強さで先に取る（上限の判定が取っていれば同じ取引の中で重ねて取るだけ）
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+      // 外部アプリの全ての接続を、カスケードで黙って消える前に失効させて監査に残す（要件50.3・51.7）
+      await this.connectionRevoker.revokeAllForUser(
+        userId,
+        'ACCOUNT_DELETED',
+        { userId: actorId, source },
+        tx
+      );
       // ユーザーを削除（カスケード削除で関連データも削除される）
       await tx.user.delete({ where: { id: userId } });
 

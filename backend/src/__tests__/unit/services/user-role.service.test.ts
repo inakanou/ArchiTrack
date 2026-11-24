@@ -155,6 +155,8 @@ describe('UserRoleService', () => {
       },
       // 最後の管理者の判定の前に取る admin ロールの行のロック（SELECT ... FOR NO KEY UPDATE）
       $queryRaw: vi.fn().mockResolvedValue([]),
+      // 利用者の削除で失効させる外部アプリの接続（タスク76.2。既定は接続なし）
+      externalAppConnection: { findMany: vi.fn().mockResolvedValue([]) },
       // 利用者の削除の前に取るリフレッシュトークンの取引ロック（pg_advisory_xact_lock）
       $executeRaw: vi.fn().mockResolvedValue(1),
       $transaction: vi.fn((callback) => callback(prismaMock)),
