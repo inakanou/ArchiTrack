@@ -289,7 +289,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(7);
+      expect(repeatables).toHaveLength(8);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -333,6 +333,13 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             name: 'soft-deleted-trading-partner-erase',
             id: 'soft-deleted-trading-partner-erase',
             cron: '45 3 * * *',
+            tz: 'Asia/Tokyo',
+          }),
+          // 外部アプリの接続の定期処理（user-authentication のタスク76.4）
+          expect.objectContaining({
+            name: 'external-app-maintenance',
+            id: 'external-app-maintenance',
+            cron: '20 * * * *',
             tz: 'Asia/Tokyo',
           }),
         ])
@@ -383,7 +390,13 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
       expect(nextErase.getUTCHours()).toBe(18);
       expect(nextErase.getUTCMinutes()).toBe(45);
       expect(nextErase.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
-      expect(await inspector.getDelayedCount()).toBe(7);
+      // 外部アプリの接続の定期処理（user-authentication のタスク76.4）の次の実行は毎時 20 分
+      const nextExternalAppMaintenance = new Date(
+        repeatables.find((job) => job.name === 'external-app-maintenance')?.next ?? 0
+      );
+      expect(nextExternalAppMaintenance.getUTCMinutes()).toBe(20);
+      expect(nextExternalAppMaintenance.getTime() - Date.now()).toBeLessThanOrEqual(HOUR_MS);
+      expect(await inspector.getDelayedCount()).toBe(8);
     } finally {
       await inspector.close();
     }

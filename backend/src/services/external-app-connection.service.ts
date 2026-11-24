@@ -1,12 +1,12 @@
 /**
  * @fileoverview 外部アプリの接続の作成・置き換え・有効性の判定・一覧・取り消し
- * （user-authentication タスク 72.1、72.2、72.3）
+ * （user-authentication タスク 72.1、72.2、72.3、76.4）
  *
  * 接続の唯一の持ち主として、行の変更と監査を同じトランザクションで行う。
  * 期限切れの終了の持ち主は `assertActive` であり、検証と定期処理はこれを呼ぶ。
  *
  * Requirements: 47.8, 48.2, 48.3, 48.6, 48.8, 48.10, 49.1, 49.4, 49.5, 49.6, 49.7, 49.8,
- * 50.1, 50.2, 50.3, 50.4, 51.7, 51.9
+ * 50.1, 50.2, 50.3, 50.4, 50.6, 51.7, 51.9
  *
  * @module services/external-app-connection
  */
@@ -54,6 +54,8 @@ export const CONNECTION_TOUCH_INTERVAL_MS = 60_000;
 export const CONNECTION_LIST_MAX_LIMIT = 100;
 /** 全利用者の一覧で読み飛ばせる行数の上限（DB の問い合わせの OFFSET を 32 ビットに収める） */
 export const CONNECTION_LIST_MAX_OFFSET = 2_147_483_647;
+/** 許可の一覧から外れたアプリの接続を 1 回の問い合わせで読む件数（タスク76.4） */
+export const REMOVED_CLIENT_BATCH_SIZE = 100;
 
 /** 同じ利用者とアプリの接続の置き換えを直列化する取引ロックの名前空間（第1キー） */
 const CONNECTION_LOCK_NAMESPACE = 72_001;
@@ -118,6 +120,20 @@ export class ConnectionRevocationConflictError extends Error {
   constructor() {
     super('同意の開始の後に接続が失効したため、接続を作れません');
     this.name = 'ConnectionRevocationConflictError';
+  }
+}
+
+/**
+ * 一括の終了で一部の接続を終了できなかった。終了できた接続はコミット済みで、失敗した接続は行も監査も
+ * 変わっていない。再実行で残りを終了する（タスク76.4）
+ */
+export class ConnectionBatchEndError extends Error {
+  constructor(
+    readonly ended: number,
+    readonly failed: number
+  ) {
+    super(`接続の一括の終了で ${failed} 件が失敗しました（終了 ${ended} 件）`);
+    this.name = 'ConnectionBatchEndError';
   }
 }
 
@@ -551,6 +567,64 @@ export class ExternalAppConnectionService {
   }
 
   /**
+   * 許可の一覧に無いアプリの接続を `CLIENT_REMOVED` で終了する（要件50.6、51.7。タスク76.4）
+   *
+   * 一覧が空（許可するアプリが設定されず認可の窓口が載らない環境）なら全ての接続を終了する。
+   * 接続は ID の昇順に一定の件数ずつ読み、1 件ずつ別のトランザクションで Grant の行をロックしてから
+   * 条件付きで消すので、トークンの保存と同意の置き換えと同じロックの順序になり、同時の呼び出し
+   * （複数のインスタンスの起動時の照合など）でも監査は接続を消せた 1 件だけになる。
+   * 1 件の失敗はその接続のトランザクションだけを戻し、残りの接続の処理を続ける。
+   * 要求の無い処理なので、監査の実行者と送信元は null とする。
+   *
+   * @param allowedClientIds - 許可の一覧のクライアント ID
+   * @returns この呼び出しが終了した接続の数
+   * @throws {ConnectionBatchEndError} 一部の接続を終了できなかったとき（他の接続の処理を終えてから投げる）
+   */
+  async revokeForRemovedClients(allowedClientIds: readonly string[]): Promise<number> {
+    const allowed = [...new Set(allowedClientIds)];
+    const removedWhere: Prisma.ExternalAppConnectionWhereInput =
+      allowed.length === 0 ? {} : { clientId: { notIn: allowed } };
+
+    let ended = 0;
+    let failed = 0;
+    let cursor: string | null = null;
+    for (;;) {
+      const batch: { id: string }[] = await this.deps.prisma.externalAppConnection.findMany({
+        where: { ...removedWhere, ...(cursor === null ? {} : { id: { gt: cursor } }) },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: REMOVED_CLIENT_BATCH_SIZE,
+      });
+      for (const { id } of batch) {
+        try {
+          if (await this.endForRemovedClient(id, removedWhere)) {
+            ended += 1;
+          }
+        } catch (error) {
+          failed += 1;
+          logger.warn(
+            {
+              connectionId: id,
+              errorName: error instanceof Error ? error.name : 'unknown',
+            },
+            'Failed to end an external app connection of a removed client'
+          );
+        }
+      }
+      const last = batch.at(-1);
+      if (last === undefined || batch.length < REMOVED_CLIENT_BATCH_SIZE) {
+        break;
+      }
+      cursor = last.id;
+    }
+
+    if (failed > 0) {
+      throw new ConnectionBatchEndError(ended, failed);
+    }
+    return ended;
+  }
+
+  /**
    * トークンの再利用の検知で接続を終了する（要件48.6、51.7、51.9）
    *
    * 消去と監査を 1 つのトランザクションで行い、コミットの後に消去に成功した呼び出しだけが通知する。
@@ -720,6 +794,47 @@ export class ExternalAppConnectionService {
           occurredAt: now,
           ipAddress: source?.ipAddress ?? null,
           userAgent: source?.userAgent ?? null,
+        },
+        tx
+      );
+      return true;
+    });
+  }
+
+  /**
+   * 許可の一覧に無いアプリの接続を 1 件、自身のトランザクションで終了する。
+   * 読み取りの後に他の処理が終了した接続は消せないので、監査を残さない
+   */
+  private async endForRemovedClient(
+    connectionId: string,
+    removedWhere: Prisma.ExternalAppConnectionWhereInput
+  ): Promise<boolean> {
+    return this.deps.prisma.$transaction(async (tx) => {
+      const row = await tx.externalAppConnection.findFirst({
+        where: { ...removedWhere, id: connectionId },
+      });
+      if (!row) {
+        return false;
+      }
+      const removed = await this.deleteConnectionAndGrantRows(
+        tx,
+        { ...removedWhere, id: row.id, grantId: row.grantId },
+        row.grantId
+      );
+      if (!removed) {
+        return false;
+      }
+      await this.recordEvent(
+        {
+          kind: 'CONNECTION_ENDED',
+          actorUserId: null,
+          targetUserId: row.userId,
+          clientId: row.clientId,
+          scopes: toScopes(row.scopes),
+          reason: 'CLIENT_REMOVED',
+          occurredAt: new Date(),
+          ipAddress: null,
+          userAgent: null,
         },
         tx
       );

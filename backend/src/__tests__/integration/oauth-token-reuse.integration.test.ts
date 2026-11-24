@@ -31,6 +31,7 @@ import {
   parseExternalAppOAuthConfig,
 } from '../../oauth/client-registry.js';
 import { createOAuthProviderHost, type OAuthProviderHost } from '../../oauth/provider.js';
+import { runExternalAppMaintenance } from '../../jobs/external-app-maintenance.job.js';
 import type { TokenReuseEvent } from '../../oauth/oauth.types.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { ExternalAppConnectionService } from '../../services/external-app-connection.service.js';
@@ -651,6 +652,49 @@ describe('使用済みの値の再提示（タスク73.3）', () => {
           } as Prisma.InputJsonObject,
         },
       });
+
+      await expectInvalidGrant(await exchange(flow));
+
+      await expectConnectionEnded(flow);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-47.10（タスク76.4: 定期処理の保存データの片付けの後）
+     */
+    it('期限切れの使用済みのコードは定期処理の後も残り、再提示で接続が終わる', async () => {
+      const flow = await startFlow();
+      await firstRefreshToken(flow);
+      const code = await prisma.oAuthStoreRecord.findFirstOrThrow({
+        where: { grantId: flow.grantId, kind: 'AuthorizationCode' },
+      });
+      expect(code.consumedAt).not.toBeNull();
+      const past = Math.floor(Date.now() / 1000) - 60;
+      await prisma.oAuthStoreRecord.update({
+        where: { id: code.id },
+        data: {
+          expiresAt: new Date(past * 1000),
+          payload: {
+            ...(code.payload as Record<string, unknown>),
+            exp: past,
+          } as Prisma.InputJsonObject,
+        },
+      });
+
+      await runExternalAppMaintenance(
+        {
+          prisma,
+          connectionService: new ExternalAppConnectionService({
+            prisma,
+            auditLogService: new AuditLogService({ prisma }),
+          }),
+          loadAllowedClientIds: () => [CLIENT_ID, OTHER_CLIENT_ID],
+        },
+        new Date()
+      );
+      expect(await prisma.oAuthStoreRecord.count({ where: { id: code.id } })).toBe(1);
+      expect(await prisma.externalAppConnection.count({ where: { grantId: flow.grantId } })).toBe(
+        1
+      );
 
       await expectInvalidGrant(await exchange(flow));
 
