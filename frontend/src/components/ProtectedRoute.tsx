@@ -33,6 +33,16 @@ export interface ProtectedRouteProps {
    * 必要なロール（指定した場合、そのロールを持つユーザーのみアクセス可能）
    */
   requiredRole?: 'admin' | 'user';
+
+  /**
+   * 利用者の状態による制限中（初回のパスワード変更・2FA 未登録）でも、制限の画面へ置き換えずに表示する
+   * （デフォルト: false）
+   *
+   * 外部アプリの接続の同意の画面だけが使う。制限中の利用者には操作を出さず、設定を済ませてから
+   * アプリで接続し直すよう案内する（user-authentication タスク78.1、2026-11-24 の利用者の判断）。
+   * 画面は制限中の利用者に API を呼ばず、backend も 403 で拒否する（要件34.2 に例外を作らない）
+   */
+  allowRestrictedUser?: boolean;
 }
 
 /**
@@ -72,6 +82,7 @@ export function ProtectedRoute({
   redirectTo = '/login',
   requireAuth = true,
   requiredRole,
+  allowRestrictedUser = false,
 }: ProtectedRouteProps): ReactElement {
   const {
     isAuthenticated,
@@ -138,7 +149,8 @@ export function ProtectedRoute({
 
     // 利用者の状態による遷移の制限（user-authentication タスク47.6）。ロールの確認より前に行う
     const restriction = getUserRestriction(user);
-    if (restriction) {
+    // allowRestrictedUser の経路は置き換えず、画面が制限中の案内を出す
+    if (restriction && !allowRestrictedUser) {
       const allowedPath = restrictedPathFor(restriction);
       if (location.pathname !== allowedPath) {
         const currentPath = location.pathname + location.search;
@@ -152,7 +164,7 @@ export function ProtectedRoute({
           />
         );
       }
-    } else if (location.pathname === PASSWORD_SETUP_PATH) {
+    } else if (!restriction && location.pathname === PASSWORD_SETUP_PATH) {
       // 初回のパスワード変更を要しない利用者は、プロフィール画面のパスワード変更を使う
       return <Navigate to="/profile" replace />;
     }

@@ -57,3 +57,27 @@ export const WithError: Story = {
     onVerifyTOTP: fn().mockRejectedValue(new Error('TOTPコードが正しくありません')),
   },
 };
+
+/**
+ * 外部アプリの接続の同意の画面での表示（user-authentication タスク78.1）
+ * 入力欄の注意を常に示し、取り消しのボタンを「接続を拒否する」にする
+ */
+export const ConsentNotice: Story = {
+  args: {
+    notice: 'ログインで使ったコードは使えません。次のコードをお待ちください',
+    cancelLabel: '接続を拒否する',
+    disableTimer: true,
+  },
+};
+
+/**
+ * 呼び出し側の送信中（入力・検証・取り消しを受け付けない）
+ */
+export const Disabled: Story = {
+  args: {
+    notice: 'ログインで使ったコードは使えません。次のコードをお待ちください',
+    cancelLabel: '接続を拒否する',
+    disableTimer: true,
+    disabled: true,
+  },
+};

@@ -64,6 +64,7 @@ import OrderDetailPage from './pages/OrderDetailPage';
 import ProgressInputPage from './pages/ProgressInputPage';
 import UnitPriceLedgerPage from './pages/UnitPriceLedgerPage';
 import LedgerQuotationDetailPage from './pages/LedgerQuotationDetailPage';
+import { OAuthConsentPage } from './pages/OAuthConsentPage';
 
 /**
  * アプリケーションのルート設定
@@ -110,6 +111,17 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
         <PasswordResetPage />
+      </ProtectedRoute>
+    ),
+  },
+
+  // 外部アプリの接続の同意（user-authentication 要件47.1・47.4、タスク78.1。AppHeaderなし）
+  // 未ログインならログインの後に同じ経路へ戻る。制限中の利用者は置き換えず、画面が案内だけを出す
+  {
+    path: '/connect/consent/:uid',
+    element: (
+      <ProtectedRoute allowRestrictedUser>
+        <OAuthConsentPage />
       </ProtectedRoute>
     ),
   },

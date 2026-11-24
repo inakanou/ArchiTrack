@@ -508,4 +508,106 @@ describe('TwoFactorVerificationForm', () => {
       });
     });
   });
+
+  /**
+   * 同意の画面（user-authentication タスク78.1）が使う任意の指定。省略時のログインの表示は変えない
+   */
+  describe('同意の画面向けの任意の指定', () => {
+    const notice = 'ログインで使ったコードは使えません。次のコードをお待ちください';
+
+    it('notice を TOTP とバックアップコードの両方の入力の説明として示す', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <TwoFactorVerificationForm
+          onVerifyTOTP={mockOnVerifyTOTP}
+          onVerifyBackupCode={mockOnVerifyBackupCode}
+          onCancel={mockOnCancel}
+          disableTimer={true}
+          notice={notice}
+        />
+      );
+
+      expect(screen.getByRole('group', { name: '認証コード入力' })).toHaveAccessibleDescription(
+        notice
+      );
+      await user.click(screen.getByRole('button', { name: 'バックアップコードを使用する' }));
+      expect(screen.getByLabelText('バックアップコード')).toHaveAccessibleDescription(notice);
+    });
+
+    it('notice を省略したら説明を付けない（ログインの表示は変えない）', () => {
+      render(
+        <TwoFactorVerificationForm
+          onVerifyTOTP={mockOnVerifyTOTP}
+          onVerifyBackupCode={mockOnVerifyBackupCode}
+          onCancel={mockOnCancel}
+          disableTimer={true}
+        />
+      );
+
+      expect(screen.getByRole('group', { name: '認証コード入力' })).not.toHaveAttribute(
+        'aria-describedby'
+      );
+      expect(screen.getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+    });
+
+    it('cancelLabel で取り消しのボタンの文言を変える', () => {
+      render(
+        <TwoFactorVerificationForm
+          onVerifyTOTP={mockOnVerifyTOTP}
+          onVerifyBackupCode={mockOnVerifyBackupCode}
+          onCancel={mockOnCancel}
+          disableTimer={true}
+          cancelLabel="接続を拒否する"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: '接続を拒否する' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'キャンセル' })).not.toBeInTheDocument();
+    });
+
+    it('disabled の間は入力・検証・取り消しを受け付けない', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <TwoFactorVerificationForm
+          onVerifyTOTP={mockOnVerifyTOTP}
+          onVerifyBackupCode={mockOnVerifyBackupCode}
+          onCancel={mockOnCancel}
+          disableTimer={true}
+          disabled={true}
+        />
+      );
+
+      for (const input of screen.getAllByRole('textbox')) {
+        expect(input).toBeDisabled();
+      }
+      expect(screen.getByRole('button', { name: '検証' })).toBeDisabled();
+      const cancel = screen.getByRole('button', { name: 'キャンセル' });
+      expect(cancel).toBeDisabled();
+      await user.click(cancel);
+      expect(mockOnCancel).not.toHaveBeenCalled();
+      const toggle = screen.getByRole('button', { name: 'バックアップコードを使用する' });
+      expect(toggle).toBeDisabled();
+      await user.click(toggle);
+      expect(screen.queryByLabelText('バックアップコード')).not.toBeInTheDocument();
+    });
+
+    it('disabled を省略したら切り替えを押せる（ログインの表示は変えない）', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <TwoFactorVerificationForm
+          onVerifyTOTP={mockOnVerifyTOTP}
+          onVerifyBackupCode={mockOnVerifyBackupCode}
+          onCancel={mockOnCancel}
+          disableTimer={true}
+        />
+      );
+
+      const toggle = screen.getByRole('button', { name: 'バックアップコードを使用する' });
+      expect(toggle).toBeEnabled();
+      await user.click(toggle);
+      const back = screen.getByRole('button', { name: '認証コードを使用する' });
+      expect(back).toBeEnabled();
+      expect(screen.getByLabelText('バックアップコード')).toBeEnabled();
+    });
+  });
 });

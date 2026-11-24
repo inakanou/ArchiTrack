@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ChangeEvent, FormEvent } from 'react';
+import { useState, useRef, useEffect, useId, ChangeEvent, FormEvent } from 'react';
 import type { VerifyTOTPResult, VerifyBackupCodeResult } from '../types/two-factor.types';
 
 interface TwoFactorVerificationFormProps {
@@ -6,6 +6,15 @@ interface TwoFactorVerificationFormProps {
   onVerifyBackupCode: (backupCode: string) => Promise<VerifyBackupCodeResult>;
   onCancel: () => void;
   disableTimer?: boolean; // テスト用: タイマーを無効化
+  /**
+   * 入力欄の説明として常に示す注意（入力の説明として読み上げる。外部アプリの同意の画面。
+   * user-authentication タスク78.1）。省略時は示さない
+   */
+  notice?: string;
+  /** 取り消しのボタンの文言（省略時は「キャンセル」） */
+  cancelLabel?: string;
+  /** 真の間は入力・検証・取り消しを受け付けない（呼び出し側の送信中など） */
+  disabled?: boolean;
 }
 
 /**
@@ -18,7 +27,12 @@ function TwoFactorVerificationForm({
   onVerifyBackupCode,
   onCancel,
   disableTimer = false,
+  notice,
+  cancelLabel = 'キャンセル',
+  disabled = false,
 }: TwoFactorVerificationFormProps) {
+  const noticeId = useId();
+  const describedBy = notice ? noticeId : undefined;
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [totpCode, setTotpCode] = useState(['', '', '', '', '', '']);
   const [backupCode, setBackupCode] = useState('');
@@ -163,6 +177,22 @@ function TwoFactorVerificationForm({
       )}
 
       <form onSubmit={handleSubmit}>
+        {notice && (
+          <p
+            id={noticeId}
+            style={{
+              marginBottom: '12px',
+              padding: '8px 12px',
+              backgroundColor: '#fff8e1',
+              border: '1px solid #f0c36d',
+              borderRadius: '4px',
+              color: '#5c4400',
+              fontSize: '14px',
+            }}
+          >
+            {notice}
+          </p>
+        )}
         {!useBackupCode ? (
           <>
             {/* TOTPモード */}
@@ -208,6 +238,7 @@ function TwoFactorVerificationForm({
             <div
               role="group"
               aria-label="認証コード入力"
+              aria-describedby={describedBy}
               style={{
                 display: 'flex',
                 gap: '8px',
@@ -232,6 +263,7 @@ function TwoFactorVerificationForm({
                   onPaste={index === 0 ? handlePaste : undefined}
                   aria-label={`認証コード ${index + 1}桁目`}
                   data-testid={`totp-digit-${index}`}
+                  disabled={disabled}
                   style={{
                     width: '48px',
                     height: '56px',
@@ -249,6 +281,7 @@ function TwoFactorVerificationForm({
               <button
                 type="button"
                 onClick={() => setUseBackupCode(true)}
+                disabled={disabled}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -290,6 +323,8 @@ function TwoFactorVerificationForm({
                   setBackupCode(e.target.value.toUpperCase())
                 }
                 maxLength={8}
+                disabled={disabled}
+                aria-describedby={describedBy}
                 style={{
                   width: '100%',
                   padding: '10px',
@@ -308,6 +343,7 @@ function TwoFactorVerificationForm({
               <button
                 type="button"
                 onClick={() => setUseBackupCode(false)}
+                disabled={disabled}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -328,6 +364,7 @@ function TwoFactorVerificationForm({
           <button
             type="button"
             onClick={onCancel}
+            disabled={disabled}
             style={{
               flex: 1,
               padding: '10px 20px',
@@ -339,11 +376,12 @@ function TwoFactorVerificationForm({
               fontSize: '14px',
             }}
           >
-            キャンセル
+            {cancelLabel}
           </button>
           <button
             type="submit"
             disabled={
+              disabled ||
               isLoading ||
               (!useBackupCode && totpCode.join('').length !== 6) ||
               (useBackupCode && !backupCode)
