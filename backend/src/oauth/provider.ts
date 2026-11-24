@@ -30,6 +30,10 @@ import Provider, {
 import { createRuntimeMode } from '../config/runtime-mode.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getClientIp } from '../middleware/client-ip.js';
+import {
+  createExternalAppAuth,
+  type ExternalAppAuth,
+} from '../middleware/external-app-auth.middleware.js';
 import type { RateLimiterDependencies } from '../middleware/rateLimit.middleware.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import { ExternalAppConnectionService } from '../services/external-app-connection.service.js';
@@ -94,6 +98,8 @@ export interface MountedExternalAppOAuth extends OAuthProviderHost {
   readonly resourceUrl: string;
   /** 外部アプリ用トークンの検証（タスク75.1。窓口のミドルウェアが使う） */
   readonly tokenVerifier: ExternalAppTokenVerifier;
+  /** 外部アプリ用の窓口に掛ける認証・範囲の確認・利用者ごとの回数制限（タスク75.2） */
+  readonly externalAppAuth: ExternalAppAuth;
 }
 
 /**
@@ -471,12 +477,9 @@ export function mountExternalAppOAuth(
     auditLogService: new AuditLogService({ prisma }),
     clientRegistry,
   });
-  const host = createOAuthProviderHost(config, {
-    prisma,
-    connectionService,
-    // 設定と同じ環境変数で実行環境を判定する（本番・未設定・未知の値では無効化を読まない）
-    rateLimit: { runtimeMode: createRuntimeMode(source) },
-  });
+  // 設定と同じ環境変数で実行環境を判定する（本番・未設定・未知の値では無効化を読まない）
+  const rateLimit = { runtimeMode: createRuntimeMode(source) };
+  const host = createOAuthProviderHost(config, { prisma, connectionService, rateLimit });
   app.use(host.middleware);
   const tokenVerifier = new ExternalAppTokenVerifier({
     provider: host.provider,
@@ -485,11 +488,18 @@ export function mountExternalAppOAuth(
     clientRegistry,
     resourceUrl: config.resourceUrl,
   });
+  const externalAppAuth = createExternalAppAuth({
+    verifier: tokenVerifier,
+    resourceUrl: config.resourceUrl,
+    rateLimit: config.resourceRateLimit,
+    rateLimitDeps: rateLimit,
+  });
   return {
     ...host,
     connectionService,
     clientRegistry,
     resourceUrl: config.resourceUrl,
     tokenVerifier,
+    externalAppAuth,
   };
 }

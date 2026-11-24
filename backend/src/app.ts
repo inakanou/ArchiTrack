@@ -68,7 +68,10 @@ import orderRoutes from './routes/order.routes.js';
 import progressRoutes from './routes/progress.routes.js';
 import costMonthlyCloseRoutes from './routes/cost-monthly-close.routes.js';
 import exportRoutes from './routes/export.routes.js';
-import { mountExternalAppConsentRoutes } from './routes/external-app.routes.js';
+import {
+  mountExternalAppConsentRoutes,
+  mountExternalAppResourceRoutes,
+} from './routes/external-app.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -140,6 +143,8 @@ app.use(
 // 認可サーバーが載っていない環境では載せない（404 のまま）
 if (externalAppOAuth) {
   mountExternalAppConsentRoutes(app, externalAppOAuth, getPrismaClient());
+  // 外部アプリ用の窓口の確認用の経路（要件51.2。業務データを返さない）。設定が無ければ載せない（404 のまま）
+  mountExternalAppResourceRoutes(app, externalAppOAuth);
 }
 
 // Claude Vision API routes (registered BEFORE global body-parser to use route-level 50MB limit)

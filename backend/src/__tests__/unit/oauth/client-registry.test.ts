@@ -161,6 +161,60 @@ describe('parseExternalAppOAuthConfig', () => {
     });
   });
 
+  describe('外部アプリ用の窓口の利用者ごとの回数制限（要件51.4・51.5、タスク75.2）', () => {
+    it('未設定なら 1 分 120 回になる', () => {
+      expect(parseExternalAppOAuthConfig(source())?.resourceRateLimit).toEqual({
+        max: 120,
+        windowMs: 60_000,
+      });
+    });
+
+    it('空の値は未設定として扱う', () => {
+      const config = parseExternalAppOAuthConfig(
+        source({ EXTERNAL_APP_RATE_LIMIT_MAX: ' ', EXTERNAL_APP_RATE_LIMIT_WINDOW_MS: '' })
+      );
+      expect(config?.resourceRateLimit).toEqual({ max: 120, windowMs: 60_000 });
+    });
+
+    it('環境変数で変えられ、認可の窓口の制限の値と独立している（範囲の両端を含む）', () => {
+      const config = parseExternalAppOAuthConfig(
+        source({ EXTERNAL_APP_RATE_LIMIT_MAX: '1', EXTERNAL_APP_RATE_LIMIT_WINDOW_MS: '1000' })
+      );
+      expect(config?.resourceRateLimit).toEqual({ max: 1, windowMs: 1000 });
+      expect(config?.rateLimit).toEqual({ authorizeMax: 60, tokenMax: 300, windowMs: 60_000 });
+      expect(
+        parseExternalAppOAuthConfig(
+          source({
+            EXTERNAL_APP_RATE_LIMIT_MAX: '100000',
+            EXTERNAL_APP_RATE_LIMIT_WINDOW_MS: '86400000',
+          })
+        )?.resourceRateLimit
+      ).toEqual({ max: 100_000, windowMs: 86_400_000 });
+    });
+
+    it.each([
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', '0'],
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', '-1'],
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', '1.5'],
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', '1e3'],
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', 'off'],
+      ['EXTERNAL_APP_RATE_LIMIT_MAX', '100001'],
+      ['EXTERNAL_APP_RATE_LIMIT_WINDOW_MS', '999'],
+      ['EXTERNAL_APP_RATE_LIMIT_WINDOW_MS', '86400001'],
+      ['EXTERNAL_APP_RATE_LIMIT_WINDOW_MS', 'abc'],
+    ])('%s が %j なら起動を止め、値を文に含めない', (name, value) => {
+      const error = failure(source({ [name]: value }));
+      const text = [error.message, ...error.issues].join('\n');
+      expect(text).toContain(name);
+      expect(text).not.toContain(value.trim());
+    });
+
+    it('開発・試験の実行環境でも不正な値は起動を止める', () => {
+      const error = failure(source({ NODE_ENV: 'test', EXTERNAL_APP_RATE_LIMIT_MAX: '0' }));
+      expect(error.issues.join('\n')).toContain('EXTERNAL_APP_RATE_LIMIT_MAX');
+    });
+  });
+
   describe('必須の鍵', () => {
     it.each([
       'OAUTH_ISSUER',

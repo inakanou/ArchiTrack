@@ -7,6 +7,9 @@
  * - 本文は認証と CSRF の検証の後に、この経路の小さな上限で解析する（全体の `express.json` より前に載せる）
  * - 再開の URL は認可サーバーが発行者の値で作ったものを返す。要求の Host と転送ヘッダーを使わない
  * - 応答とログに 2FA のコードや要求の値を含めない（要件48.8）
+ * - 外部アプリ用の窓口の確認用の経路（`/oauth/resource/whoami` と `/write-access`。タスク75.2）は
+ *   範囲とアプリ名だけを返し、業務データを返さない。claude-connector の窓口が載るまで、本番の入口からの到達と
+ *   統合テストに使う
  *
  * Design: Requirements 46-51 > ExternalAppRoutes
  *
@@ -16,6 +19,7 @@
  * @requirement user-authentication/REQ-47.1
  * @requirement user-authentication/REQ-47.3
  * @requirement user-authentication/REQ-47.11
+ * @requirement user-authentication/REQ-51.2
  *
  * @module routes/external-app
  */
@@ -36,7 +40,12 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
 import { csrfProtection } from '../middleware/csrf.middleware.js';
+import {
+  getExternalAppPrincipal,
+  type ExternalAppAuth,
+} from '../middleware/external-app-auth.middleware.js';
 import { rateLimiters } from '../middleware/rateLimit.middleware.js';
+import type { ExternalAppClientRegistry } from '../oauth/client-registry.js';
 import { OAUTH_ERROR_PAGE, type MountedExternalAppOAuth } from '../oauth/provider.js';
 import redis from '../redis.js';
 import {
@@ -323,4 +332,51 @@ export function mountExternalAppConsentRoutes(
     getRedis: () => redis.getClient(),
   });
   app.use('/oauth/interaction', createExternalAppRoutes({ consent }));
+}
+
+/**
+ * 外部アプリ用の窓口の確認用の経路を作る。`/oauth/resource` に載せる
+ *
+ * - `GET /whoami`（read）: 範囲とアプリ名だけを返す
+ * - `GET /whoami/write-access`（write）: 204。読み取りだけの接続は 403
+ *
+ * @param auth - 窓口の認証・範囲の確認・回数制限
+ * @param clientRegistry - 許可するアプリ（表示名を引く）
+ * @returns ルーター
+ */
+export function createExternalAppResourceRoutes(
+  auth: ExternalAppAuth,
+  clientRegistry: Pick<ExternalAppClientRegistry, 'loadAllowedClients'>
+): Router {
+  const router = Router();
+
+  router.get('/whoami', ...auth.protect('read'), (req, res) => {
+    const principal = getExternalAppPrincipal(req);
+    const app = clientRegistry
+      .loadAllowedClients()
+      .find((client) => client.clientId === principal.clientId);
+    res.json({ scopes: principal.scopes, appName: app?.displayName ?? null });
+  });
+
+  router.get('/whoami/write-access', ...auth.protect('write'), (_req, res) => {
+    res.status(204).end();
+  });
+
+  return router;
+}
+
+/**
+ * 認可サーバーが載っている環境でだけ、外部アプリ用の窓口の確認用の経路を載せる
+ *
+ * @param app - Express のアプリ
+ * @param mounted - 載せた認可サーバー
+ */
+export function mountExternalAppResourceRoutes(
+  app: Express,
+  mounted: MountedExternalAppOAuth
+): void {
+  app.use(
+    '/oauth/resource',
+    createExternalAppResourceRoutes(mounted.externalAppAuth, mounted.clientRegistry)
+  );
 }

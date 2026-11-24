@@ -50,9 +50,20 @@ describe('app.ts への搭載（設定なし）', () => {
     ['post', `/oauth/interaction/${'a'.repeat(43)}/second-factor`],
     ['post', `/oauth/interaction/${'a'.repeat(43)}/approve`],
     ['post', `/oauth/interaction/${'a'.repeat(43)}/deny`],
+    // 外部アプリ用の窓口の確認用の経路（タスク75.2）も載せない
+    ['get', '/oauth/resource/whoami'],
+    ['get', '/oauth/resource/whoami/write-access'],
   ] as const)('%s %s は 404 のまま', async (method, path) => {
     const response = await request(app)[method](path);
     expect(response.status).toBe(404);
+  });
+
+  it('外部アプリ用の窓口は Bearer を付けても 404 で、挑戦を返さない（タスク75.2）', async () => {
+    const response = await request(app)
+      .get('/oauth/resource/whoami')
+      .set('Authorization', 'Bearer some-token');
+    expect(response.status).toBe(404);
+    expect(response.headers['www-authenticate']).toBeUndefined();
   });
 
   it('既存の /.well-known/jwks.json は動く', async () => {

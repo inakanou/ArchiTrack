@@ -22,6 +22,9 @@ const RATE_LIMIT_WINDOW_MAX_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUTHORIZE_RATE_LIMIT = 60;
 const DEFAULT_TOKEN_RATE_LIMIT = 300;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+/** 外部アプリ用の窓口の利用者ごとの既定（要件51.4: 1 分 120 回） */
+const DEFAULT_RESOURCE_RATE_LIMIT = 120;
+const DEFAULT_RESOURCE_RATE_LIMIT_WINDOW_MS = 60_000;
 
 /** HTTP と試験用の値を許す環境。未設定や未知の値は本番と同じく閉じる側に倒す */
 const NON_PRODUCTION_ENVS: readonly unknown[] = ['development', 'test'];
@@ -54,6 +57,12 @@ export interface ExternalAppOAuthRateLimit {
   readonly windowMs: number;
 }
 
+/** 外部アプリ用の窓口の利用者ごとの回数制限（要件51.4・51.5）。利用者の全ての接続を合算して数える */
+export interface ExternalAppResourceRateLimit {
+  readonly max: number;
+  readonly windowMs: number;
+}
+
 export interface ExternalAppOAuthConfig {
   readonly issuer: string;
   readonly resourceUrl: string;
@@ -62,6 +71,7 @@ export interface ExternalAppOAuthConfig {
   readonly tokenHmacKey: string;
   readonly clients: readonly AllowedExternalApp[];
   readonly rateLimit: ExternalAppOAuthRateLimit;
+  readonly resourceRateLimit: ExternalAppResourceRateLimit;
 }
 
 export interface ExternalAppClientRegistry {
@@ -383,6 +393,30 @@ function parseRateLimit(source: NodeJS.ProcessEnv, issues: string[]): ExternalAp
   };
 }
 
+function parseResourceRateLimit(
+  source: NodeJS.ProcessEnv,
+  issues: string[]
+): ExternalAppResourceRateLimit {
+  return {
+    max: readRateLimitValue(
+      source,
+      'EXTERNAL_APP_RATE_LIMIT_MAX',
+      DEFAULT_RESOURCE_RATE_LIMIT,
+      1,
+      RATE_LIMIT_MAX_BOUND,
+      issues
+    ),
+    windowMs: readRateLimitValue(
+      source,
+      'EXTERNAL_APP_RATE_LIMIT_WINDOW_MS',
+      DEFAULT_RESOURCE_RATE_LIMIT_WINDOW_MS,
+      RATE_LIMIT_WINDOW_MIN_MS,
+      RATE_LIMIT_WINDOW_MAX_MS,
+      issues
+    ),
+  };
+}
+
 /**
  * 環境変数から設定を読む
  *
@@ -430,6 +464,7 @@ export function parseExternalAppOAuthConfig(
   }
   const cookieKeys = parseCookieKeys(source, tokenHmacKey, strict, issues);
   const rateLimit = parseRateLimit(source, issues);
+  const resourceRateLimit = parseResourceRateLimit(source, issues);
 
   if (clients !== undefined) {
     const otherSecrets = reservedSecrets(source);
@@ -450,7 +485,16 @@ export function parseExternalAppOAuthConfig(
   ) {
     throw new ExternalAppConfigError(issues);
   }
-  return { issuer, resourceUrl, jwks, cookieKeys, tokenHmacKey, clients, rateLimit };
+  return {
+    issuer,
+    resourceUrl,
+    jwks,
+    cookieKeys,
+    tokenHmacKey,
+    clients,
+    rateLimit,
+    resourceRateLimit,
+  };
 }
 
 export function createExternalAppClientRegistry(

@@ -2203,7 +2203,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 72.1, 73.2_
   - _Requirements: 33.3, 48.2, 48.3, 48.9, 51.1, 51.3, 51.7_
 
-- [ ] 75.2 窓口に掛ける認証・範囲の確認・回数制限を作る
+- [x] 75.2 窓口に掛ける認証・範囲の確認・回数制限を作る
   - 要求の送信元 IP とユーザーエージェントを検証へ渡す
   - 401 と 403 に設計どおりの `WWW-Authenticate` を返す
   - 利用者の全接続を合算して 1 分 120 回で 429 と再試行までの時間を返し、回数と期間は環境ごとに変更でき、本番では無効化できない
@@ -2218,6 +2218,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **タスク75の記録（2026-11-24）**:
 - 75.1: `ExternalAppTokenVerifier.verify(bearerToken, now, source)` を作った。保存アダプター経由の `AccessToken.find` で読み、種別・期限・想定利用者（`OAUTH_RESOURCE_URL` と完全一致）・許可するアプリ・接続（`assertActive` に送信元を渡す）・利用者の有効性・制限中でないこと・`external_app:connect` を確かめる。権限は RBAC のキャッシュでなく DB の現在の値を同じ照合の規則で判定する（design.md の依存の表記も改めた）。範囲はトークンと接続の共通部分で `read` が必須。取り消しとの競合は `confirmNotEnded`（接続の行の `FOR KEY SHARE`）で待つ。不成立はすべて 401 `INVALID_TOKEN`。単体 8,443 件・統合 2,224 件が緑。**75.2 への申し送り**: DB の失敗の `ExternalAppTokenVerificationError` を 5xx に写す（401 にすると外部アプリが正常な接続を捨てる）。OAuth が未設定で検証が無い環境の扱いを決める。**79.1 への申し送り**: 接続とトークンの clientId の食い違い、再度の同意の後に古いアクセストークンが 401 になることのテストを足す
+- 75.2: `external-app-auth.middleware.ts` を作った。経路は `externalAppAuth.protect('read'|'write')` で範囲を必ず明示し、主体は WeakMap に置いて `getExternalAppPrincipal(req)` でだけ読む（画面用の `req.user` とは混ざらない）。401 は `Bearer resource_metadata="…", scope="read write"`（トークンを提示したときだけ `error="invalid_token"`）、403 は `insufficient_scope`、検証の基盤の失敗は 503。利用者ごとの回数制限は `rl:external-app:user:<userId>` で全接続を合算し（既定 1 分 120 回、`EXTERNAL_APP_RATE_LIMIT_MAX`・`_WINDOW_MS`）、認証の失敗は数えない。確認用の窓口 `/oauth/resource/whoami`（read）と `/write-access`（write）は業務データを返さない。単体 8,500 件・統合 2,249 件が緑。**claude-connector への申し送り**: `resource_metadata` の `/.well-known/oauth-protected-resource/<path>` の窓口と nginx の中継を足す。POST の窓口を足すときは本文の解析の順に注意する（この経路は全体の `express.json` より前に載る）。403 の `scope` を必要な範囲だけにするかを見直す。`/oauth/resource/*` に送信元 IP ごとの緩い制限を検討する。制限の超過の観測は `req.user` を読むので userId が null になる
 
 ## タスク76: 利用者の状態の変化による失効の結線（要件48・50）
 
