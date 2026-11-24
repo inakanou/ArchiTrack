@@ -38,6 +38,7 @@ import {
   createExternalAppClientRegistry,
   ExternalAppConfigError,
   parseExternalAppOAuthConfig,
+  type ExternalAppClientRegistry,
   type ExternalAppOAuthConfig,
 } from './client-registry.js';
 import { createOAuthRateLimiters, type OAuthRateLimiters } from './rate-limit.js';
@@ -64,7 +65,7 @@ const JWKS_PATH = '/oauth/jwks';
 const RESUME_PATH_PATTERN = /^\/oauth\/authorize\/[A-Za-z0-9_-]+$/;
 
 /** 利用者へ見せるエラー画面。要求の値を一切含めない（要件46.5） */
-const ERROR_PAGE = `<!DOCTYPE html>
+export const OAUTH_ERROR_PAGE = `<!DOCTYPE html>
 <html lang="ja">
 <head><meta charset="utf-8"><title>接続できませんでした</title></head>
 <body><h1>接続できませんでした</h1><p>接続を開始したアプリに戻り、もう一度お試しください。</p></body>
@@ -83,6 +84,13 @@ export interface OAuthProviderHostDeps {
 export interface OAuthProviderHost {
   readonly provider: Provider;
   readonly middleware: RequestHandler;
+}
+
+/** 載せた認可サーバーと、同意の経路（タスク74.3）が使う部品 */
+export interface MountedExternalAppOAuth extends OAuthProviderHost {
+  readonly connectionService: ExternalAppConnectionService;
+  readonly clientRegistry: ExternalAppClientRegistry;
+  readonly resourceUrl: string;
 }
 
 /**
@@ -296,7 +304,7 @@ function buildConfiguration(
     },
     renderError: async (ctx: OidcContext) => {
       ctx.type = 'html';
-      ctx.body = ERROR_PAGE;
+      ctx.body = OAUTH_ERROR_PAGE;
     },
   };
 }
@@ -449,15 +457,16 @@ export function mountExternalAppOAuth(
   app: Express,
   prisma: PrismaClient,
   source: NodeJS.ProcessEnv = process.env
-): OAuthProviderHost | null {
+): MountedExternalAppOAuth | null {
   const config = parseExternalAppOAuthConfig(source);
   if (config === null) {
     return null;
   }
+  const clientRegistry = createExternalAppClientRegistry(config);
   const connectionService = new ExternalAppConnectionService({
     prisma,
     auditLogService: new AuditLogService({ prisma }),
-    clientRegistry: createExternalAppClientRegistry(config),
+    clientRegistry,
   });
   const host = createOAuthProviderHost(config, {
     prisma,
@@ -466,5 +475,5 @@ export function mountExternalAppOAuth(
     rateLimit: { runtimeMode: createRuntimeMode(source) },
   });
   app.use(host.middleware);
-  return host;
+  return { ...host, connectionService, clientRegistry, resourceUrl: config.resourceUrl };
 }

@@ -45,6 +45,11 @@ describe('app.ts への搭載（設定なし）', () => {
     ['get', '/oauth/authorize/abc'],
     ['post', '/oauth/token'],
     ['get', '/oauth/jwks'],
+    ['get', `/oauth/interaction/${'a'.repeat(43)}`],
+    ['get', `/oauth/interaction/${'a'.repeat(43)}/details`],
+    ['post', `/oauth/interaction/${'a'.repeat(43)}/second-factor`],
+    ['post', `/oauth/interaction/${'a'.repeat(43)}/approve`],
+    ['post', `/oauth/interaction/${'a'.repeat(43)}/deny`],
   ] as const)('%s %s は 404 のまま', async (method, path) => {
     const response = await request(app)[method](path);
     expect(response.status).toBe(404);

@@ -68,6 +68,7 @@ import orderRoutes from './routes/order.routes.js';
 import progressRoutes from './routes/progress.routes.js';
 import costMonthlyCloseRoutes from './routes/cost-monthly-close.routes.js';
 import exportRoutes from './routes/export.routes.js';
+import { mountExternalAppConsentRoutes } from './routes/external-app.routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -111,7 +112,7 @@ app.use(
 
 // 外部アプリの認可サーバー（要件46〜48）。本文の解析と CORS より前に載せ、担当の経路だけを扱う。
 // 許可するアプリが無ければ何も載せない。構築の失敗は例外で起動を止める
-mountExternalAppOAuth(app, getPrismaClient());
+const externalAppOAuth = mountExternalAppOAuth(app, getPrismaClient());
 
 app.use(
   cors({
@@ -134,6 +135,12 @@ app.use(
     level: 6,
   })
 );
+
+// 同意の API（要件46・47）。認証と CSRF の検証の後に小さな上限で本文を読むので、全体の本文の解析より前に載せる。
+// 認可サーバーが載っていない環境では載せない（404 のまま）
+if (externalAppOAuth) {
+  mountExternalAppConsentRoutes(app, externalAppOAuth, getPrismaClient());
+}
 
 // Claude Vision API routes (registered BEFORE global body-parser to use route-level 50MB limit)
 // Requirements: 21.1 - ルートレベルで独自のexpress.json({ limit: '50mb' })を持つ

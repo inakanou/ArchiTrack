@@ -2182,7 +2182,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 72.1, 73.2_
   - _Requirements: 46.2, 46.3, 46.7, 47.1, 47.2, 47.4, 47.6, 47.7, 47.8, 51.7_
 
-- [ ] 74.3 同意の API を作る
+- [x] 74.3 同意の API を作る
   - 同意の URL から画面へ転送する経路（認証なし、`uid` の形を検証）と、その下の API を設ける
   - API は画面用のアクセストークンと手続きの Cookie を要し、状態を変える経路に CSRF の検証を掛け、2FA の経路に既存の試行制限を掛ける
   - 権限なし・制限中・2FA の失敗・期限切れの各応答が設計どおりであることを統合テストで確かめた状態になる
@@ -2191,6 +2191,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 **タスク74の記録（2026-11-24）**:
 - 74.1: `SecondFactorVerifier`（`second-factor-verifier.service.ts`）と `auth-audit-recorder.ts` へ、コードの照合・失敗の計数・ロック・監査を切り出した。TOTP のステップとバックアップコードは照合と同時に使用済みになるので、ログインと同意をまたいで二度通らない。ログインの challenge の消費・`lastLoginAt`・トークン発行は AuthService に残した。同意の成功は失敗回数を 0 に戻す（ロックは解除しない。要件27A.4 の「5回連続」）。ログインは 33 場面の新旧比較で一致し、既存のテストファイルは変更していない。単体 8,443 件・統合 2,073 件が緑。**74.2 への申し送り**: 同意は `verify` だけを使う（`verifyLoadedUser` は login 専用）。`verify` の DB の例外を 503 などへ写す。2FA 未設定の利用者が `verify` に届くと失敗を数えるので、先に状態を確かめる。照合の後に同意が失敗してもコードは戻らない
 - 74.2: `ConsentInteractionService`（`oauth-consent.service.ts`）を作った。失効の世代は `getInteraction` だけがサーバー側で結び付け、`verifySecondFactor` は読むだけで、無ければ `RECONNECT_REQUIRED`。通過の印は申し込みと利用者に結び付け、5 分・1 回限り。申し込みの結果は `withInteractionTransaction` で接続・監査と同じトランザクションに書くので、接続の無いコードと監査の無い拒否は出ない。`scope=write` だけと省略は `READ_SCOPE_REQUIRED` で広げず、未知の範囲は付与しない。実際の申し込みは Session の Cookie を外すので prompt `login` で届く。単体 8,443 件・統合 2,126 件が緑。**74.3 への申し送り**: `ConsentError` の 10 種を応答へ写す。**76.3 への申し送り**: 世代を進めるまで、確定時の確認の直後に権限を失う競合は塞がらない。**76.4 への申し送り**: Grant の消去も失敗した場合の孤立した Grant の行が消えることを統合テストで確かめる。**78.1 への申し送り**: 同意の送信中は二重の送信と遷移を防ぐ。Interaction の 600 秒が実際の操作に足りるかを実画面で確かめる。**配備時の確認**: 本番の Redis が 6.2 以上（`GETDEL`）であること
+- 74.3: `external-app.routes.ts` に `GET /oauth/interaction/:uid`（認証なし、43 文字の uid を検証して `/connect/consent/:uid` へ相対で転送）と、details・second-factor・approve・deny の API を作った。全体の `express.json` より前に載せ、認証と CSRF の後に 1kb の上限で本文を読む。OAuth が未設定なら載せない。2FA の経路は既存の `twoFactorVerify` の試行制限を使う。`redirectTo` は発行者の設定から作る。実 nginx 経由で Cookie・CSRF・2FA の制限・同意と拒否を確かめた。単体 8,443 件・統合 2,192 件が緑。**78 への申し送り**: 2FA のロックは 403（ログインは 429）。`vite.config.ts` に `/oauth` の中継が無いので、開発サーバーでの確認では足す。HTTPS での `Secure` Cookie は staging で確かめる。**79.4 への申し送り**: `.kiro/steering/tech.md` のテストの木の列挙に `unit/oauth/` を足す（71.2 で追加したディレクトリ。`check:steering-test-tree` が pre-push と CI で落ちる）。`backend/docs/api-spec.json` を更新する。**配備時の確認**: `FRONTEND_URL` と `OAUTH_ISSUER` が同じ公開オリジンであること（違うと CSRF の Origin 検証で同意の POST がすべて 403 になる）
 
 ## タスク75: 外部アプリ用トークンの検証（要件33・48・51）
 
@@ -2268,6 +2269,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 ## タスク78: 画面（要件46・47・49）
 
 - [ ] 78.1 同意の画面を作る
+  - パスワード変更・2FA 登録を求められている利用者には、拒否の操作を出さず「設定を済ませてからアプリで接続し直してください」と案内する（要件34.2 に例外を作らない。2026-11-24 の利用者の判断）
   - 2FA の入力欄に「ログインで使ったコードは使えません。次のコードをお待ちください」と常に示す（ログイン直後の同じコードは再利用として拒まれ、失敗に数えられる。2026-11-24 の利用者の判断）
   - 状態を変える要求へ CSRF トークンを付け、不一致のときに一度取り直す公開の手段を API クライアントに足す
   - 外部アプリの API クライアントと経路を足し、未ログインならログインして同じ画面へ戻る
