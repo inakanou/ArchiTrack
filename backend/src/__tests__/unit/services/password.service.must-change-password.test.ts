@@ -14,6 +14,7 @@ import { PasswordService } from '../../../services/password.service.js';
 import type { PrismaClient, User } from '../../../generated/prisma/client.js';
 import type { EmailService } from '../../../services/email.service.js';
 import { hashPasswordResetToken } from '../../../utils/password-reset-token.js';
+import type { UserConnectionRevoker } from '../../../services/external-app-connection.service.js';
 
 const USER_ID = 'user-must-change-1';
 const CURRENT_PASSWORD = 'InitialAdminPass123!';
@@ -25,13 +26,20 @@ describe('PasswordService（初回のパスワード変更の要否の解除）'
   let txUserUpdate: ReturnType<typeof vi.fn>;
   let transactionCommitted: boolean;
   let prisma: PrismaClient;
+  let tx: Record<string, unknown>;
+  /** 外部アプリの接続の失効（タスク76.1）。パスワードの更新と同じトランザクションの中で呼ばれる */
+  let revokeAllForUser: ReturnType<typeof vi.fn<UserConnectionRevoker['revokeAllForUser']>>;
 
   beforeEach(async () => {
     invalidate = vi.fn<(userId: string) => Promise<void>>().mockResolvedValue(undefined);
     txUserUpdate = vi.fn().mockResolvedValue({ id: USER_ID });
     transactionCommitted = false;
 
-    const tx = {
+    revokeAllForUser = vi.fn<UserConnectionRevoker['revokeAllForUser']>(async () => {
+      expect(transactionCommitted).toBe(false);
+      return 0;
+    });
+    tx = {
       user: { update: txUserUpdate },
       passwordHistory: {
         create: vi.fn(),
@@ -54,7 +62,15 @@ describe('PasswordService（初回のパスワード変更の要否の解除）'
       }),
     } as unknown as PrismaClient;
 
-    service = new PasswordService(prisma, {} as EmailService, undefined, { invalidate });
+    service = new PasswordService(
+      prisma,
+      {} as EmailService,
+      undefined,
+      { invalidate },
+      {
+        revokeAllForUser,
+      }
+    );
 
     const passwordHash = await service.hashPassword(CURRENT_PASSWORD);
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
@@ -74,6 +90,13 @@ describe('PasswordService（初回のパスワード変更の要否の解除）'
       where: { id: USER_ID },
       data: { passwordHash: expect.any(String), mustChangePassword: false },
     });
+    // 接続の失効は同じトランザクションの中で理由 PASSWORD_CHANGED で行う（タスク76.1）
+    expect(revokeAllForUser).toHaveBeenCalledWith(
+      USER_ID,
+      'PASSWORD_CHANGED',
+      { userId: USER_ID, source: {} },
+      tx
+    );
   });
 
   it('パスワード変更のコミットの後に利用者の状態のキャッシュを無効化する', async () => {

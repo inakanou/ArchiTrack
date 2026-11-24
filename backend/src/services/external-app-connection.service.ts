@@ -124,10 +124,20 @@ export class ConnectionRevocationConflictError extends Error {
 export interface ExternalAppConnectionServiceDependencies {
   prisma: PrismaClient;
   auditLogService: Pick<IAuditLogService, 'createLog'>;
-  clientRegistry: Pick<ExternalAppClientRegistry, 'loadAllowedClients'>;
+  /**
+   * 表示名の解決に使う許可の一覧。認可サーバーを載せない環境でも失効させる経路（パスワードの変更・
+   * 全デバイスのログアウトなど。タスク76.1）は省略し、そのとき表示名はクライアント ID になる
+   */
+  clientRegistry?: Pick<ExternalAppClientRegistry, 'loadAllowedClients'>;
   /** 再利用の通知の送り先。既定は共有の異常検知 */
   observeAnomaly?: (observation: AnomalyObservation) => void;
 }
+
+/**
+ * 利用者の状態の変化で全ての接続を失効させる部品（タスク76）。パスワードの変更・リセットと
+ * 全デバイスのログアウトは、これを自身のトランザクションの中で呼ぶ
+ */
+export type UserConnectionRevoker = Pick<ExternalAppConnectionService, 'revokeAllForUser'>;
 
 /** DB の範囲のうち、知っている値だけを権限として扱う */
 function toScopes(scopes: readonly string[]): ExternalAppScope[] {
@@ -884,7 +894,7 @@ export class ExternalAppConnectionService {
 
   private toView(row: ConnectionViewRow): ExternalAppConnectionView {
     const app = this.deps.clientRegistry
-      .loadAllowedClients()
+      ?.loadAllowedClients()
       .find((client) => client.clientId === row.clientId);
     return {
       id: row.id,

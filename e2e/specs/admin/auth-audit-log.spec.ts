@@ -269,13 +269,15 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
         where: { action: 'TWO_FACTOR_VERIFIED', targetId: user.id, actorId: user.id },
       })
     ).toBe(2);
-    // ログアウトはメニューからの 1 回と、全デバイスのログアウトの後に画面が続けて行う 1 回
-    // （frontend/src/pages/Sessions.tsx の handleConfirmLogoutAll が logout-all の後に logout を呼ぶ）
+    // ログアウトはメニューからの 1 回だけが残る。全デバイスのログアウトの後に画面が続けて行うログアウト
+    // （frontend/src/pages/Sessions.tsx の handleConfirmLogoutAll）は、logout-all がアクセストークンの世代を
+    // 進めるため失効済みのトークンで 401 になり、LOGOUT_ALL だけが残る（user-authentication タスク76.1、
+    // 2026-11-24 の利用者の判断）
     expect(
       await prisma.auditLog.count({
         where: { action: 'LOGOUT', targetId: user.id, actorId: user.id },
       })
-    ).toBe(2);
+    ).toBe(1);
     expect(
       await prisma.auditLog.count({
         where: { action: 'LOGOUT_ALL', targetId: user.id, actorId: user.id },
@@ -317,7 +319,8 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
       label: 'ログアウト',
       actor: user.email,
       target: user.id,
-      count: 2,
+      // logout-all の後のログアウトは失効済みのトークンで 401 になり、LOGOUT_ALL だけが残る（タスク76.1）
+      count: 1,
     });
     await expectAuditRowsOnScreen(page, {
       action: 'LOGOUT_ALL',

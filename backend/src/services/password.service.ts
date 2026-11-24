@@ -38,6 +38,12 @@ import {
 import { randomBytes } from 'crypto';
 import { SESSION_CONFIG } from '../config/security.constants.js';
 import { hashPasswordResetToken } from '../utils/password-reset-token.js';
+import { advanceAccessTokenGeneration } from '../utils/access-token-generation.js';
+import {
+  ExternalAppConnectionService,
+  type UserConnectionRevoker,
+} from './external-app-connection.service.js';
+import type { RequestContext } from '../types/auth.types.js';
 
 /**
  * パスワード管理サービス
@@ -68,28 +74,34 @@ export class PasswordService {
 
   private readonly emailService: EmailService;
   private readonly auditLogService: IAuditLogService;
+  private readonly connectionRevoker: UserConnectionRevoker;
 
   /**
    * @param prisma - PrismaClient
    * @param emailService - メール送信（省略時は既定）
    * @param auditLogService - 監査ログ（省略時は既定）
    * @param userStateService - 利用者の状態のキャッシュの無効化（省略時は共有のインスタンスを使う時点で解決する）
+   * @param connectionRevoker - 外部アプリの接続の失効（省略時は接続の管理を監査ログとともに作る。タスク76.1）
    */
   constructor(
     private readonly prisma: PrismaClient,
     emailService?: EmailService,
     auditLogService?: IAuditLogService,
-    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>,
+    connectionRevoker?: UserConnectionRevoker
   ) {
     this.emailService = emailService || new EmailService();
     this.auditLogService = auditLogService || new AuditLogService({ prisma });
+    this.connectionRevoker =
+      connectionRevoker ??
+      new ExternalAppConnectionService({ prisma, auditLogService: this.auditLogService });
   }
 
   /**
    * パスワードの更新のコミットの後に、利用者の状態のキャッシュを無効化する（user-authentication タスク47.6）
    *
-   * パスワードの更新は初回のパスワード変更の要否を解く（状態が変わる）ため、認証ミドルウェアが TTL の間
-   * 古い状態で要求を拒否し続けないようにする。変更はコミット済みなので、無効化の失敗は結果を変えず
+   * パスワードの更新は初回のパスワード変更の要否を解き、画面用アクセストークンの世代を進める（状態が変わる）
+   * ため、認証ミドルウェアが TTL の間古い状態で判定し続けないようにする。変更はコミット済みなので、無効化の失敗は結果を変えず
    * 警告ログに留める（残ったエントリは TTL で消える）。
    */
   private async invalidateUserStateAfterCommit(userId: string): Promise<void> {
@@ -382,15 +394,22 @@ export class PasswordService {
    * 1. パスワード更新
    * 2. PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
    * 3. 全RefreshToken無効化
+   * 4. 画面用アクセストークンの世代を進め、外部アプリの全ての接続を理由 PASSWORD_CHANGED で失効させる
+   *    （要件50.1・51.7。design.md の「アクセストークンの即失効」）
+   *
+   * ロックの順序は「リフレッシュトークンの取引ロック → users の行 → 失効の取引ロック → Grant の行 →
+   * 接続の行」とする（タスク45.2・72.3）。
    *
    * @param tx - Prismaトランザクション
    * @param userId - ユーザーID
    * @param passwordHash - 新しいパスワードハッシュ
+   * @param source - 要求の送信元（接続の終了の監査に残す）
    */
   private async updatePasswordInTransaction(
     tx: Prisma.TransactionClient,
     userId: string,
-    passwordHash: string
+    passwordHash: string,
+    source: RequestContext
   ): Promise<void> {
     // 利用者単位のリフレッシュトークンの取引ロックを、users の行を更新する前に取る。全ての経路で
     // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける（タスク45.2）
@@ -402,6 +421,8 @@ export class PasswordService {
       where: { id: userId },
       data: { passwordHash, mustChangePassword: false },
     });
+    // 発行済みの画面用アクセストークンを直ちに使えなくする（コミットの後に状態のキャッシュを無効化する）
+    await advanceAccessTokenGeneration(tx, userId);
 
     // パスワード履歴追加
     await tx.passwordHistory.create({
@@ -430,6 +451,14 @@ export class PasswordService {
 
     // 全リフレッシュトークンを無効化（要件33.5）。並行するローテーションと直列化する取引ロックを通す
     await revokeAllRefreshTokensForUser(tx, userId);
+
+    // 外部アプリの全ての接続を同じ取引で失効させる（取引を戻すと失効も戻る。要件50.1・51.7）
+    await this.connectionRevoker.revokeAllForUser(
+      userId,
+      'PASSWORD_CHANGED',
+      { userId, source },
+      tx
+    );
   }
 
   /**
@@ -444,14 +473,17 @@ export class PasswordService {
    *    - PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
    *    - 全RefreshToken無効化
    *    - PasswordResetToken使用済みマーク
+   *    - 画面用アクセストークンの世代を進め、外部アプリの全ての接続を失効させる（要件50.1）
    *
    * @param resetToken - リセットトークン
    * @param newPassword - 新しいパスワード
+   * @param source - 要求の送信元（接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async resetPassword(
     resetToken: string,
-    newPassword: string
+    newPassword: string,
+    source: RequestContext = {}
   ): Promise<Result<void, PasswordError>> {
     try {
       // 1. リセットトークン検証
@@ -496,7 +528,7 @@ export class PasswordService {
       // 5. トランザクション内でパスワード更新、履歴追加、トークン無効化、セッション削除
       await this.prisma.$transaction(async (tx) => {
         // 共通のパスワード更新処理
-        await this.updatePasswordInTransaction(tx, passwordResetToken.userId, passwordHash);
+        await this.updatePasswordInTransaction(tx, passwordResetToken.userId, passwordHash, source);
 
         // リセットトークンを使用済みにマーク
         await tx.passwordResetToken.update({
@@ -507,7 +539,7 @@ export class PasswordService {
         });
       }, connectBudgetTransactionOptions());
 
-      // 初回のパスワード変更の要否が変わったので、コミットの後に状態のキャッシュを無効化する
+      // 初回のパスワード変更の要否とアクセストークンの世代が変わったので、コミットの後に状態のキャッシュを無効化する
       await this.invalidateUserStateAfterCommit(passwordResetToken.userId);
 
       // 記録にはトークンの値もその一部も残さず、利用者 ID で残す（要件37.3）
@@ -533,16 +565,21 @@ export class PasswordService {
    *    - パスワード更新
    *    - PasswordHistory追加（最新3件のみ保持、古い履歴を削除）
    *    - 全RefreshToken無効化
+   *    - 画面用アクセストークンの世代を進め、外部アプリの全ての接続を失効させる（要件50.1）
+   *
+   * 本人の画面のアクセストークンも直ちに使えなくなる。画面は変更の後にログアウトしてログイン画面へ移る。
    *
    * @param userId - ユーザーID
    * @param currentPassword - 現在のパスワード
    * @param newPassword - 新しいパスワード
+   * @param source - 要求の送信元（接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async changePassword(
     userId: string,
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
+    source: RequestContext = {}
   ): Promise<Result<void, PasswordError>> {
     try {
       // 1. ユーザー検索
@@ -578,10 +615,11 @@ export class PasswordService {
       // 6. トランザクション内でパスワード更新、履歴追加、セッション削除
       await this.prisma.$transaction(async (tx) => {
         // 共通のパスワード更新処理
-        await this.updatePasswordInTransaction(tx, userId, passwordHash);
+        await this.updatePasswordInTransaction(tx, userId, passwordHash, source);
       }, connectBudgetTransactionOptions());
 
-      // 初回のパスワード変更の要否を解いたので、コミットの後に状態のキャッシュを無効化する（要件37.7）
+      // 初回のパスワード変更の要否を解き、アクセストークンの世代を進めたので、コミットの後に状態のキャッシュを
+      // 無効化する（要件37.7）
       await this.invalidateUserStateAfterCommit(userId);
 
       return Ok(undefined);

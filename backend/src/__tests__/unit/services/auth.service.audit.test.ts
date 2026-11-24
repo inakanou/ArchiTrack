@@ -50,10 +50,14 @@ const baseUser = {
 
 describe('AuthService の認証の監査', () => {
   const auditCreate = vi.fn();
+  // 全デバイスのログアウトは一つのトランザクションで失効させる（タスク76.1）
+  const logoutAllTx = { $executeRaw: vi.fn().mockResolvedValue(1) };
   const prisma = {
     user: { findUnique: vi.fn(), update: vi.fn() },
     auditLog: { create: auditCreate },
+    $transaction: vi.fn((callback: (tx: unknown) => Promise<unknown>) => callback(logoutAllTx)),
   } as unknown as PrismaClient;
+  const connectionRevoker = { revokeAllForUser: vi.fn().mockResolvedValue(0) };
   const passwordService = { verifyPassword: vi.fn() } as unknown as PasswordService;
   const tokenService = {
     generateAccessToken: vi.fn().mockResolvedValue('access-token'),
@@ -82,7 +86,8 @@ describe('AuthService の認証の監査', () => {
       twoFactorService,
       sessionService,
       challengeService,
-      {} as AuthenticatedUserStateService
+      {} as AuthenticatedUserStateService,
+      connectionRevoker
     );
   }
 

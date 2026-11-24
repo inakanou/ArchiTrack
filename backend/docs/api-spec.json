@@ -3651,7 +3651,7 @@
       },
       "delete": {
         "summary": "Delete all sessions",
-        "description": "Delete all sessions for the authenticated user (logout from all devices)",
+        "description": "Delete all sessions for the authenticated user (logout from all devices). Same as POST /api/v1/auth/logout-all: issued access tokens and external app connections are revoked, and the logout is audited with the request source.",
         "tags": [
           "Sessions"
         ],
@@ -11531,7 +11531,7 @@
     "/api/v1/auth/logout-all": {
       "post": {
         "summary": "Logout from all devices",
-        "description": "Logout the current user from all devices",
+        "description": "Logout the current user from all devices. All refresh tokens, issued access tokens (including the one used for this request) and external app connections are revoked.",
         "tags": [
           "Authentication"
         ],
@@ -12250,7 +12250,7 @@
         },
         "responses": {
           "200": {
-            "description": "Password changed successfully. All refresh tokens are revoked and the initial password change requirement (mustChangePassword) is cleared.",
+            "description": "Password changed successfully. All refresh tokens, issued access tokens (including the one used for this request) and external app connections are revoked, and the initial password change requirement (mustChangePassword) is cleared.",
             "content": {
               "application/json": {
                 "schema": {

@@ -49,6 +49,12 @@ import {
   type AuthAuditEntry,
 } from './auth-audit-recorder.js';
 import { SecondFactorVerifier } from './second-factor-verifier.service.js';
+import {
+  ExternalAppConnectionService,
+  type UserConnectionRevoker,
+} from './external-app-connection.service.js';
+import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
+import { advanceAccessTokenGeneration } from '../utils/access-token-generation.js';
 
 /** 存在しないメールアドレスのログインの失敗・資格を照会できない 2FA の失敗の対象の種別 */
 const UNKNOWN_LOGIN_TARGET_TYPE = 'Email';
@@ -81,6 +87,7 @@ export class AuthService implements IAuthService {
   private readonly twoFactorChallengeService: TwoFactorChallengeService;
   private readonly userStateService: AuthenticatedUserStateService;
   private readonly secondFactorVerifier: SecondFactorVerifier;
+  private readonly connectionRevoker: UserConnectionRevoker;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -90,7 +97,8 @@ export class AuthService implements IAuthService {
     twoFactorService?: TwoFactorService,
     sessionService?: SessionService,
     twoFactorChallengeService?: TwoFactorChallengeService,
-    userStateService?: AuthenticatedUserStateService
+    userStateService?: AuthenticatedUserStateService,
+    connectionRevoker?: UserConnectionRevoker
   ) {
     this.invitationService = invitationService || new InvitationService(prisma);
     this.passwordService = passwordService || new PasswordService(prisma);
@@ -102,6 +110,12 @@ export class AuthService implements IAuthService {
       userStateService ||
       new AuthenticatedUserStateService(prisma, () => redisConnection.getClient());
     this.secondFactorVerifier = new SecondFactorVerifier(prisma, this.twoFactorService);
+    this.connectionRevoker =
+      connectionRevoker ??
+      new ExternalAppConnectionService({
+        prisma,
+        auditLogService: new AuditLogService({ prisma }),
+      });
   }
 
   /**
@@ -716,17 +730,41 @@ export class AuthService implements IAuthService {
   /**
    * 全デバイスからログアウト
    *
-   * 利用者の全てのリフレッシュトークンを失効させる（要件33.5）。
+   * 一つの新しいトランザクションで、利用者の全てのリフレッシュトークンを失効させ（要件33.5）、
+   * 画面用アクセストークンの世代を進め、外部アプリの全ての接続を理由 LOGOUT_ALL で失効させる
+   * （要件50.2・51.7。design.md の「アクセストークンの即失効」）。コミットの後に状態のキャッシュを無効化する。
+   *
+   * ロックは利用者のリフレッシュトークンの取引ロックを最初に取り、users の行 → 失効の取引ロック →
+   * Grant の行 → 接続の行の順に進む。パスワードの変更・リセットと利用者の削除も取引ロックを users の行より
+   * 先に取る（タスク45.2）ので逆順にならない。ローテーションは同じ取引ロックで直列化され、失効の前に
+   * 発行された後継とアクセストークンは、この取引が消すか古い世代として拒まれる。
    */
   async logoutAll(userId: string, ctx: RequestContext = {}): Promise<Result<void, AuthError>> {
     try {
-      await this.sessionService.revokeAllForUser(userId);
+      await this.prisma.$transaction(async (tx) => {
+        await lockUserRefreshTokens(tx, userId);
+        await advanceAccessTokenGeneration(tx, userId);
+        await this.sessionService.revokeAllForUser(userId, tx);
+        await this.connectionRevoker.revokeAllForUser(
+          userId,
+          'LOGOUT_ALL',
+          { userId, source: ctx },
+          tx
+        );
+      }, connectBudgetTransactionOptions());
+      await this.invalidateUserStateAfterCommit(userId);
       await this.recordSessionEnd(ctx, 'LOGOUT_ALL', userId);
 
       return Ok(undefined);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
+      // 失効（リフレッシュトークン・アクセストークンの世代・外部アプリの接続）の失敗は取引ごと戻っている。
+      // 障害の文言と利用者 ID だけを残す（トークンの値は扱っていない）
+      logger.error(
+        { error: error instanceof Error ? error.message : String(error), userId },
+        'Failed to revoke sessions, access tokens and external app connections for logout-all'
+      );
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -1037,6 +1075,19 @@ export class AuthService implements IAuthService {
         ...(email !== undefined && { email }),
       },
     });
+  }
+
+  /**
+   * アクセストークンの世代を進めたコミットの後に、利用者の状態のキャッシュを無効化する
+   *
+   * 変更はコミット済みなので、無効化の失敗は結果を変えず警告ログに留める（残ったエントリは TTL で消える）。
+   */
+  private async invalidateUserStateAfterCommit(userId: string): Promise<void> {
+    try {
+      await this.userStateService.invalidate(userId);
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to invalidate user state after logout-all');
+    }
   }
 
   /** ログアウト・全デバイスのログアウトを、本人を実行者として記録する（要件40.4） */

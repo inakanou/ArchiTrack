@@ -17,6 +17,7 @@ import { TokenService } from '../../../services/token.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { SessionService } from '../../../services/session.service.js';
 import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
+import type { AuthenticatedUserStateService } from '../../../services/authenticated-user-state.service.js';
 import type { PrismaClient, User, Invitation } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/result.js';
 import * as timingModule from '../../../utils/timing.js';
@@ -1639,13 +1640,47 @@ describe('AuthService', () => {
   });
 
   describe('logoutAll()', () => {
+    // 全デバイスのログアウトは一つのトランザクションでリフレッシュトークン・アクセストークンの世代・
+    // 外部アプリの接続を失効させる（タスク76.1）。トランザクションのクライアントと接続の失効を差し替える
+    const logoutAllTx = { $executeRaw: vi.fn().mockResolvedValue(1) };
+    const connectionRevoker = { revokeAllForUser: vi.fn().mockResolvedValue(0) };
+    const userStateService = { invalidate: vi.fn().mockResolvedValue(undefined) };
+
+    beforeEach(() => {
+      logoutAllTx.$executeRaw.mockClear();
+      connectionRevoker.revokeAllForUser.mockClear();
+      userStateService.invalidate.mockClear();
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        (callback: (tx: unknown) => Promise<unknown>) => callback(logoutAllTx)
+      );
+      authService = new AuthService(
+        mockPrismaClient,
+        mockInvitationService,
+        mockPasswordService,
+        mockTokenService,
+        mockTwoFactorService,
+        mockSessionService,
+        mockTwoFactorChallengeService,
+        userStateService as unknown as AuthenticatedUserStateService,
+        connectionRevoker
+      );
+    });
+
     it('ユーザーの全リフレッシュトークンを失効させてログアウトできる', async () => {
       (mockSessionService.revokeAllForUser as ReturnType<typeof vi.fn>).mockResolvedValue(3);
 
       const result = await authService.logoutAll('user-456');
 
       expect(result.ok).toBe(true);
-      expect(mockSessionService.revokeAllForUser).toHaveBeenCalledWith('user-456');
+      // リフレッシュトークンと接続の失効は同じトランザクションの中で行う
+      expect(mockSessionService.revokeAllForUser).toHaveBeenCalledWith('user-456', logoutAllTx);
+      expect(connectionRevoker.revokeAllForUser).toHaveBeenCalledWith(
+        'user-456',
+        'LOGOUT_ALL',
+        { userId: 'user-456', source: {} },
+        logoutAllTx
+      );
+      expect(userStateService.invalidate).toHaveBeenCalledWith('user-456');
     });
 
     it('データベースエラー時にDATABASE_ERRORを返す', async () => {

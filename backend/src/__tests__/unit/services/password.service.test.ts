@@ -856,14 +856,37 @@ describe('PasswordService', () => {
         }
       );
 
-      const result = await passwordService.resetPassword(resetToken, newPassword);
+      // 外部アプリの接続の失効（タスク76.1）は差し替え、同じトランザクションで呼ばれることを確かめる
+      const revokeAllForUser = vi.fn().mockResolvedValue(0);
+      const service = new PasswordService(
+        mockPrismaClient,
+        mockEmailService,
+        undefined,
+        undefined,
+        {
+          revokeAllForUser,
+        }
+      );
+
+      const result = await service.resetPassword(resetToken, newPassword);
 
       expect(result.ok).toBe(true);
       // 全リフレッシュトークンの無効化は、利用者単位の取引ロックを取ってから行う（要件33.5）
       expect(txMocks).toHaveLength(1);
-      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す
-      expect(txMocks[0]!.$executeRaw).toHaveBeenCalledTimes(2);
+      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す。
+      // その間にアクセストークンの世代を進める（タスク76.1）ので、生の文は 3 回になる
+      expect(txMocks[0]!.$executeRaw).toHaveBeenCalledTimes(3);
       expect(txMocks[0]!.$executeRaw.mock.calls[0]).toContain(userId);
+      expect(txMocks[0]!.$executeRaw.mock.calls[1]![0].join('')).toContain(
+        '"access_token_generation" = "access_token_generation" + 1'
+      );
+      expect(txMocks[0]!.$executeRaw.mock.calls[2]).toContain(userId);
+      expect(revokeAllForUser).toHaveBeenCalledWith(
+        userId,
+        'PASSWORD_CHANGED',
+        { userId, source: {} },
+        txMocks[0]
+      );
       expect(txMocks[0]!.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
         txMocks[0]!.user.update.mock.invocationCallOrder[0]!
       );

@@ -241,12 +241,13 @@ describe('利用者の状態による API の拒否（統合）', () => {
     const refresh = await refreshWithCookie(app, issuedRefreshToken(login));
     expect(refresh.status).toBe(401);
 
-    // 状態のキャッシュは無効化され、TTL を待たずに 2FA 未登録の制限へ移る
+    // パスワードの変更はアクセストークンの世代を進めるので、変更の前のアクセストークンは直ちに 401 になる
+    // （design.md の「アクセストークンの即失効」。2026-11-24 の利用者の判断、タスク76.1）
     const after = await request(app)
       .get('/api/v1/auth/me')
       .set(...bearer(accessToken));
-    expect(after.status).toBe(403);
-    expect(after.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    expect(after.status).toBe(401);
+    expect(after.body.error).toBe('INVALID_TOKEN');
 
     // 新しいパスワードで再びログインできる（2FA 未登録のためトークンを返す。要件34.1 は画面が遷移させる）
     const relogin = await request(app)
@@ -254,6 +255,13 @@ describe('利用者の状態による API の拒否（統合）', () => {
       .send({ email, password: NEW_PASSWORD });
     expect(relogin.status).toBe(200);
     expect(relogin.body.user).toMatchObject({ twoFactorEnabled: false, mustChangePassword: false });
+
+    // 状態のキャッシュは無効化され、TTL を待たずに 2FA 未登録の制限へ移る（再ログインのトークンで確かめる）
+    const restricted = await request(app)
+      .get('/api/v1/auth/me')
+      .set(...bearer(relogin.body.accessToken as string));
+    expect(restricted.status).toBe(403);
+    expect(restricted.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
   });
 
   /**
