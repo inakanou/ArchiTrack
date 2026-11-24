@@ -607,11 +607,13 @@ router.delete(
     try {
       const { id: roleId, permissionId } = req.params as { id: string; permissionId: string };
 
-      // 削除と監査ログの記録を同じトランザクションで行う
+      // 削除と監査ログの記録を同じトランザクションで行う。送信元は権限の喪失による外部アプリの接続の終了の
+      // 監査に残す（user-authentication 要件50.4・51.7）
       const result = await rolePermissionService.removePermissionFromRole(
         roleId,
         permissionId,
-        req.user?.userId
+        req.user?.userId,
+        { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] }
       );
 
       if (!result.ok) {

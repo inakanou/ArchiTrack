@@ -233,7 +233,9 @@ describe('User Role Routes', () => {
       expect(mockUserRoleService.removeRoleFromUser).toHaveBeenCalledWith(
         userId,
         roleId,
-        'admin-user-id'
+        'admin-user-id',
+        undefined,
+        { ipAddress: expect.any(String), userAgent: undefined }
       );
     });
 
@@ -468,7 +470,9 @@ describe('User Role Routes', () => {
       expect(mockUserRoleService.removeRoleFromUser).toHaveBeenCalledWith(
         'user-1',
         'role-high',
-        'admin-user-id'
+        'admin-user-id',
+        undefined,
+        { ipAddress: expect.any(String), userAgent: undefined }
       );
       expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
       expect(observeSecurityAnomaly).toHaveBeenCalledWith({

@@ -7,6 +7,8 @@
  *   （全システム管理者への通知の手段で送る。user-authentication タスク49.1）
  * - user-authentication 50.3・51.7: 利用者の削除で、同じトランザクションの中で利用者の行を消す前に外部アプリの
  *   全ての接続を失効させ、実行者・対象・アプリ・送信元 IP を監査に残す（タスク76.2）
+ * - user-authentication 50.4・51.7: ロールの解除（一括を含む）で権限「外部アプリの接続」を失った利用者の接続を、
+ *   同じトランザクションの中で DB の現在の値から判定して失効させ、送信元 IP を監査に残す（タスク76.3）
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -23,6 +25,8 @@ import type { RequestContext } from '../types/auth.types.js';
 import { AuditLogService } from './audit-log.service.js';
 import {
   ExternalAppConnectionService,
+  coversExternalAppConnect,
+  type PermissionLossRevoker,
   type UserConnectionRevoker,
 } from './external-app-connection.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
@@ -106,6 +110,7 @@ export type DeleteUserError =
  */
 export class UserRoleService implements IUserRoleService {
   private readonly connectionRevoker: UserConnectionRevoker;
+  private readonly permissionLossRevoker: PermissionLossRevoker;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -127,14 +132,21 @@ export class UserRoleService implements IUserRoleService {
      * 外部アプリの接続の失効（利用者の削除で呼ぶ。user-authentication タスク76.2）。省略時は接続の管理を
      * 監査ログとともに作る（認可サーバーを載せない環境でも失効させる）
      */
-    connectionRevoker?: UserConnectionRevoker
+    connectionRevoker?: UserConnectionRevoker,
+    /**
+     * 権限の喪失による接続の失効（ロールの解除で呼ぶ。user-authentication タスク76.3）。省略時は接続の管理を
+     * 監査ログとともに作る
+     */
+    permissionLossRevoker?: PermissionLossRevoker
   ) {
-    this.connectionRevoker =
-      connectionRevoker ??
-      new ExternalAppConnectionService({
+    let defaultService: ExternalAppConnectionService | undefined;
+    const fallback = (): ExternalAppConnectionService =>
+      (defaultService ??= new ExternalAppConnectionService({
         prisma,
         auditLogService: auditLogService ?? new AuditLogService({ prisma }),
-      });
+      }));
+    this.connectionRevoker = connectionRevoker ?? fallback();
+    this.permissionLossRevoker = permissionLossRevoker ?? fallback();
   }
 
   /**
@@ -171,15 +183,17 @@ export class UserRoleService implements IUserRoleService {
    * @param roleId - ロールID
    * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @param performedBy - 実行者情報（アラート用、オプション）
+   * @param source - 要求の送信元（権限の喪失による接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async removeRoleFromUser(
     userId: string,
     roleId: string,
     actorId?: string,
-    performedBy?: PerformedBy
+    performedBy?: PerformedBy,
+    source: RequestContext = {}
   ): Promise<Result<void, UserRoleError>> {
-    return this.removeRoles(userId, [roleId], actorId, performedBy);
+    return this.removeRoles(userId, [roleId], actorId, performedBy, source);
   }
 
   /**
@@ -276,15 +290,17 @@ export class UserRoleService implements IUserRoleService {
    * @param roleIds - ロールIDの配列
    * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @param performedBy - 実行者情報（アラート用、オプション）
+   * @param source - 要求の送信元（権限の喪失による接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async removeRolesFromUser(
     userId: string,
     roleIds: string[],
     actorId?: string,
-    performedBy?: PerformedBy
+    performedBy?: PerformedBy,
+    source: RequestContext = {}
   ): Promise<Result<void, UserRoleError>> {
-    const result = await this.removeRoles(userId, roleIds, actorId, performedBy);
+    const result = await this.removeRoles(userId, roleIds, actorId, performedBy, source);
     if (result.ok) {
       logger.info({ userId, count: roleIds.length }, 'Roles removed from user in bulk');
     }
@@ -337,12 +353,19 @@ export class UserRoleService implements IUserRoleService {
 
   /**
    * ロールの削除（1件・一括の共通処理）。全件を一つのトランザクションで行う
+   *
+   * 権限の喪失（要件50.4・51.7。タスク76.3）: 外したロールのどれかが権限「外部アプリの接続」を包含していれば、
+   * 全件の削除の後に同じトランザクションで `revokeForUsersWithoutPermission` を呼び、DB の現在の値で利用者が
+   * 権限を失ったかを判定して接続を失効させる（実行者は `actorId`、送信元は `source`）。包含するロールを外して
+   * いなければ利用者は権限を失わないので呼ばない（権限を持ったことのない利用者の失効の世代を進めない）。
+   * 取引を戻すと失効も戻る。ロックの順序は removeRoleInTransaction を参照
    */
   private async removeRoles(
     userId: string,
     roleIds: string[],
     actorId?: string,
-    performedBy?: PerformedBy
+    performedBy?: PerformedBy,
+    source: RequestContext = {}
   ): Promise<Result<void, UserRoleError>> {
     try {
       const changes = await this.prisma.$transaction(async (tx) => {
@@ -360,6 +383,21 @@ export class UserRoleService implements IUserRoleService {
         const results: UserRoleChange[] = [];
         for (const roleId of roleIds) {
           results.push(await this.removeRoleInTransaction(tx, userId, roleId, actorId));
+        }
+
+        // 外したロールが権限「外部アプリの接続」を包含していたかを、紐付けの削除の後の文で読む。判定そのものは
+        // revokeForUsersWithoutPermission が利用者のロックの後の DB の現在の値で行う（並行するロールの権限の
+        // 解除の変更を見る）
+        const removedPermissions = await tx.rolePermission.findMany({
+          where: { roleId: { in: results.map((change) => change.role.id) } },
+          select: { permission: { select: { resource: true, action: true } } },
+        });
+        if (removedPermissions.some(({ permission }) => coversExternalAppConnect(permission))) {
+          await this.permissionLossRevoker.revokeForUsersWithoutPermission(
+            [userId],
+            { userId: actorId ?? null, source },
+            tx
+          );
         }
         return results;
       }, connectBudgetTransactionOptions());
@@ -545,6 +583,12 @@ export class UserRoleService implements IUserRoleService {
         throw new UserRoleRollback({ type: 'LAST_ADMIN_PROTECTED' });
       }
     }
+
+    // 紐付けを消す前に利用者の行をロックする（タスク76.3）。権限の喪失の判定（revokeForUsersWithoutPermission）は
+    // 利用者の行を FOR NO KEY UPDATE で取る。紐付けを消してから利用者の行を待つと、利用者の行を FOR UPDATE で
+    // 先に取ってから同じ紐付けをカスケードで消す利用者の削除（deleteUser）と逆順になり、デッドロックする。
+    // 順序は「admin ロールの行 → users の行 → 紐付けの行 → 失効の取引ロック → Grant の行 → 接続の行」とする
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR NO KEY UPDATE`;
 
     // 紐付け削除
     await tx.userRole.delete({

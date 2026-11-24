@@ -319,8 +319,15 @@ router.delete(
     try {
       const { id: userId, roleId } = req.params as { id: string; roleId: string };
 
-      // 監査ログ（USER_ROLE_REVOKED）は紐付けの削除と同じトランザクションで記録される（タスク36.4）
-      const result = await userRoleService.removeRoleFromUser(userId, roleId, req.user?.userId);
+      // 監査ログ（USER_ROLE_REVOKED）は紐付けの削除と同じトランザクションで記録される（タスク36.4）。
+      // 送信元は権限の喪失による外部アプリの接続の終了の監査に残す（user-authentication 要件50.4・51.7）
+      const result = await userRoleService.removeRoleFromUser(
+        userId,
+        roleId,
+        req.user?.userId,
+        undefined,
+        { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] }
+      );
 
       if (!result.ok) {
         const error = result.error;

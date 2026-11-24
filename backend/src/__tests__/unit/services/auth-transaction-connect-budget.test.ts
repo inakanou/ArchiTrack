@@ -182,6 +182,14 @@ describe('接続の再試行の予算（タスク35.12）', () => {
   });
 });
 
+/**
+ * maxWait に加えて渡す設定。権限の解除は、保有者が多いロールの権限の喪失による接続の失効
+ * （user-authentication タスク76.3）に備えて取引の上限を明示する
+ */
+const EXTRA_TRANSACTION_OPTIONS: Record<string, { timeout: number }> = {
+  'RolePermissionService.removePermissionFromRole': { timeout: 60000 },
+};
+
 describe('認証系の対話型トランザクションは再試行の予算を覆う maxWait を渡す（タスク35.12）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -191,7 +199,7 @@ describe('認証系の対話型トランザクションは再試行の予算を�
     vi.unstubAllEnvs();
   });
 
-  describe.each(cases)('%s', (_name, findUniqueResult, invoke) => {
+  describe.each(cases)('%s', (name, findUniqueResult, invoke) => {
     it('既定（3 回・5000ms）では maxWait 29000ms を渡す', async () => {
       vi.stubEnv('DATABASE_RETRY_COUNT', '3');
       vi.stubEnv('DATABASE_CONNECTION_TIMEOUT', '5000');
@@ -201,7 +209,10 @@ describe('認証系の対話型トランザクションは再試行の予算を�
 
       expect(transaction).toHaveBeenCalledTimes(1);
       expect(transaction.mock.calls[0]?.[0]).toBeTypeOf('function');
-      expect(transaction.mock.calls[0]?.[1]).toStrictEqual({ maxWait: 29000 });
+      expect(transaction.mock.calls[0]?.[1]).toStrictEqual({
+        maxWait: 29000,
+        ...(EXTRA_TRANSACTION_OPTIONS[name] ?? {}),
+      });
     });
 
     it('環境変数（1 回・1000ms）から呼び出しの時点で maxWait 5000ms を求めて渡す', async () => {
@@ -212,7 +223,10 @@ describe('認証系の対話型トランザクションは再試行の予算を�
       await invoke(prisma).catch(() => undefined);
 
       expect(transaction).toHaveBeenCalledTimes(1);
-      expect(transaction.mock.calls[0]?.[1]).toStrictEqual({ maxWait: 5000 });
+      expect(transaction.mock.calls[0]?.[1]).toStrictEqual({
+        maxWait: 5000,
+        ...(EXTRA_TRANSACTION_OPTIONS[name] ?? {}),
+      });
     });
   });
 });

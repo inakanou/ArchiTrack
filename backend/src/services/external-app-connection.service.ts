@@ -139,6 +139,26 @@ export interface ExternalAppConnectionServiceDependencies {
  */
 export type UserConnectionRevoker = Pick<ExternalAppConnectionService, 'revokeAllForUser'>;
 
+/**
+ * 権限「外部アプリの接続」を失った利用者の接続を失効させる部品（タスク76.3）。ロールの解除とロールの権限の
+ * 解除は、変更の後にこれを自身のトランザクションの中で呼ぶ
+ */
+export type PermissionLossRevoker = Pick<
+  ExternalAppConnectionService,
+  'revokeForUsersWithoutPermission'
+>;
+
+/**
+ * 権限が「外部アプリの接続」を包含するか（`*:*`・`external_app:*`・`*:connect` を含む。要件50.4）。
+ * ロールと権限の変更の経路が、利用者が権限を失いうるかを判定するのに使う
+ */
+export function coversExternalAppConnect(permission: {
+  resource: string;
+  action: string;
+}): boolean {
+  return permissionCovers(permission, CONNECT_PERMISSION);
+}
+
 /** DB の範囲のうち、知っている値だけを権限として扱う */
 function toScopes(scopes: readonly string[]): ExternalAppScope[] {
   return scopes.filter((scope): scope is ExternalAppScope => KNOWN_SCOPES.has(scope));
@@ -517,7 +537,7 @@ export class ExternalAppConnectionService {
       assignments
         .filter((assignment) =>
           assignment.role.rolePermissions.some(({ permission }) =>
-            permissionCovers(permission, CONNECT_PERMISSION)
+            coversExternalAppConnect(permission)
           )
         )
         .map((assignment) => assignment.userId)
