@@ -26,6 +26,7 @@ import {
 } from '@playwright/test';
 import { FRONTEND_BASE_URL } from '../config';
 import { getPrismaClient } from '../fixtures/database';
+import { submitLoginForm, type LoginCredentials } from './auth-actions';
 import { E2E_TOTP_SECRET, fillTotpCode, generateTotpCode } from './two-factor-totp';
 import { resolveE2eRedisUrl } from './user-state-cache';
 import { getTimeout } from './wait-helpers';
@@ -149,6 +150,71 @@ export async function waitForOAuthCallback(
   return url;
 }
 
+/**
+ * 認可の要求を開き、未ログインならログイン画面へ送られたことを確かめてからログインする
+ *
+ * 認可サーバー → 同意の URL（backend）→ 同意の画面（nginx の SPA）の順に届き、ログインの後に同じ
+ * 申し込みの同意の画面へ戻ること（要件47.1）を主張する。
+ *
+ * @param recordUid - 主張が失敗しても後始末できるよう、主張より先に uid を受け取る
+ */
+export async function openAuthorizationAndLogin(
+  page: Page,
+  user: LoginCredentials,
+  url: string,
+  recordUid: (uid: string) => void
+) {
+  const document = await page.goto(url);
+  expect(document, '認可の要求の遷移の最後の応答がある').not.toBeNull();
+  const uid = new URL(document!.url()).pathname.split('/').pop()!;
+  recordUid(uid);
+  expect(new URL(document!.url()).pathname).toMatch(/^\/connect\/consent\/[A-Za-z0-9_-]{43}$/);
+  await page.waitForURL((current) => current.pathname === '/login', {
+    timeout: getTimeout(15000),
+  });
+  await submitLoginForm(page, user);
+  await page.waitForURL((current) => current.pathname === `/connect/consent/${uid}`, {
+    timeout: getTimeout(15000),
+  });
+  return { uid, document: document! };
+}
+
+/**
+ * 未ログインのページで、ログイン・2FA・同意を人と同じ操作で通して接続を作り、認可コードを交換する
+ *
+ * 接続を作る唯一の経路（同意の画面）を通す。DB へ接続の行を直接書かない。
+ *
+ * @param options.grantWrite - 同意の画面で「書き込み（任意）」を選ぶか（既定は選ばない）
+ * @param options.recordUid - 同意の手続きの uid を後始末のために受け取る
+ * @returns 交換したトークン（外部アプリが受け取る値）
+ */
+export async function connectViaConsent(
+  page: Page,
+  user: LoginCredentials,
+  options: { grantWrite?: boolean; recordUid: (uid: string) => void }
+): Promise<OAuthTokenResponse> {
+  const authorization = buildAuthorizationRequest();
+  await openAuthorizationAndLogin(page, user, authorization.url, options.recordUid);
+  await passConsentSecondFactor(page, user);
+  if (options.grantWrite === true) {
+    await page.getByRole('checkbox', { name: '書き込み（任意）' }).check();
+  }
+  await page.getByRole('button', { name: '許可する' }).click();
+  const returnedTo = await waitForOAuthCallback(page, authorization);
+  const code = returnedTo.searchParams.get('code');
+  expect(code, '戻り先へ認可コードが返る').toBeTruthy();
+  const api = await newExternalAppRequestContext();
+  try {
+    const exchanged = await exchangeAuthorizationCode(api, code!, authorization.verifier);
+    expect(exchanged.status, '認可コードを交換できる').toBe(200);
+    const tokens = exchanged.body as OAuthTokenResponse;
+    expect(tokens.refresh_token, 'リフレッシュトークンも発行される').toBeTruthy();
+    return tokens;
+  } finally {
+    await api.dispose();
+  }
+}
+
 /** 同意の画面の uid を URL から読む（同意の画面でなければ失敗する） */
 export function consentUidOf(page: Page): string {
   const uid = CONSENT_PATH_PATTERN.exec(new URL(page.url()).pathname)?.[1];
@@ -257,12 +323,64 @@ export async function exchangeAuthorizationCode(
 }
 
 /**
+ * リフレッシュトークンを画面の配信元の `/oauth/token` で更新する（`client_secret_post`）
+ */
+export async function refreshExternalAppToken(
+  api: APIRequestContext,
+  refreshToken: string
+): Promise<{ status: number; body: unknown }> {
+  const response = await api.post('/oauth/token', {
+    form: {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: OAUTH_TEST_CLIENT.clientId,
+      client_secret: OAUTH_TEST_CLIENT.clientSecret,
+      resource: OAUTH_RESOURCE_URL,
+    },
+  });
+  return { status: response.status(), body: await response.json() };
+}
+
+/**
  * 利用者の接続を DB から読む（終了した接続は行が消える）
  */
 export async function findConnections(userId: string) {
   return getPrismaClient().externalAppConnection.findMany({
     where: { userId },
     select: { id: true, clientId: true, scopes: true },
+  });
+}
+
+/**
+ * 利用者の接続を、画面に示す日時（同意・最後の利用・同意から 90 日の期限）とともに DB から読む
+ */
+export async function findConnectionsWithTimes(userId: string) {
+  return getPrismaClient().externalAppConnection.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      clientId: true,
+      scopes: true,
+      consentedAt: true,
+      lastUsedAt: true,
+      expiresAt: true,
+    },
+  });
+}
+
+/**
+ * 利用者を対象とする接続の終了の監査（CONNECTION_ENDED）を、指定の時刻以後について読む
+ */
+export async function findConnectionEndedAudits(targetUserId: string, since: Date) {
+  return getPrismaClient().auditLog.findMany({
+    where: {
+      action: 'CONNECTION_ENDED',
+      targetType: 'User',
+      targetId: targetUserId,
+      createdAt: { gte: since },
+    },
+    select: { actorId: true, targetId: true, metadata: true },
+    orderBy: { createdAt: 'asc' },
   });
 }
 

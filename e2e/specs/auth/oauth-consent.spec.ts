@@ -28,7 +28,6 @@
  */
 
 import { test, expect, type Page, type Request } from '@playwright/test';
-import { submitLoginForm } from '../../helpers/auth-actions';
 import {
   OAUTH_APP_ORIGIN,
   OAUTH_TEST_CLIENT,
@@ -39,6 +38,7 @@ import {
   findConnections,
   findIssuedOAuthRecords,
   newExternalAppRequestContext,
+  openAuthorizationAndLogin as openAuthorizationAndLoginFlow,
   passConsentSecondFactor,
   startOAuthCallbackServer,
   waitForOAuthCallback,
@@ -103,24 +103,12 @@ function isConsentApi(request: Request, action: string, method: 'GET' | 'POST'):
   return match?.[1] === action && request.method() === method;
 }
 
-/** 認可の要求を開き、未ログインならログイン画面へ送られたことを確かめてからログインする */
+/**
+ * 認可の要求を開き、未ログインならログイン画面へ送られたことを確かめてからログインする（47.1）。
+ * 主張が失敗しても後始末できるよう、uid は主張より先に記録する
+ */
 async function openAuthorizationAndLogin(page: Page, user: SessionUser, url: string) {
-  const document = await page.goto(url);
-  expect(document, '認可の要求の遷移の最後の応答がある').not.toBeNull();
-  const uid = new URL(document!.url()).pathname.split('/').pop()!;
-  // 主張が失敗しても後始末できるよう、先に記録する
-  consentUids.push(uid);
-  // 47.1: 認可サーバー → 同意の URL（backend）→ 同意の画面（nginx の SPA）の順に届く
-  expect(new URL(document!.url()).pathname).toMatch(/^\/connect\/consent\/[A-Za-z0-9_-]{43}$/);
-  await page.waitForURL((current) => current.pathname === '/login', {
-    timeout: getTimeout(15000),
-  });
-  await submitLoginForm(page, user);
-  // 47.1: ログインの後に同じ申し込みの同意の画面へ戻る
-  await page.waitForURL((current) => current.pathname === `/connect/consent/${uid}`, {
-    timeout: getTimeout(15000),
-  });
-  return { uid, document: document! };
+  return openAuthorizationAndLoginFlow(page, user, url, (uid) => consentUids.push(uid));
 }
 
 test.describe('外部アプリの接続の同意（user-authentication 79.2）', () => {

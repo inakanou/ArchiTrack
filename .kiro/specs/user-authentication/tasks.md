@@ -2328,7 +2328,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 78.1_
   - _Requirements: 46.2, 46.3, 46.7, 47.1, 47.2, 47.4, 47.5, 47.6, 47.7, 47.11_
 
-- [ ] 79.3 一覧と取り消しを E2E で確かめる
+- [x] 79.3 一覧と取り消しを E2E で確かめる
   - 同意で作られた接続が本人の一覧に出ること、本人の取り消し、管理者の一覧・絞り込み・取り消し、管理者以外の拒否、取り消し後のトークンの 401 を確かめる
   - `--repeat-each=5 --retries=0` で全件が通り、E2E の追加の前後で `check:design-measurement-freshness` を比べて必要な宣言を測り直した状態になる
   - _Depends: 79.2, 78.2, 78.3_
@@ -2369,6 +2369,17 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - `--repeat-each=5 --retries=0` で 30 件が緑。
   - 46.7 は authenticate と同意のサービスの `checkEligibility` の二重で守られている。片方だけの退行は E2E では見つからない。
   - **79.4 への申し送り**: 鮮度の宣言 `req-coverage-selftest-total-after-115314` と `featureless-inline-id-headers-after-115308` は、79.2 より前から赤（機能名を欠くヘッダー 1982 件で、上限は 1980）。試験 DB に、73.4 の `oauth-public-origin-proxy.spec.ts` が後始末しない Interaction の行が残る。
+- 79.3: `e2e/specs/auth/oauth-connections.spec.ts`（3 件）で、nginx 経由で次を確かめた。
+  - 本人: 実際の同意で作った接続が、名称・範囲・同意・最終利用・期限とともに一覧に出る。確認のダイアログで取り消せる（`USER_REVOKED`）。
+  - 管理者: 一覧、`<select>` の利用者と client ID での絞り込み、10 件単位のページの切り替え、取り消し（`ADMIN_REVOKED`）。もう一方の接続は使えるまま残る。
+  - 管理者でない利用者: 画面にメニューが出ない。ProtectedRoute が拒む。管理者の GET と DELETE（CSRF つき）は 403 `SYSTEM_ADMIN_REQUIRED`。本人用の DELETE で他人の接続を指すと 404 `CONNECTION_NOT_FOUND`。
+  - 取り消しの後は、アクセストークンが 401（`WWW-Authenticate` つき）、リフレッシュが `invalid_grant` になる（48.9）。
+  - 49.7 のページの切り替えだけは、表示だけの接続の行を 10 件 DB へ直接足した。同意 11 回は 6 分を超えるため。独立レビューは「並び順とページ分けが正しくなければ通らない」として許容した。
+  - `openAuthorizationAndLogin` を補助へ移した。79.2 の spec は動きを変えずにそれを呼ぶ。
+  - 鮮度の宣言 `t13-anchor-references-after-115303` を、2485 から 2510 へ測り直した。
+  - 本番のコードは変えていない。5 種の変異で各テストが赤になることを確かめた。
+  - `--repeat-each=5 --retries=0` で、79.2 と合わせて 45 件が緑。
+  - **79.4 への申し送り**: design.md の `ExternalAppConnectionView.expiresAt` に、画面の期限が「同意から 90 日と最後の利用から 30 日の早い方」（`toView` の min）であることを書く。
 
 ## Implementation Notes
 
