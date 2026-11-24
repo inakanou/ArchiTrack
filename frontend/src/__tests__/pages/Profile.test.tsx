@@ -226,6 +226,17 @@ describe('Profile Component', () => {
     }, 10000);
   });
 
+  describe('セキュリティ設定セクション', () => {
+    it('連携中のアプリの画面への導線を置く（user-authentication 要件49.1、タスク78.2）', () => {
+      render(<Profile />);
+
+      expect(screen.getByRole('link', { name: '連携中のアプリ' })).toHaveAttribute(
+        'href',
+        '/connected-apps'
+      );
+    });
+  });
+
   describe('管理者機能', () => {
     it('管理者ユーザーには「ユーザー管理」リンクを表示する（要件14.9）', () => {
       // 管理者ユーザーでモック

@@ -781,4 +781,72 @@ describe('OAuthConsentPage（外部アプリの接続の同意）', () => {
     const intro = await screen.findByText(/接続を求めています/);
     await waitFor(() => expect(intro).toHaveFocus());
   });
+
+  it('失敗の案内が出ている間にコードを送っても、案内が消えるだけでは残った案内へフォーカスを移さない（78.1 の申し送り）', async () => {
+    const user = userEvent.setup();
+    const secondFactor = deferred<Response>();
+    installFetch({
+      'GET /details': [json(200, viewBody())],
+      'POST /approve': [json(403, { code: 'SECOND_FACTOR_REQUIRED' })],
+      'POST /deny': [json(503, { code: 'SERVICE_UNAVAILABLE' })],
+      'POST /second-factor': [secondFactor.promise],
+    });
+
+    renderPage();
+    // 2FA の通過が切れて 2FA の入力へ戻る（期限切れの注意が出る）
+    await user.click(await screen.findByRole('button', { name: '許可する' }));
+    const notice = await screen.findByText(/もう一度コードを入力してください/);
+    await waitFor(() => expect(notice).toHaveFocus());
+
+    // 拒否が失敗し、失敗の案内が並んでフォーカスがそちらへ移る
+    await user.click(screen.getByRole('button', { name: '接続を拒否する' }));
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    const failure = screen.getAllByRole('alert')[1];
+    expect(failure).toHaveTextContent('時間をおいて再試行してください');
+    await waitFor(() => expect(failure).toHaveFocus());
+
+    // コードを送ると失敗の案内は消える。残った期限切れの注意へはフォーカスを戻さない
+    await enterTotp(user, '123456');
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1));
+    expect(screen.getByRole('alert')).toHaveTextContent('もう一度コードを入力してください');
+    expect(notice).not.toHaveFocus();
+
+    await act(async () => {
+      secondFactor.resolve(json(400, { code: 'SECOND_FACTOR_FAILED' }));
+    });
+    expect(await screen.findByText('認証コードが正しくありません。')).toBeInTheDocument();
+    expect(notice).not.toHaveFocus();
+  });
+
+  it('同じ失敗の案内が消えた後にもう一度出たら、その案内へフォーカスを移す', async () => {
+    const user = userEvent.setup();
+    const secondDeny = deferred<Response>();
+    installFetch({
+      'GET /details': [json(403, { code: 'PERMISSION_REQUIRED' })],
+      'POST /deny': [json(503, { code: 'SERVICE_UNAVAILABLE' }), secondDeny.promise],
+    });
+
+    renderPage();
+    const deny = await screen.findByRole('button', { name: '接続を拒否してアプリへ戻る' });
+    await user.click(deny);
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole('alert')[1]).toHaveFocus());
+
+    // 押し直すと送信の間は失敗の案内が消える。残った権限なしの案内へはフォーカスを移さない
+    await user.click(deny);
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1));
+    const permission = screen.getByRole('alert');
+    expect(permission).toHaveTextContent('外部アプリを接続する権限がありません');
+    expect(permission).not.toHaveFocus();
+
+    // 同じ文言の失敗の案内がもう一度出たら、そちらへフォーカスを移す
+    await act(async () => {
+      secondDeny.resolve(json(503, { code: 'SERVICE_UNAVAILABLE' }));
+    });
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    const failure = screen.getAllByRole('alert')[1];
+    expect(failure).toHaveTextContent('時間をおいて再試行してください');
+    await waitFor(() => expect(failure).toHaveFocus());
+    expect(permission).not.toHaveFocus();
+  });
 });

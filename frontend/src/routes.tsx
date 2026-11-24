@@ -65,6 +65,7 @@ import ProgressInputPage from './pages/ProgressInputPage';
 import UnitPriceLedgerPage from './pages/UnitPriceLedgerPage';
 import LedgerQuotationDetailPage from './pages/LedgerQuotationDetailPage';
 import { OAuthConsentPage } from './pages/OAuthConsentPage';
+import { ConnectedAppsPage } from './pages/ConnectedAppsPage';
 
 /**
  * アプリケーションのルート設定
@@ -149,6 +150,11 @@ export const routes: RouteObject[] = [
       {
         path: '/sessions',
         element: <Sessions />,
+      },
+      // 連携中のアプリ（user-authentication 要件49.1〜49.3、タスク78.2）
+      {
+        path: '/connected-apps',
+        element: <ConnectedAppsPage />,
       },
       // 2FA設定
       {

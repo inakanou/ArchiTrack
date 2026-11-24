@@ -168,6 +168,39 @@ function selectableScopes(view: ConsentInteractionView): { read: boolean; write:
   };
 }
 
+/**
+ * 画面に出ている案内の識別子の一覧（描画と同じ条件で並べる）。フォーカスを移すかの判定に使う
+ */
+function displayedAlertKeys(input: {
+  readonly uidValid: boolean;
+  readonly restricted: boolean;
+  readonly state: PageState;
+  readonly actionError: string | null;
+}): string[] {
+  const { uidValid, restricted, state, actionError } = input;
+  if (restricted) {
+    return ['restricted'];
+  }
+  if (!uidValid) {
+    return ['invalid'];
+  }
+  // 読み込み中・遷移中は案内を出さない
+  if (state.phase === 'loading' || state.phase === 'redirecting') {
+    return [];
+  }
+  const keys: string[] = [];
+  if (state.phase === 'error') {
+    keys.push(`error:${state.error.kind}`);
+  }
+  if (state.phase === 'second-factor' && state.notice) {
+    keys.push(`notice:${state.notice}`);
+  }
+  if (actionError) {
+    keys.push(`action:${actionError}`);
+  }
+  return keys;
+}
+
 const pageStyle: CSSProperties = {
   minHeight: '100vh',
   display: 'flex',
@@ -291,24 +324,24 @@ export function OAuthConsentPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // 案内を出したら案内へフォーカスを移す（スクリーンリーダーにも role="alert" で知らせる）
-  const alertKey =
-    uid === null
-      ? 'invalid'
-      : isRestricted
-        ? 'restricted'
-        : actionError
-          ? `action:${actionError}`
-          : state.phase === 'error'
-            ? `error:${state.error.kind}`
-            : state.phase === 'second-factor' && state.notice
-              ? 'second-factor-notice'
-              : null;
+  // 新しい案内が出たら案内へフォーカスを移す（スクリーンリーダーにも role="alert" で知らせる）。
+  // 案内が消えただけ（送信の開始で失敗の案内を消すなど）のときは、残った案内へフォーカスを戻さない
+  // （タスク78.1 の申し送り）。表示中の案内の一覧を前の描画と比べ、増えた案内があるときだけ移す
+  const alertSignature = displayedAlertKeys({
+    uidValid: uid !== null,
+    restricted: isRestricted || (state.phase === 'error' && state.error.kind === 'restricted'),
+    state,
+    actionError,
+  }).join('\n');
+  const previousAlertKeysRef = useRef<readonly string[]>([]);
   useEffect(() => {
-    if (alertKey !== null) {
+    const keys = alertSignature === '' ? [] : alertSignature.split('\n');
+    const previous = previousAlertKeysRef.current;
+    previousAlertKeysRef.current = keys;
+    if (keys.some((key) => !previous.includes(key))) {
       alertRef.current?.focus();
     }
-  }, [alertKey]);
+  }, [alertSignature]);
 
   // 2FA を通って同意の内容へ切り替わったら、説明の文へフォーカスを移す
   useEffect(() => {

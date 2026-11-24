@@ -1,14 +1,17 @@
 /**
- * @fileoverview 外部アプリの接続の同意の API クライアント（user-authentication タスク78.1）
+ * @fileoverview 外部アプリの接続の API クライアント（user-authentication タスク78.1・78.2）
  *
- * design.md「Requirements 46-51」の ExternalAppRoutes の同意の API（`/oauth/interaction/:uid/...`）を呼ぶ。
- * - 申し込みの内容は画面用のアクセストークンで GET する
- * - 2FA・同意・拒否は状態を変えるので、CSRF トークン付きの手段（`apiClient.sendWithCsrf`）で送る
+ * design.md「Requirements 46-51」の ExternalAppRoutes の同意の API（`/oauth/interaction/:uid/...`）と、
+ * 本人の接続の一覧・取り消しの API（`/api/v1/external-app-connections`）を呼ぶ。
+ * - 申し込みの内容と接続の一覧は画面用のアクセストークンで GET する
+ * - 2FA・同意・拒否・取り消しは状態を変えるので、CSRF トークン付きの手段（`apiClient.sendWithCsrf`）で送る
  * - 同意の範囲は利用者の選択だけを送る。戻り先の URL は画面で組み立てず、応答の `redirectTo` を使う
  *
  * @requirement user-authentication/REQ-47.4
  * @requirement user-authentication/REQ-47.5
  * @requirement user-authentication/REQ-47.11
+ * @requirement user-authentication/REQ-49.1
+ * @requirement user-authentication/REQ-49.4
  */
 
 import { apiClient } from './client';
@@ -117,4 +120,51 @@ export async function approveConsent(
 export async function denyConsent(uid: string): Promise<ConsentRedirect> {
   const body = await apiClient.sendWithCsrf<unknown>('POST', interactionPath(uid, 'deny'));
   return toConsentRedirect(body);
+}
+
+// ============================================================================
+// 本人の接続の一覧と取り消し（タスク78.2。要件49.1〜49.4）
+// ============================================================================
+
+/** 本人の接続の API の経路（design.md の ExternalAppRoutes） */
+const OWN_CONNECTIONS_PATH = '/api/v1/external-app-connections';
+
+/**
+ * 本人の接続の一行（backend の ExternalAppConnectionView と同じ形）
+ *
+ * Grant の ID とトークンは API が返さない。`id` は取り消しの要求にだけ使い、画面に表示しない
+ */
+export interface ExternalAppConnection {
+  readonly id: string;
+  /** アプリの名称（許可の一覧から外れたアプリは client ID） */
+  readonly appName: string;
+  readonly scopes: readonly ExternalAppScope[];
+  /** 同意の日時（ISO 8601） */
+  readonly consentedAt: string;
+  /** 最後に使われた日時（未使用なら null） */
+  readonly lastUsedAt: string | null;
+  /** 実際に使えなくなる日時（同意から 90 日と、最後の利用（未使用なら同意）から 30 日の早い方） */
+  readonly expiresAt: string;
+}
+
+/**
+ * 本人の接続の一覧を取得する（同意の新しい順。ページの切り替えは無い）
+ */
+export async function listOwnExternalAppConnections(): Promise<readonly ExternalAppConnection[]> {
+  const body = await apiClient.get<{ data: readonly ExternalAppConnection[] }>(
+    OWN_CONNECTIONS_PATH
+  );
+  return body.data;
+}
+
+/**
+ * 本人の接続を取り消す（成功は 204。終了済み・存在しない接続は 404）
+ *
+ * 状態を変えるので CSRF トークン付きの手段（`apiClient.sendWithCsrf`）で送る
+ */
+export async function revokeOwnExternalAppConnection(connectionId: string): Promise<void> {
+  await apiClient.sendWithCsrf<unknown>(
+    'DELETE',
+    `${OWN_CONNECTIONS_PATH}/${encodeURIComponent(connectionId)}`
+  );
 }
