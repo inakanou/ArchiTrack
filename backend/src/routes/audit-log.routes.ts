@@ -19,7 +19,7 @@ import type { AuditLogFilter } from '../types/audit-log.types.js';
 import type { RequestContext } from '../types/auth.types.js';
 import { ExportAuditService, type ExportRecordInput } from '../services/export-audit.service.js';
 import { getSharedProjectScopeService } from '../services/project-scope.service.js';
-import { exportRecordSchema } from '../schemas/export-audit.schema.js';
+import { exportRecordSchema, type ExportRecordRequest } from '../schemas/export-audit.schema.js';
 import {
   archiveRestoreSchema,
   type ArchiveRestoreRequest,
@@ -418,7 +418,10 @@ router.post(
   validate(exportRecordSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const input = req.validatedBody as ExportRecordInput;
+      // 本文から渡すのは検証した 4 つの欄だけにする。外部アプリの欄（externalClientId）は
+      // サーバー側のコードだけが渡し、本文に入れた要求は strict な検証で 400 になる（要件51.8）
+      const { kind, projectId, targetIds, itemCount } = req.validatedBody as ExportRecordRequest;
+      const input: ExportRecordInput = { kind, projectId, targetIds, itemCount };
       const result = await exportAuditService.record(req.user!.userId, input, requestContext(req));
       if (!result.ok) {
         next(

@@ -201,4 +201,40 @@ describe('ExportAuditService.record', () => {
     expect((metadata.userAgent as string).length).toBe(512);
     expect(metadata.userAgentTruncated).toBe(true);
   });
+
+  /**
+   * @requirement user-authentication/REQ-51.8
+   */
+  it('外部アプリ経由の出力は、実行者の利用者に加えて外部アプリの client ID を記録する', async () => {
+    const audit = fakeAudit();
+    const service = new ExportAuditService({
+      auditLogService: audit,
+      scopeService: fakeScope('allowed'),
+    });
+
+    const result = await service.record(
+      ACTOR,
+      { ...PROJECT_INPUT, externalClientId: 'claude-connector' },
+      CTX
+    );
+
+    expect(result).toEqual({ ok: true, value: { recordId: 'log-DATA_EXPORTED' } });
+    expect(audit.createLog).toHaveBeenCalledTimes(1);
+    expect(audit.createLog).toHaveBeenCalledWith({
+      action: 'DATA_EXPORTED',
+      actorId: ACTOR,
+      targetType: 'Project',
+      targetId: PROJECT_ID,
+      metadata: {
+        kind: 'site_survey_report_pdf',
+        projectId: PROJECT_ID,
+        targetIds: ['survey-1', 'survey-2'],
+        targetIdCount: 2,
+        itemCount: 2,
+        externalClientId: 'claude-connector',
+        ipAddress: '203.0.113.5',
+        userAgent: 'vitest-agent',
+      },
+    });
+  });
 });

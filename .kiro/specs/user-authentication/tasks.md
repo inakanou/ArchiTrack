@@ -2273,13 +2273,14 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 72.2_
   - _Requirements: 49.1, 49.4, 49.5, 49.6, 49.8, 49.9_
 
-- [ ] 77.2 外部アプリ経由の出力の記録に外部アプリを残す
+- [x] 77.2 外部アプリ経由の出力の記録に外部アプリを残す
   - 記録の入力に外部アプリの欄を足し、API の本文では受け付けない
   - 欄の有無で監査の内容が設計どおりになり、本文に欄を入れた要求が拒まれることを統合テストで確かめた状態になる
   - _Requirements: 51.8_
 
 **タスク77の記録（2026-11-25）**:
 - 77.1: 本人用 `GET/DELETE /api/v1/external-app-connections[/:id]` と管理者用 `GET/DELETE /api/v1/admin/external-app-connections[/:id]` を作った。管理者の確認は `require-system-admin.middleware.ts` で DB の `user_roles` のロール `admin` を見る（`*:*` の権限だけでは 403）。拒否は `PERMISSION_CHECK_FAILED`（対象 `Role`/`admin`）で監査する。2 本の DELETE に CSRF を掛け、送信元 IP と UA を渡す。不正な形の `:id` も 404。OAuth が未設定でも載せる（既存の接続を確かめて止められるように）。制限中の利用者（要件34.2）は 4 経路とも 403。単体 8,551 件・統合 2,406 件が緑。**79.4 への申し送り**: design.md の ExternalAppRoutes の表のエラー欄に、管理者用の GET の 400 と DELETE の CSRF の 403 を足す
+- 77.2: `ExportRecordInput` に任意の `externalClientId` を足し、値があるときだけ `DATA_EXPORTED` の metadata に残す（設計どおり）。`POST /api/v1/audit-logs/exports` は既存の strict な検証で本文の欄を 400 で拒み、経路も検証した 4 つの欄だけから入力を組む。異常の検知は従来どおり利用者ごとに数える。単体 8,552 件・統合 2,410 件が緑。**claude-connector への申し送り**: 外部アプリの窓口の出力で `getExternalAppPrincipal(req).clientId` を渡す統合テストを足す。範囲外の案件の拒否（`PROJECT_SCOPE_DENIED`）に client ID を残すかは利用者の判断の候補
 
 ## タスク78: 画面（要件46・47・49）
 
