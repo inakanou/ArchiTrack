@@ -21,10 +21,17 @@ declare module 'oidc-provider' {
   }
 
   export interface OidcToken {
+    kind?: string;
     accountId?: string;
+    clientId?: string;
+    grantId?: string;
+    scope?: string;
     aud?: string | string[];
     exp?: number;
     iat?: number;
+    /** 送信者の制約（DPoP・mTLS）。本システムは無効にしているので、あれば拒否する */
+    jkt?: string;
+    'x5t#S256'?: string;
   }
 
   export interface OidcInteraction {

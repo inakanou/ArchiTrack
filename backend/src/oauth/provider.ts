@@ -33,6 +33,7 @@ import { getClientIp } from '../middleware/client-ip.js';
 import type { RateLimiterDependencies } from '../middleware/rateLimit.middleware.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import { ExternalAppConnectionService } from '../services/external-app-connection.service.js';
+import { ExternalAppTokenVerifier } from '../services/external-app-token-verifier.service.js';
 import logger from '../utils/logger.js';
 import {
   createExternalAppClientRegistry,
@@ -91,6 +92,8 @@ export interface MountedExternalAppOAuth extends OAuthProviderHost {
   readonly connectionService: ExternalAppConnectionService;
   readonly clientRegistry: ExternalAppClientRegistry;
   readonly resourceUrl: string;
+  /** 外部アプリ用トークンの検証（タスク75.1。窓口のミドルウェアが使う） */
+  readonly tokenVerifier: ExternalAppTokenVerifier;
 }
 
 /**
@@ -475,5 +478,18 @@ export function mountExternalAppOAuth(
     rateLimit: { runtimeMode: createRuntimeMode(source) },
   });
   app.use(host.middleware);
-  return { ...host, connectionService, clientRegistry, resourceUrl: config.resourceUrl };
+  const tokenVerifier = new ExternalAppTokenVerifier({
+    provider: host.provider,
+    prisma,
+    connectionService,
+    clientRegistry,
+    resourceUrl: config.resourceUrl,
+  });
+  return {
+    ...host,
+    connectionService,
+    clientRegistry,
+    resourceUrl: config.resourceUrl,
+    tokenVerifier,
+  };
 }

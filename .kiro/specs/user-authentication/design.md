@@ -6872,7 +6872,7 @@ stateDiagram-v2
 | ConsentInteractionService | Backend Service | 同意の手続き | 46, 47 | OAuthProviderHost (P0), SecondFactorVerifier (P0) | Service |
 | SecondFactorVerifier | Backend Service | 2FA の検証と失敗の計数 | 47 | TwoFactorService (P0), Redis (P0) | Service |
 | ExternalAppConnectionService | Backend Service | 接続の作成・一覧・失効・監査 | 47, 48, 49, 50, 51 | Prisma (P0), AuditLogService (P0) | Service |
-| ExternalAppTokenVerifier | Backend Service | 外部アプリ用トークンの検証 | 33, 48, 51 | OAuthStoreAdapter (P0), RBACService (P0) | Service |
+| ExternalAppTokenVerifier | Backend Service | 外部アプリ用トークンの検証 | 33, 48, 51 | OAuthStoreAdapter (P0), Prisma（権限は RBAC と同じ照合の規則で DB の現在の値から判定。タスク75.1）(P0) | Service |
 | ExternalAppAuthMiddleware | Backend Middleware | 認証・範囲の確認・回数制限 | 33, 51 | ExternalAppTokenVerifier (P0), Redis (P1) | Service |
 | ExternalAppRoutes | Backend Routes | 同意・一覧・取り消しの API | 46, 47, 49 | ConsentInteractionService (P0) | API |
 | SystemAdminGuard | Backend Middleware | システム管理者ロールの確認 | 49 | Prisma (P0) | Service |
@@ -7181,6 +7181,8 @@ interface ExternalAppConnectionService {
   revokeForUsersWithoutPermission(userIds: readonly string[] | 'ALL', actor: AuditActor, tx: TransactionClient): Promise<number>;
   revokeForRemovedClients(allowedClientIds: readonly string[]): Promise<number>;
   handleReuse(event: TokenReuseEvent): Promise<void>;
+  // タスク75.1 で追加: 接続の行を FOR KEY SHARE で読み、未コミットの終了があればそのコミットを待って有無を返す
+  confirmNotEnded(connectionId: string): Promise<boolean>;
   recordEvent(event: ConnectionAuditEvent, tx?: TransactionClient): Promise<void>;
 }
 ```

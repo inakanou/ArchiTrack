@@ -17,6 +17,16 @@ export interface ExternalAppPrincipal {
   readonly scopes: readonly ExternalAppScope[];
 }
 
+/**
+ * 外部アプリ用トークンの検証と窓口の認証の失敗。
+ * 検証（タスク75.1）は全ての不成立を `INVALID_TOKEN` 1 種で返し、理由を区別しない（トークンの状態を明かさない）。
+ * 範囲の不足と回数制限は窓口のミドルウェア（タスク75.2）が返す
+ */
+export type ExternalAppAuthError =
+  | { readonly kind: 'INVALID_TOKEN' }
+  | { readonly kind: 'INSUFFICIENT_SCOPE'; readonly required: ExternalAppScope }
+  | { readonly kind: 'RATE_LIMITED'; readonly retryAfterSeconds: number };
+
 /** 接続が終わった理由 */
 export type ConnectionEndReason =
   | 'USER_REVOKED'

@@ -336,6 +336,24 @@ export class ExternalAppConnectionService {
   }
 
   /**
+   * 接続がまだ終わっていないことを、進行中の終了を待ってから確かめる（タスク75.1）
+   *
+   * 接続の行を `FOR KEY SHARE` で読む。行を消している未コミットの終了（取り消し・失効・再利用・期限切れ）が
+   * あればそのコミットまで待ち、コミットの後は行が無いので false になる。利用の記録（キーでない列の更新）とは
+   * 競合しない。1 文で実行し、ロックを要求の間に持ち続けない。
+   *
+   * @param connectionId - 接続の ID
+   * @returns 接続が残っていれば true
+   */
+  async confirmNotEnded(connectionId: string): Promise<boolean> {
+    const rows = await this.deps.prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "external_app_connections"
+      WHERE "id" = ${connectionId}
+      FOR KEY SHARE`;
+    return rows.length > 0;
+  }
+
+  /**
    * 本人の接続の一覧を返す（要件49.1）
    *
    * @param userId - 本人の ID
