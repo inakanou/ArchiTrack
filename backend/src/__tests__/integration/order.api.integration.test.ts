@@ -506,6 +506,19 @@ describe('Order API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ status: 'ORDERED', confirmedAmount: '50000' });
 
+      // 取消の前に、確定で案分した発注金額がチェック済みの項目に入っていること（空の主張を避ける）
+      const orderedResponse = await request(app)
+        .get(`/api/projects/${testProjectId}/execution-budget/orders/${orderId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(orderedResponse.body.status).toBe('ORDERED');
+      const checkedBeforeCancel = orderedResponse.body.items.filter(
+        (item: { checked: boolean }) => item.checked
+      );
+      expect(checkedBeforeCancel.length).toBeGreaterThan(0);
+      for (const item of checkedBeforeCancel) {
+        expect(item.orderAmount).not.toBeNull();
+      }
+
       // 発注取消
       const cancelResponse = await request(app)
         .patch(`/api/projects/${testProjectId}/execution-budget/orders/${orderId}/status`)
@@ -523,6 +536,7 @@ describe('Order API Integration Tests', () => {
       const checkedItems = afterCancelResponse.body.items.filter(
         (item: { checked: boolean }) => item.checked
       );
+      expect(checkedItems.length).toBeGreaterThan(0);
       for (const item of checkedItems) {
         expect(item.orderAmount).toBeNull();
       }

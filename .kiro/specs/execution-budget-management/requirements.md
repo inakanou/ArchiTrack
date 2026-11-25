@@ -230,11 +230,19 @@
 2. The システム shall 実行予算のCRUD操作にRESTful APIを提供する
 3. The システム shall 発注データのCRUD操作にRESTful APIを提供する
 4. The システム shall 出来高データのCRUD操作にRESTful APIを提供する
-5. The システム shall 原価（支出実績）データのCRUD操作にRESTful APIを提供する
-6. The システム shall 月次締めデータのCRUD操作にRESTful APIを提供する
+5. The システム shall 原価（支出実績）データの入力に、実行予算の項目ごとの今月の支出を更新するRESTful API（PATCH /api/projects/:projectId/execution-budget/items/:itemId/cost）を提供する
+6. The システム shall 月次締めデータの実行と履歴の取得に、RESTful API（月次締めを実行する POST /api/projects/:projectId/execution-budget/monthly-close と、月次締めの履歴を取得する GET /api/projects/:projectId/execution-budget/monthly-close）を提供する
 7. The システム shall API入力値のバリデーションにZodスキーマを使用する
 8. The システム shall 実行予算の論理削除をサポートする
 9. The システム shall APIレスポンスに適切なHTTPステータスコードを返却する
+
+**受入基準5・6を設計の API の表へ揃えた（2026-11-25、利用者の判断。user-authentication のタスク79.4）**:
+
+- 改訂前の受入基準5・6は、原価（支出実績）と月次締めのデータに「CRUD操作」の RESTful API を提供すると定めていた。設計（design.md の CostService と MonthlyCloseService の API Contract）と実装（backend の routes 配下の cost-monthly-close.routes）は、原価を実行予算の項目ごとの今月の支出の更新（PATCH の 1 本）、月次締めを実行（POST）と履歴の取得（GET）の 2 本として作っており、作成・削除などの操作を持たなかった。条文と設計・実装が食い違ったまま、除外の一覧が「CRUD の API の動作を統合テストで確かめる」と述べていた
+- 原価は実行予算の項目に属する値（今月の支出と、月次締めで累積する前月までの支出）であり、項目と独立に作成・削除する対象ではない。月次締めは同一月の重複を拒む一度きりの処理であり、履歴の更新・削除は締めの結果を書き換えることになる。利用者は設計の API の表を要件の意図と認め、条文をその表へ揃えた
+- 改めたのは受入基準5・6が定める API の操作の範囲だけであり、閲覧範囲とロールによる許可（Requirement 17・20）、入力値の検証（受入基準7）、応答の状態コード（受入基準9）は改訂の対象外である
+
+**採らなかった案**: 条文を変えず、原価と月次締めの作成・更新・削除の API を足す案——設計の API の表と業務の流れ（原価は項目の値、月次締めは一度きり）に無い操作を足すことになり、締めの結果を書き換える経路を新たに開くため採らない。
 
 ### Requirement 20: 案件の閲覧範囲と出力の記録の適用
 **Objective:** As a システム管理者, I want 実行予算・発注・出来高・原価・月次締めを閲覧範囲内の案件に限って閲覧・操作でき、発注一覧と月別出来高の出力がファイルの生成の前に記録されること, so that 一つのアカウントが乗っ取られても担当外の案件の実行予算と原価が漏れず、出力の経緯を後から追跡できる

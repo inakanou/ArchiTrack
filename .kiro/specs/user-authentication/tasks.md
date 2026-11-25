@@ -2334,7 +2334,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 79.2, 78.2, 78.3_
   - _Requirements: 49.1, 49.2, 49.3, 49.4, 49.5, 49.6, 49.7, 49.8, 49.9, 48.9_
 
-- [ ] 79.4 全ての試験と関門を通し、文書を実装へ揃える
+- [x] 79.4 全ての試験と関門を通し、文書を実装へ揃える
   - タスク70〜79 は 1 本のブランチで進める。`check:req-coverage` は本タスクまで通らないため、本タスクの完了まで push しない
   - 受入基準 52 件と 33.1・33.3 の各々を E2E で被覆するか、E2E の対象外なら実在する代替検証を添えて除外に登録し、本番の入口から到達できる状態にする
   - 単体・統合・E2E の全件と、`check:req-coverage`（`--strict` を含む）を含む関門が通る
@@ -2380,6 +2380,23 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 本番のコードは変えていない。5 種の変異で各テストが赤になることを確かめた。
   - `--repeat-each=5 --retries=0` で、79.2 と合わせて 45 件が緑。
   - **79.4 への申し送り**: design.md の `ExternalAppConnectionView.expiresAt` に、画面の期限が「同意から 90 日と最後の利用から 30 日の早い方」（`toView` の min）であることを書く。
+- 79.4: 受入基準 57 件（46.1〜51.10 と 33.1・33.3）を、条文を主張する E2E か、代替検証つきの除外 12 件で被覆した（04081d03）。
+  - 新しい E2E は `oauth-tokens.spec.ts`・`oauth-connection-revocation.spec.ts`。既存の 3 本にも足した。
+  - 申し送りも片付けた。
+    - 統合の Session の後始末（43 行から 0 行）。
+    - 600 秒の試験の余裕を 45 秒にした。
+    - tech.md に `unit/oauth/` を足した。
+    - design.md の実在のパス・エラー欄・`expiresAt`・確かめた結果を揃えた。
+    - 73.4 の Interaction の後始末。
+  - 本番の冒頭の要件の一覧は、45.1 の注に従い、印にも機能名を欠くヘッダーにも数えられない字面（`対応する要件（user-authentication）:`）にした。
+  - `check:req-coverage:strict` は、分岐点 49d61284 から他スペックの除外 73 件（in-repo-unverified）で赤だった。利用者の判断（2026-11-25）で、このブランチで直した。
+    - 67 件は、受入基準を主張する既存のテストへの印か、新しいテストで解消した（3c6a77f5。本番のコードは不変）。
+    - estimate-request 44.9・45.13（配備の migration）と 51.3（運用の手順）は、external に区分し直した。
+    - execution-budget-management 19.5・19.6 は、要件を design の API の表に合わせて改め、実在の統合テストに印を付けた。
+    - 同じく 8.9 の主張を強めた。
+  - **残る赤**: strict の execution-budget-management/REQ-3.7（親の行に子の合計を表示する画面が未実装）。利用者の判断で別件とする。pre-push と CI は非 strict を回し、それは緑。
+  - 各段は独立レビューで承認。単体 8,557 件・統合 2,429 件・frontend 13,734 件・E2E 3,060 件が緑。
+  - **残し**: cost-monthly-close.routes.ts と単体テスト 2 本の注釈に、改訂前の「CRUD操作」の文がある。
 
 ## Implementation Notes
 
