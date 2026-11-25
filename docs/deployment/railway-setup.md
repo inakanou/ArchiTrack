@@ -207,6 +207,13 @@ railway config apply --environment staging     # 確認した変更の適用
 
 `main` へのマージではこの設定は適用されない。**次に `main` へ配備する前に、`--environment production` で試算と適用を行う**（適用すると再デプロイされる）。適用を忘れると、CI の本番配備は `scripts/railway-production-guard.sh` が配備の前に止める。
 
+適用の記録:
+
+- staging: 2026-11-22 に適用した。
+- production: 2026-11-25 に適用した（試算は 0 追加・4 変更・0 削除）。適用の後の試算には、ビルド方式（`build.builder`）の 2 件だけが残る（staging と同じ既知の挙動）。`scripts/railway-production-guard.sh` は利用者のトークンで通った。CI のトークン（`RAILWAY_PRODUCTION_TOKEN`）で設定を読めるかは、次の CI の実行で確かめる。
+- production の backend と frontend は、2026-11-25 の時点で最後の配備が 2025-11 の失敗のまま止まっている。GitHub との接続は無い（GitHub 起点の自動配備は起きない）。
+- production の backend には、起動の前提の変数（JWT の鍵・2FA の暗号鍵・アーカイブの鍵・R2 など）がまだ無い。`TRUST_PROXY_HOPS=3` だけは 2026-11-25 に設定した。staging で、記録された送信元 IP が利用者の公開 IP と一致することを確かめた値である。frontend には `BACKEND_INTERNAL_URL` が無い。**main へ配備する前に、[環境変数](environment-variables.md)の表の本番で必須の値をそろえる。**
+
 ---
 
 ## Railway CLI設定
