@@ -957,6 +957,26 @@ describe('ExecutionBudgetPage', () => {
       expect(errors.length).toBeGreaterThan(0);
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-4.5
+     * 版の競合（409）では、サーバーが返す再取得を促す文言（ExecutionBudgetConflictError の既定の文言。
+     * backend の progress-cost-monthly.api.integration.test.ts が実際の応答で確かめる）を画面に表示する。
+     */
+    it('他の利用者の更新と競合したとき、競合のメッセージと画面の更新を促す文言を表示する', async () => {
+      const conflictMessage = '他のユーザーによって更新されました。画面を更新してください';
+      vi.mocked(executionBudgetApi.updateItemCost).mockRejectedValue(
+        new ApiError(409, conflictMessage, { code: 'EXECUTION_BUDGET_CONFLICT' })
+      );
+      renderPage();
+      const input = await screen.findByTestId('current-month-expense-input-item-2');
+      await userEvent.click(input);
+      await userEvent.clear(input);
+      await userEvent.type(input, '70000');
+      await userEvent.tab();
+      const errors = await screen.findAllByText(conflictMessage);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
     it('updateItemCost 一般エラー時に汎用メッセージを表示する', async () => {
       vi.mocked(executionBudgetApi.updateItemCost).mockRejectedValue(new Error('boom'));
       renderPage();

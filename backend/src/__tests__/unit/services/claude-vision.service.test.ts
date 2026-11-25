@@ -243,6 +243,11 @@ describe('ClaudeVisionService', () => {
       expect(textBlock!.text).toContain('JSON');
     });
 
+    /**
+     * @requirement estimate-request/REQ-21.5
+     * @requirement estimate-request/REQ-21.6
+     * @requirement estimate-request/REQ-26.5
+     */
     it('should parse JSON response with ```json markers', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [
@@ -263,6 +268,10 @@ describe('ClaudeVisionService', () => {
       expect(result.lineItems[0]!.quantity).toBe(100);
     });
 
+    /**
+     * @requirement estimate-request/REQ-21.5
+     * @requirement estimate-request/REQ-26.5
+     */
     it('should parse JSON response with direct array format', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [
@@ -281,6 +290,9 @@ describe('ClaudeVisionService', () => {
       expect(result.lineItems[0]!.name).toBe('テスト項目');
     });
 
+    /**
+     * @requirement estimate-request/REQ-26.7
+     */
     it('should convert string number fields to Number type', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [
@@ -300,6 +312,9 @@ describe('ClaudeVisionService', () => {
       expect(result.lineItems[0]!.amount).toBe(251250);
     });
 
+    /**
+     * @requirement estimate-request/REQ-26.8
+     */
     it('should handle comma-separated numbers (e.g., "1,234,567" -> 1234567)', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [
@@ -350,6 +365,52 @@ describe('ClaudeVisionService', () => {
       expect(result.lineItems[0]!.customCategory).toBeNull();
       expect(result.lineItems[0]!.quantity).toBeNull();
       expect(result.lineItems[0]!.unitPrice).toBeNull();
+    });
+
+    /**
+     * 明細行が任意分類・工種・名称・規格・単位・数量・単価・金額・備考の 9 項目をちょうど持ち、
+     * 応答の余分な項目を持ち込まないこと
+     * @requirement estimate-request/REQ-21.7
+     */
+    it('should return line items with exactly the nine fields and their values', async () => {
+      mockCreate.mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"customCategory": "A工事", "workType": "土工", "name": "掘削工", "specification": "バックホウ", "unit": "m3", "quantity": 10, "unitPrice": 2500, "amount": 25000, "remarks": "備考あり", "extra": "持ち込まない"}]',
+          },
+        ],
+      });
+
+      const result = await service.extractLineItems([
+        { base64Data: 'dGVzdA==', mediaType: 'image/png' },
+      ]);
+
+      expect(result.lineItems).toHaveLength(1);
+      expect(Object.keys(result.lineItems[0]!).sort()).toEqual(
+        [
+          'customCategory',
+          'workType',
+          'name',
+          'specification',
+          'unit',
+          'quantity',
+          'unitPrice',
+          'amount',
+          'remarks',
+        ].sort()
+      );
+      expect(result.lineItems[0]).toEqual({
+        customCategory: 'A工事',
+        workType: '土工',
+        name: '掘削工',
+        specification: 'バックホウ',
+        unit: 'm3',
+        quantity: 10,
+        unitPrice: 2500,
+        amount: 25000,
+        remarks: '備考あり',
+      });
     });
   });
 
@@ -402,6 +463,10 @@ describe('ClaudeVisionService', () => {
       }
     });
 
+    /**
+     * @requirement estimate-request/REQ-23.4
+     * @requirement estimate-request/REQ-26.6
+     */
     it('should throw ClaudeVisionError.parseError() when response is not valid JSON', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'This is not JSON at all' }],
@@ -416,6 +481,10 @@ describe('ClaudeVisionService', () => {
       }
     });
 
+    /**
+     * @requirement estimate-request/REQ-23.4
+     * @requirement estimate-request/REQ-26.6
+     */
     it('should throw ClaudeVisionError.parseError() when parsed result is not an array', async () => {
       mockCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: '{"not": "an array"}' }],

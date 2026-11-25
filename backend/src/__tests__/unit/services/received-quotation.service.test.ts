@@ -1050,6 +1050,9 @@ describe('ReceivedQuotationService', () => {
       expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith('user-001', 'project-001');
     });
 
+    /**
+     * @requirement estimate-request/REQ-50.1
+     */
     it('プレビュー用の署名付きURLは15分（900秒）の期限で発行し、インライン表示のファイル名を添える（タスク113.5）', async () => {
       // Arrange
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue({

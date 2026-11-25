@@ -36,6 +36,10 @@ import { createTestUser } from './test-user-factory.js';
 /**
  * 実行予算CRUD API統合テスト
  */
+/**
+ * @requirement execution-budget-management/REQ-19.2
+ * 実行予算の作成（POST）・取得（GET）・項目の編集（PATCH）・削除（DELETE）を、実際の app の REST の経路で確かめる。
+ */
 describe('Execution Budget API Integration Tests', () => {
   let prisma: PrismaClient;
   let accessToken: string;
@@ -349,6 +353,7 @@ describe('Execution Budget API Integration Tests', () => {
       expect(response.body.version).toBe(0);
     });
 
+    /** @requirement execution-budget-management/REQ-1.5 */
     it('既に実行予算が存在する場合は409エラーを返すこと', async () => {
       // 最初に実行予算を作成
       await request(app)
@@ -471,6 +476,7 @@ describe('Execution Budget API Integration Tests', () => {
       expect(response.body.version).toBe(1);
     });
 
+    /** @requirement execution-budget-management/REQ-4.4 */
     it('楽観的排他制御: バージョン不一致の場合は409エラーを返すこと', async () => {
       // 実行予算を作成
       await request(app)
@@ -539,12 +545,18 @@ describe('Execution Budget API Integration Tests', () => {
   // DELETE /api/projects/:projectId/execution-budget（削除）
   // =================================================================
   describe('DELETE /api/projects/:projectId/execution-budget', () => {
+    /**
+     * @requirement execution-budget-management/REQ-2.2
+     * 削除の確定の後、行が DB に残り deletedAt が設定されている（論理削除）ことを確かめる。
+     */
     it('実行予算を削除できること', async () => {
       // 実行予算を作成
-      await request(app)
+      const createResponse = await request(app)
         .post(`/api/projects/${testProjectId}/execution-budget`)
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ contractId: testContractId });
+      expect(createResponse.status).toBe(201);
+      const budgetId = createResponse.body.id as string;
 
       // 削除
       const response = await request(app)
@@ -559,6 +571,11 @@ describe('Execution Budget API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(getResponse.status).toBe(404);
+
+      // 行は物理削除されず、deletedAt が設定されている（論理削除）
+      const row = await prisma.executionBudget.findUnique({ where: { id: budgetId } });
+      expect(row).not.toBeNull();
+      expect(row!.deletedAt).toBeInstanceOf(Date);
     });
 
     it('存在しない実行予算の削除は404エラーを返すこと', async () => {
@@ -632,9 +649,13 @@ describe('Execution Budget API Integration Tests', () => {
   // POST /api/projects/:projectId/execution-budget/apply-amendment（契約変更反映）
   // =================================================================
   describe('POST /api/projects/:projectId/execution-budget/apply-amendment', () => {
+    /**
+     * @requirement execution-budget-management/REQ-15.8
+     * 反映の後、変更反映の履歴の行に適用日時と変更契約名（変更契約の見積書の名前）が記録されることを確かめる。
+     */
     it('変更契約を実行予算に反映できること', async () => {
       // 実行予算を作成
-      await request(app)
+      const createResponse = await request(app)
         .post(`/api/projects/${testProjectId}/execution-budget`)
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ contractId: testContractId });
@@ -694,6 +715,15 @@ describe('Execution Budget API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('addedCount');
+
+      // 変更反映の履歴（適用日時・変更契約名）が記録されている
+      const histories = await prisma.amendmentApplyHistory.findMany({
+        where: { executionBudgetId: createResponse.body.id as string },
+      });
+      expect(histories).toHaveLength(1);
+      expect(histories[0]!.contractId).toBe(amendmentContract.id);
+      expect(histories[0]!.contractName).toBe('変更見積書');
+      expect(histories[0]!.appliedAt).toBeInstanceOf(Date);
     });
 
     it('実行予算が存在しない場合は404エラーを返すこと', async () => {

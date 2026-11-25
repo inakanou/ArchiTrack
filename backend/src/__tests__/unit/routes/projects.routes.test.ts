@@ -195,6 +195,16 @@ vi.mock('../../../storage/index', () => ({
   getStorageProvider: (...args: unknown[]) => mockGetStorageProvider(...args),
 }));
 
+// 変換の規則は本物のまま、呼び出しだけを観測する（個別APIと同じ関数へ委ねているかを見るため）
+vi.mock('../../../utils/site-survey-thumbnail-urls', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../utils/site-survey-thumbnail-urls.js')>();
+  return {
+    ...actual,
+    signSiteSurveyThumbnailUrls: vi.fn(actual.signSiteSurveyThumbnailUrls),
+  };
+});
+
 // モック: 認証ミドルウェア
 vi.mock('../../../middleware/authenticate.middleware', () => ({
   authenticate: (req: Request, _res: Response, next: NextFunction) => {
@@ -228,6 +238,7 @@ vi.mock('../../../services/project-scope.service', () => ({
 // 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import projectsRouter from '../../../routes/projects.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
+import { signSiteSurveyThumbnailUrls } from '../../../utils/site-survey-thumbnail-urls.js';
 import {
   ProjectNotFoundError,
   ProjectValidationError,
@@ -1087,6 +1098,10 @@ describe('Projects Routes', () => {
       expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith('uploads/originals/orig-1.jpg');
     });
 
+    /**
+     * サムネイルのパスを持つ現場調査でも、ストレージが未設定なら2つのURLを null で返す。
+     * @requirement project-management/REQ-30.3
+     */
     it('ストレージ未設定時: thumbnailUrl と thumbnailOriginalUrl が null であること (30.3)', async () => {
       defaultSectionsSetup();
       (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -1131,6 +1146,55 @@ describe('Projects Routes', () => {
       // 他のセクションデータは正常に返却される
       expect(response.body.sections.quantityTables).toBeDefined();
       expect(response.body.sections.estimateRequests).toBeDefined();
+    });
+
+    /**
+     * 個別API（GET /api/projects/:projectId/site-surveys/latest）が使う変換関数
+     * signSiteSurveyThumbnailUrls へ、各現場調査とストレージを渡して委ね、その結果をそのまま返す。
+     * 個別API側の対は site-surveys.routes.test.ts の同じ番号の試験が主張する。
+     * @requirement project-management/REQ-30.5
+     */
+    it('個別APIと同じ変換関数へ現場調査ごとに委ね、その結果を応答に載せること (30.5)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 2,
+        latestSurveys: [mockSurveyWithThumbnail, mockSurveyWithoutThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi.fn((key: string) => Promise.resolve(`https://signed.example.com/${key}`)),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const sign = vi.mocked(signSiteSurveyThumbnailUrls);
+      expect(sign).toHaveBeenCalledTimes(2);
+      expect(sign).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'survey-1' }),
+        mockStorageProvider
+      );
+      expect(sign).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'survey-2' }),
+        mockStorageProvider
+      );
+
+      // 応答の3つのURLは、共有の変換関数が返した値そのもの
+      const latestSurveys = response.body.sections.siteSurveys.latestSurveys as Array<
+        Record<string, unknown>
+      >;
+      for (const [index, result] of sign.mock.results.entries()) {
+        const returned = await result.value;
+        const surveyId = (sign.mock.calls[index]![0] as { id: string }).id;
+        const survey = latestSurveys.find((s) => s.id === surveyId)!;
+        expect({
+          thumbnailUrl: survey.thumbnailUrl,
+          thumbnailOriginalUrl: survey.thumbnailOriginalUrl,
+          annotatedThumbnailUrl: survey.annotatedThumbnailUrl,
+        }).toEqual(returned);
+      }
     });
 
     it('サムネイルが存在しない現場調査の場合: thumbnailOriginalUrl が null であること', async () => {
@@ -1568,6 +1632,74 @@ describe('Projects Routes', () => {
       expect(response.status).toBe(404);
       expect(response.body.code).toBe('NOT_FOUND');
       expect(mockProjectService.getProject).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // 論理削除したプロジェクトを画面から元に戻す手段を提供しない
+  // 画面の操作はすべてこの経路を通るため、経路の一覧が「元に戻す経路の不在」の実体である。
+  // ==========================================================================
+  describe('論理削除の取り消しの手段の不在', () => {
+    /**
+     * プロジェクトの経路は、一覧・状態別の件数・詳細・detail-summary・関連データの件数・
+     * 状態の履歴の取得、作成、更新、論理削除、状態変更だけであり、論理削除を取り消す経路は無い。
+     * 経路を一つでも足すと一覧が一致しなくなり赤になる。
+     * @requirement project-management/REQ-46.3
+     */
+    it('プロジェクトの経路は既知の10本だけで、論理削除を取り消す経路を持たない', () => {
+      const registered = (
+        projectsRouter as unknown as {
+          stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }>;
+        }
+      ).stack
+        .filter((layer) => layer.route)
+        .flatMap((layer) =>
+          Object.keys(layer.route!.methods)
+            .filter((method) => layer.route!.methods[method])
+            .map((method) => `${method.toUpperCase()} ${layer.route!.path}`)
+        )
+        .sort();
+
+      expect(registered).toEqual(
+        [
+          'GET /',
+          'GET /status-counts',
+          'GET /:id',
+          'GET /:id/detail-summary',
+          'GET /:id/related-counts',
+          'GET /:id/status-history',
+          'POST /',
+          'PUT /:id',
+          'DELETE /:id',
+          'PATCH /:id/status',
+        ].sort()
+      );
+      expect(registered.some((route) => /restore|undelete|recover/i.test(route))).toBe(false);
+    });
+
+    /**
+     * 唯一の書き換えの経路である更新（PUT /:id）の本文に deletedAt を含めても、
+     * サービスへ渡す入力には載らない（更新で論理削除を取り消せない）。
+     * 論理削除済みの更新が ProjectNotFoundError になることは project.service.test.ts が主張する。
+     * @requirement project-management/REQ-46.3
+     */
+    it('更新の本文に deletedAt: null を含めても、サービスへ渡す入力に載らない', async () => {
+      (mockProjectService.updateProject as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockProjectInfo
+      );
+
+      const response = await request(app).put(`/api/projects/${TEST_PROJECT_ID}`).send({
+        name: '更新プロジェクト',
+        deletedAt: null,
+        expectedUpdatedAt: '2025-01-02T00:00:00.000Z',
+      });
+
+      expect(response.status).toBe(200);
+      expect(mockProjectService.updateProject).toHaveBeenCalledTimes(1);
+      const input = (mockProjectService.updateProject as ReturnType<typeof vi.fn>).mock
+        .calls[0]![1] as Record<string, unknown>;
+      expect(input).toMatchObject({ name: '更新プロジェクト' });
+      expect(Object.keys(input)).not.toContain('deletedAt');
     });
   });
 });

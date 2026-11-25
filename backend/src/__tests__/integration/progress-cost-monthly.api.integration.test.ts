@@ -37,6 +37,9 @@ import { createTestUser } from './test-user-factory.js';
 
 /**
  * 出来高・原価・月次締め API統合テスト
+ *
+ * @requirement execution-budget-management/REQ-19.4
+ * 出来高の作成と同じ施工日への上書き（POST）・履歴の取得（GET）・削除（DELETE）を、実際の app の REST の経路で確かめる。
  */
 describe('Progress / Cost / Monthly Close API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -479,6 +482,37 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
       expect(response.body).toHaveProperty('currentMonthExpense');
       expect(response.body).toHaveProperty('totalExpense');
       expect(response.body).toHaveProperty('remainingBudget');
+    });
+
+    /**
+     * @requirement execution-budget-management/REQ-4.5
+     * 他の利用者の更新で版が進んだ後の古い版での更新は 409 になり、画面の更新（最新データの再取得）を促す
+     * 文言が応答の detail に入る。画面はこの文言をそのまま表示する（frontend の ExecutionBudgetPage.test.tsx）。
+     */
+    it('他の利用者が先に更新していた場合は409と再取得を促すメッセージを返すこと', async () => {
+      const itemId = testBudgetItemIds[0];
+      const before = await prisma.executionBudget.findUniqueOrThrow({
+        where: { id: testBudgetId },
+      });
+
+      // 他の利用者の更新（版が1つ進む）
+      const first = await request(app)
+        .patch(`/api/projects/${testProjectId}/execution-budget/items/${itemId}/cost`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentMonthExpense: '1000', version: before.version });
+      expect(first.status).toBe(200);
+
+      // 古い版のままの更新
+      const response = await request(app)
+        .patch(`/api/projects/${testProjectId}/execution-budget/items/${itemId}/cost`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentMonthExpense: '2000', version: before.version });
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('EXECUTION_BUDGET_CONFLICT');
+      expect(response.body.detail).toBe(
+        '他のユーザーによって更新されました。画面を更新してください'
+      );
     });
 
     it('認証なしの場合は401エラーを返すこと', async () => {

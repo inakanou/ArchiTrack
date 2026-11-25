@@ -1059,6 +1059,11 @@ describe('Site Survey API Integration Tests', () => {
     });
   });
 
+  /**
+   * 見出しの番号（12.5）は改番前のもので、現在の要件定義書では監査ログは 14.5 である。
+   * 作成・更新・削除の各操作が監査ログに残ることを実 DB で確かめる。
+   * @requirement site-survey/REQ-14.5
+   */
   describe('Audit Log Tests (REQ 12.5)', () => {
     it('現場調査作成時に監査ログが記録される', async () => {
       const response = await request(app)

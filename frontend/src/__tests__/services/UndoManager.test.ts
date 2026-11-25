@@ -468,6 +468,36 @@ describe('UndoManager', () => {
       // Stack should have only 50 commands
       expect(manager.getUndoStackSize()).toBe(50);
     });
+
+    /**
+     * 注釈の編集画面は `new UndoManager(50)` を作り、操作の記録を `pushWithoutExecute` で積む
+     * （useFabricUndoIntegration・AnnotationEditor）。その経路で 51 件目を積んだとき、
+     * 保持が 50 件のままであること、消えるのが最古の 1 件だけであることを確かめる。
+     * @requirement site-survey/REQ-13.4
+     */
+    it('注釈の編集と同じ経路で51件積むと50件を保ち、最古の1件だけが取り消せなくなる', () => {
+      const manager = new UndoManager(50);
+      const commands: UndoCommand[] = Array.from({ length: 51 }, (_, i) => ({
+        type: `edit${i}`,
+        execute: vi.fn(),
+        undo: vi.fn(),
+      }));
+
+      commands.slice(0, 50).forEach((command) => manager.pushWithoutExecute(command));
+      expect(manager.getUndoStackSize()).toBe(50);
+
+      manager.pushWithoutExecute(commands[50]!);
+      expect(manager.getUndoStackSize()).toBe(50);
+
+      while (manager.canUndo()) {
+        manager.undo();
+      }
+
+      expect(commands[0]!.undo).not.toHaveBeenCalled();
+      for (const command of commands.slice(1)) {
+        expect(command.undo).toHaveBeenCalledTimes(1);
+      }
+    });
   });
 
   describe('pushWithoutExecute', () => {

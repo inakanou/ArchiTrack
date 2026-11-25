@@ -34,6 +34,10 @@ import { createTestUser } from './test-user-factory.js';
 /**
  * 発注API統合テスト
  */
+/**
+ * @requirement execution-budget-management/REQ-19.3
+ * 発注の作成（POST）・一覧と詳細の取得（GET）・項目とステータスの更新（PUT / PATCH）・削除（DELETE）を、実際の app の REST の経路で確かめる。
+ */
 describe('Order API Integration Tests', () => {
   let prisma: PrismaClient;
   let accessToken: string;
@@ -282,6 +286,7 @@ describe('Order API Integration Tests', () => {
   // POST /api/projects/:projectId/execution-budget/orders（発注作成）
   // =================================================================
   describe('POST /api/projects/:projectId/execution-budget/orders', () => {
+    /** @requirement execution-budget-management/REQ-6.8 */
     it('取引先を指定して発注を作成できること', async () => {
       const response = await request(app)
         .post(`/api/projects/${testProjectId}/execution-budget/orders`)
@@ -467,6 +472,7 @@ describe('Order API Integration Tests', () => {
       expect([400, 422]).toContain(response.status);
     });
 
+    /** @requirement execution-budget-management/REQ-8.9 */
     it('発注取消により案分済みの発注金額がクリアされること', async () => {
       // 発注を作成して確定まで進める
       const createResponse = await request(app)

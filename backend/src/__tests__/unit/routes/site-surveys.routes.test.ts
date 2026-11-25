@@ -121,6 +121,16 @@ vi.mock('../../../storage/index.js', () => ({
   getStorageProvider: () => (mockStorageState.configured ? mockStorageProvider : null),
 }));
 
+// 変換の規則は本物のまま、呼び出しだけを観測する（detail-summary と同じ関数へ委ねているかを見るため）
+vi.mock('../../../utils/site-survey-thumbnail-urls', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../utils/site-survey-thumbnail-urls.js')>();
+  return {
+    ...actual,
+    signSiteSurveyThumbnailUrls: vi.fn(actual.signSiteSurveyThumbnailUrls),
+  };
+});
+
 // モック: 認証ミドルウェア
 vi.mock('../../../middleware/authenticate.middleware', () => ({
   authenticate: (req: Request, _res: Response, next: NextFunction) => {
@@ -149,6 +159,7 @@ vi.mock('../../../errors/siteSurveyError', async (importOriginal) => {
 // 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import siteSurveysRouter from '../../../routes/site-surveys.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
+import { signSiteSurveyThumbnailUrls } from '../../../utils/site-survey-thumbnail-urls.js';
 import {
   SiteSurveyNotFoundError,
   SiteSurveyConflictError,
@@ -631,6 +642,39 @@ describe('Site Surveys Routes', () => {
         expect(withAnnotated?.annotatedThumbnailUrl).toBe(signedUrlOf(ANNOTATED_THUMBNAIL_PATH));
         expect(Object.keys(withoutAnnotated!)).toContain('annotatedThumbnailUrl');
         expect(withoutAnnotated?.annotatedThumbnailUrl).toBeNull();
+      });
+
+      /**
+       * 個別API（/latest）は detail-summary と同じ変換関数 signSiteSurveyThumbnailUrls へ
+       * 各現場調査とストレージを渡して委ね、その結果をそのまま返す。
+       * detail-summary 側の対は projects.routes.test.ts の同じ番号の試験が主張する。
+       * @requirement project-management/REQ-30.5
+       */
+      it('should delegate the latest surveys thumbnail URLs to the function shared with detail-summary', async () => {
+        const response = await request(app).get(
+          `/api/projects/${TEST_PROJECT_ID}/site-surveys/latest`
+        );
+
+        expect(response.status).toBe(200);
+        const sign = vi.mocked(signSiteSurveyThumbnailUrls);
+        expect(sign).toHaveBeenCalledTimes(listedSurveys.length);
+        for (const listed of listedSurveys) {
+          expect(sign).toHaveBeenCalledWith(
+            expect.objectContaining({ id: listed.id }),
+            mockStorageProvider
+          );
+        }
+
+        for (const [index, result] of sign.mock.results.entries()) {
+          const returned = await result.value;
+          const surveyId = (sign.mock.calls[index]![0] as { id: string }).id;
+          const survey = findSurvey(response.body.latestSurveys, surveyId)!;
+          expect({
+            thumbnailUrl: survey.thumbnailUrl,
+            thumbnailOriginalUrl: survey.thumbnailOriginalUrl,
+            annotatedThumbnailUrl: survey.annotatedThumbnailUrl,
+          }).toEqual(returned);
+        }
       });
 
       /**

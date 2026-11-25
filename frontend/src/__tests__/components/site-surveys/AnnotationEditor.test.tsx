@@ -1282,6 +1282,31 @@ describe('AnnotationEditor', () => {
 
         // 削除後の処理として discardActiveObject が呼ばれることを確認
       });
+
+      /**
+       * 上の件は削除の結果を確かめていない。選択中の寸法線で Delete・Backspace を押すと、
+       * その寸法線をキャンバスから取り除き、選択を外すことを確かめる。
+       * @requirement site-survey/REQ-6.6
+       */
+      it.each(['Delete', 'Backspace'])(
+        '選択中の寸法線で %s キーを押すと、その寸法線をキャンバスから取り除き選択を外す',
+        async (key) => {
+          const selectedDimension = { type: 'dimensionLine', id: 'dimension-1' };
+          mockCanvasInstance.getActiveObject.mockReturnValue(selectedDimension);
+
+          render(<AnnotationEditor {...defaultProps} />);
+
+          await waitFor(() => {
+            expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+          });
+
+          fireEvent.keyDown(screen.getByTestId('annotation-editor-container'), { key });
+
+          expect(mockCanvasInstance.remove).toHaveBeenCalledTimes(1);
+          expect(mockCanvasInstance.remove).toHaveBeenCalledWith(selectedDimension);
+          expect(mockCanvasInstance.discardActiveObject).toHaveBeenCalled();
+        }
+      );
     });
 
     describe('ツール切り替え時の選択状態', () => {
@@ -1571,6 +1596,48 @@ describe('AnnotationEditor', () => {
       });
     });
 
+    /**
+     * 注釈データの保存の応答を待つ間だけ保存中の表示が出て、保存が終われば消えることを確かめる。
+     * @requirement site-survey/REQ-9.4
+     */
+    it('注釈データの保存中は保存中の表示を出し、保存が終わると消す', async () => {
+      const user = (await import('@testing-library/user-event')).default.setup();
+      const mockSaveAnnotation = vi.mocked(
+        (await import('../../../api/survey-annotations')).saveAnnotation
+      );
+      let finishSave: (value: typeof mockAnnotationInfo) => void = () => {};
+      mockSaveAnnotation.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSave = resolve;
+          })
+      );
+
+      mockCanvasInstance.getObjects.mockReturnValue([]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+      });
+
+      expect(screen.queryByRole('status', { name: '保存中' })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /保存/i }));
+
+      await waitFor(() => {
+        expect(mockSaveAnnotation).toHaveBeenCalled();
+      });
+      expect(screen.getByRole('status', { name: '保存中' })).toHaveTextContent('保存中...');
+
+      finishSave(mockAnnotationInfo);
+
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('status', { name: '保存中' })).not.toBeInTheDocument();
+    });
+
     it('オブジェクトがある場合、各オブジェクトがシリアライズされる', async () => {
       const user = (await import('@testing-library/user-event')).default.setup();
       const mockSaveAnnotation = vi.mocked(
@@ -1617,6 +1684,9 @@ describe('AnnotationEditor', () => {
         });
       });
 
+      /**
+       * @requirement site-survey/REQ-23.4
+       */
       it('合成済みサムネイルの更新が失敗した場合、保存完了メッセージを表示しない (Req 23.4)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail } =
@@ -1647,6 +1717,9 @@ describe('AnnotationEditor', () => {
         expect(screen.queryByRole('status', { name: '保存中' })).not.toBeInTheDocument();
       });
 
+      /**
+       * @requirement site-survey/REQ-23.6
+       */
       it('合成済みサムネイルの更新が失敗した場合、既存経路と同じエラーToastを表示する (Req 23.6)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail } =
@@ -1675,6 +1748,9 @@ describe('AnnotationEditor', () => {
         });
       });
 
+      /**
+       * @requirement site-survey/REQ-23.6
+       */
       it('合成済みサムネイルの更新が失敗した場合、旧状態が残らないよう再取得を要求する (Req 23.6)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail } =
@@ -1713,6 +1789,9 @@ describe('AnnotationEditor', () => {
         expect(mockOnAnnotationSaved).toHaveBeenNthCalledWith(1, { annotatedThumbnailUrl: null });
       });
 
+      /**
+       * @requirement site-survey/REQ-23.4
+       */
       it('合成済みサムネイルの更新が完了するまで保存完了とみなさない (Req 23.4)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail } =
@@ -2022,6 +2101,9 @@ describe('AnnotationEditor', () => {
         expect(updateAnnotatedThumbnail).not.toHaveBeenCalled();
       });
 
+      /**
+       * @requirement site-survey/REQ-23.8
+       */
       it('注釈も回転も無い保存を繰り返しても取り消しのみを行う (Req 23.8)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail, deleteAnnotatedThumbnail } =
@@ -2047,6 +2129,10 @@ describe('AnnotationEditor', () => {
         expect(screen.getByText(/保存しました/i)).toBeInTheDocument();
       });
 
+      /**
+       * @requirement site-survey/REQ-23.4
+       * @requirement site-survey/REQ-23.6
+       */
       it('合成済みサムネイルの取り消しに失敗した場合は保存完了とみなさない (Req 23.4, 23.6)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, deleteAnnotatedThumbnail } =
@@ -2087,6 +2173,9 @@ describe('AnnotationEditor', () => {
         });
       });
 
+      /**
+       * @requirement site-survey/REQ-23.8
+       */
       it('注釈がある状態で同一内容の保存を繰り返しても表示元が空にならない (Req 23.8)', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail, deleteAnnotatedThumbnail } =

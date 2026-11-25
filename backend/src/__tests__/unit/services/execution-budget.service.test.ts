@@ -1256,6 +1256,9 @@ describe('ExecutionBudgetService', () => {
      * backend/src/__tests__/unit/models/execution-budget.model.test.ts と
      * 同 execution-budget.migration.test.ts の前書きだけで、いずれも本番モジュールを
      * 取り込まないため「到達しない被覆源のみの受入基準」へ分類されていた。
+     *
+     * @requirement execution-budget-management/REQ-2.2
+     * 削除の確定（`delete` の呼び出し）が行を消さず `deletedAt` を設定することを、同じ主張で確かめる。
      */
     it('発注済みの発注が存在しない場合は論理削除する', async () => {
       // Arrange
@@ -1774,6 +1777,10 @@ describe('ExecutionBudgetService', () => {
       expect(result).toBeDefined();
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-15.4
+     * 発注済みの削除対象に変更削除の印を付け、論理削除（deletedAt）を設定しないことを確かめる。
+     */
     it('変更削除対象項目が発注済みの場合AMENDMENT_DELETEDステータスを付与する（Req 15.4）', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
@@ -1833,8 +1840,20 @@ describe('ExecutionBudgetService', () => {
           }),
         })
       );
+      // 削除せず一覧に残す: 当該項目へ論理削除（deletedAt）を設定しない
+      const callsForItem = mockTx.executionBudgetItem.update.mock.calls.filter(
+        ([arg]) => (arg as { where: { id: string } }).where.id === 'budget-item-ordered'
+      );
+      expect(callsForItem.length).toBeGreaterThan(0);
+      for (const [arg] of callsForItem) {
+        expect((arg as { data: Record<string, unknown> }).data).not.toHaveProperty('deletedAt');
+      }
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-15.4
+     * 出来高入力済みの削除対象に変更削除の印を付け、論理削除（deletedAt）を設定しないことを確かめる。
+     */
     it('変更削除対象項目が出来高入力済みの場合AMENDMENT_DELETEDステータスを付与する（Req 15.4）', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
@@ -1888,8 +1907,17 @@ describe('ExecutionBudgetService', () => {
           }),
         })
       );
+      // 削除せず一覧に残す: 当該項目へ論理削除（deletedAt）を設定しない
+      const callsForItem = mockTx.executionBudgetItem.update.mock.calls.filter(
+        ([arg]) => (arg as { where: { id: string } }).where.id === 'budget-item-progress'
+      );
+      expect(callsForItem.length).toBeGreaterThan(0);
+      for (const [arg] of callsForItem) {
+        expect((arg as { data: Record<string, unknown> }).data).not.toHaveProperty('deletedAt');
+      }
     });
 
+    /** @requirement execution-budget-management/REQ-15.5 */
     it('変更削除対象項目が未発注かつ出来高未入力の場合論理削除する（Req 15.5）', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
@@ -1945,6 +1973,10 @@ describe('ExecutionBudgetService', () => {
       );
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-15.8
+     * 変更契約名を履歴へ書くこと。適用日時は列の既定値（now()）で入るため、統合テストで DB の行を確かめる。
+     */
     it('変更反映履歴を記録する（Req 15.8）', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
@@ -2424,6 +2456,10 @@ describe('ExecutionBudgetService', () => {
   // 金額計算の精度（Req 18.1）
   // 浮動小数点（Number）では誤差が出る入力で、Decimal による正確な値になることを確かめる
   // ========================================
+  /**
+   * @requirement execution-budget-management/REQ-18.1
+   * 浮動小数点では誤差の出る入力で、金額の積・商・合計が Decimal の正確な値になることを確かめる。
+   */
   describe('金額計算の精度 (Req 18.1)', () => {
     /** 精度検証用のリーフ項目（子を持たないルート項目）を作る */
     function createLeafItem(

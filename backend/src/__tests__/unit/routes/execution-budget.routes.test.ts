@@ -24,6 +24,7 @@ import {
   AmendmentContractNotFoundError,
   AmendmentAlreadyAppliedError,
 } from '../../../errors/executionBudgetError.js';
+import { EXECUTION_BUDGET_VALIDATION_MESSAGES } from '../../../schemas/execution-budget.schema.js';
 
 // vi.hoistedでモック関数を定義
 const { mockCreate, mockGetWithItems, mockUpdateItem, mockDelete, mockApplyAmendment } = vi.hoisted(
@@ -191,6 +192,11 @@ function createTestApp() {
   return app;
 }
 
+/**
+ * @requirement execution-budget-management/REQ-19.9
+ * 作成 201・取得 200・削除 204・入力の誤り 400・不在 404・重複と版の競合 409・発注済みによる削除の阻止 422 を、
+ * 本番のルーター（execution-budget.routes.ts）の応答の状態コードとして確かめる。
+ */
 describe('実行予算ルート', () => {
   let app: express.Express;
 
@@ -227,11 +233,18 @@ describe('実行予算ルート', () => {
       );
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-19.7
+     * 不正な入力は Zod スキーマ（createExecutionBudgetSchema）が拒み、スキーマの文言が応答に入り、サービスへ届かない。
+     */
     it('contractIdが不正な形式で400エラーが返ること', async () => {
-      await request(app)
+      const res = await request(app)
         .post(`/api/projects/${projectId}/execution-budget`)
         .send({ contractId: 'invalid-uuid' })
         .expect(400);
+
+      expect(res.body.detail).toBe(EXECUTION_BUDGET_VALIDATION_MESSAGES.CONTRACT_ID_INVALID_UUID);
+      expect(mockCreate).not.toHaveBeenCalled();
     });
 
     it('contractIdが未指定で400エラーが返ること', async () => {
