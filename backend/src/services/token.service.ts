@@ -59,6 +59,25 @@ export type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
  * - アウトバウンド: SessionService
  * - 外部: jose v6
  */
+/**
+ * Base64 エンコードされた JWK を復号する
+ *
+ * JSON.parse の例外の文は入力の一部を引用する（例: `Unexpected token 'S', "{"d":SECRET_KEY"...`）。
+ * 秘密鍵の断片が起動時のログや上位の例外に載らないよう、元の例外は捨て、変数名だけを含む固定の文で投げる
+ */
+function decodeBase64Jwk(base64: string, envName: string): jose.JWK {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+  } catch {
+    throw new Error(`${envName} is not a valid Base64-encoded JWK`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${envName} is not a valid Base64-encoded JWK`);
+  }
+  return parsed as jose.JWK;
+}
+
 export class TokenService {
   private publicKey!: CryptoKey;
   private privateKey!: CryptoKey;
@@ -132,8 +151,8 @@ export class TokenService {
       }
 
       // Base64デコードしてJWKを取得
-      const publicJwk = JSON.parse(Buffer.from(publicKeyBase64, 'base64').toString('utf-8'));
-      const privateJwk = JSON.parse(Buffer.from(privateKeyBase64, 'base64').toString('utf-8'));
+      const publicJwk = decodeBase64Jwk(publicKeyBase64, 'JWT_PUBLIC_KEY');
+      const privateJwk = decodeBase64Jwk(privateKeyBase64, 'JWT_PRIVATE_KEY');
 
       // JWKからCryptoKeyオブジェクトに変換
       this.publicKey = (await jose.importJWK(publicJwk, 'EdDSA')) as CryptoKey;
