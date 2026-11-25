@@ -96,6 +96,26 @@ export const USER_DELETION_AUDIT_ACTION_LABELS: Record<UserDeletionAuditAction, 
 };
 
 /**
+ * 2FA のバックアップコードの使用の種別（要件40.3）
+ *
+ * backend の TwoFactorService がバックアップコードでの検証の成功ごとに記録する。backend では
+ * SECURITY_REMEDIATION_AUDIT_ACTIONS に含まれないため別の並びとする。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS = [
+  'TWO_FACTOR_BACKUP_CODE_USED',
+] as const satisfies readonly AuditLogAction[];
+
+export type TwoFactorBackupCodeAuditAction = (typeof TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS)[number];
+
+/** 2FA のバックアップコードの使用の種別の表示名 */
+export const TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS: Record<
+  TwoFactorBackupCodeAuditAction,
+  string
+> = {
+  TWO_FACTOR_BACKUP_CODE_USED: '2FAバックアップコード使用',
+};
+
+/**
  * 外部の AI での読み取り（Claude Vision）の送信の種別（estimate-request の 49.7）
  *
  * backend は送信のたびに利用者・機能・画像の枚数・結果を記録する（画像と読み取りの結果は入れない）。

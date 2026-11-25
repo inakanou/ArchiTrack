@@ -11,7 +11,7 @@
  * - REQ-40.1: ログインの成功、パスワード誤りと存在しないメールアドレスによる失敗が、結果・対象のメール
  *   アドレス・送信元 IP・ユーザーエージェントとともに記録され、監査ログ画面に出る
  * - REQ-40.2: ログイン失敗の連続と 2FA 検証失敗の連続によるロックが記録され、監査ログ画面に出る
- * - REQ-40.3: 2FA の検証（TOTP）の成功と失敗が記録され、監査ログ画面に出る
+ * - REQ-40.3: 2FA の検証（TOTP とバックアップコード）の成功と失敗が記録され、監査ログ画面に出る
  * - REQ-40.4: ログアウトと全デバイスのログアウトが記録され、監査ログ画面に出る
  * - REQ-40.6: ユーザーの削除が実行者と削除対象とともに記録され、監査ログ画面に出る
  * - REQ-40.7: 実行者の利用者を削除しても、その利用者が実行者・対象の記録が残り、監査ログ画面に実行者の
@@ -34,6 +34,7 @@ import {
   SESSION_USER_EMAIL_PREFIX,
   createSessionUser,
   createTestUser,
+  createTwoFactorBackupCodes,
   deleteSessionUsers,
   type SessionUser,
 } from '../../fixtures/auth.fixtures';
@@ -417,6 +418,46 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
     await expect(consentDetail).toContainText('外部アプリ: architrack-test-client');
     await expect(consentDetail).toContainText('範囲: read write');
     await expect(consentDetail).not.toContainText(consentEmail);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.3
+   */
+  test('バックアップコードでの 2FA の検証の成功が記録され、監査ログ画面に表示名で出て絞り込める', async ({
+    page,
+    request,
+  }) => {
+    const prisma = getPrismaClient();
+    const user = await createSessionUser('REGULAR_USER');
+    const [created] = await createTwoFactorBackupCodes({ userId: user.id, count: 1 });
+    expect(created, 'テストの中で作ったバックアップコード').toBeTruthy();
+
+    // パスワードの検証で得た資格とバックアップコードで 2FA を通す
+    const login = await request.post(`${API_BASE_URL}${LOGIN_PATH}`, {
+      data: { email: user.email, password: user.password },
+    });
+    expect(login.status()).toBe(200);
+    const { challengeToken } = (await login.json()) as { challengeToken?: string };
+    expect(challengeToken).toEqual(expect.any(String));
+    const verified = await request.post(`${API_BASE_URL}${VERIFY_2FA_PATH}/backup`, {
+      data: { challengeToken, backupCode: created!.code },
+    });
+    expect(verified.status()).toBe(200);
+
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'TWO_FACTOR_BACKUP_CODE_USED', targetId: user.id, actorId: user.id },
+      })
+    ).toBe(1);
+
+    await openAuditLogsAsAdmin(page);
+    await expectAuditRowsOnScreen(page, {
+      action: 'TWO_FACTOR_BACKUP_CODE_USED',
+      label: '2FAバックアップコード使用',
+      actor: user.email,
+      target: user.id,
+      count: 1,
+    });
   });
 
   /**

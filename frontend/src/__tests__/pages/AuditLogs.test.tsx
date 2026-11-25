@@ -887,6 +887,46 @@ describe('AuditLogs Component', () => {
     });
   });
 
+  describe('2FA のバックアップコードの使用の監査の種別（要件40.3）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.3
+     */
+    it('バックアップコードの使用の記録を表示名で表示し、絞り込みで選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'backup-1',
+          actorId: 'user-1',
+          actorEmail: 'user@example.com',
+          action: 'TWO_FACTOR_BACKUP_CODE_USED',
+          targetType: 'User',
+          targetId: 'user-backup-target',
+          createdAt: '2026-11-25T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('user-backup-target').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^2FAバックアップコード使用$/);
+      expect(within(table).queryByText('TWO_FACTOR_BACKUP_CODE_USED')).not.toBeInTheDocument();
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', {
+        name: '2FAバックアップコード使用',
+      });
+      expect(option).toHaveValue('TWO_FACTOR_BACKUP_CODE_USED');
+      await user.selectOptions(actionFilter, '2FAバックアップコード使用');
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(
+          expect.stringContaining('action=TWO_FACTOR_BACKUP_CODE_USED')
+        );
+      });
+    });
+  });
+
   describe('プロジェクトの完全削除の監査の種別（project-management 要件46.6）', () => {
     it('完全削除の記録を一覧で表示名により表示し、種別のコードを出さない', async () => {
       const { apiClient } = await import('../../api/client');

@@ -8,6 +8,8 @@ import {
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
   PROJECT_PURGE_AUDIT_ACTIONS,
   PROJECT_PURGE_AUDIT_ACTION_LABELS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
   getAuditLogDetailItems,
   getAuditLogTargetLabel,
 } from '../../utils/audit-log-actions';
@@ -207,5 +209,17 @@ describe('監査ログの詳細の欄に出す付帯情報（要件40.13）', ()
     ).toEqual([]);
     expect(getAuditLogDetailItems({ metadata: { scopes: ['read', 1] } })).toEqual([]);
     expect(getAuditLogDetailItems({})).toEqual([]);
+  });
+});
+
+describe('2FA のバックアップコードの使用の種別', () => {
+  /**
+   * @requirement user-authentication/REQ-40.3: 2FA検証（バックアップコード）の成功を記録し監査ログ画面で種別の名前で表示できる
+   */
+  it('backend が記録する種別と表示名を持つ', () => {
+    expect(TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS).toEqual(['TWO_FACTOR_BACKUP_CODE_USED']);
+    expect(TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS.TWO_FACTOR_BACKUP_CODE_USED).toBe(
+      '2FAバックアップコード使用'
+    );
   });
 });

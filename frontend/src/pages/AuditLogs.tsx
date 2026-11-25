@@ -18,6 +18,8 @@ import {
   PROJECT_PURGE_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTIONS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
@@ -157,6 +159,7 @@ export function AuditLogs() {
       ...INVITATION_AUDIT_ACTION_LABELS,
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+      ...TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
       ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
       ...PROJECT_PURGE_AUDIT_ACTION_LABELS,
       ...EXTERNAL_APP_AUDIT_ACTION_LABELS,
@@ -269,6 +272,11 @@ export function AuditLogs() {
             {SECURITY_REMEDIATION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {SECURITY_REMEDIATION_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
+            {TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
             {CLAUDE_VISION_AUDIT_ACTIONS.map((action) => (

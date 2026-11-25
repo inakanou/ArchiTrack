@@ -42,6 +42,8 @@ export type AuditLogAction =
   | 'USER_AUTO_DEACTIVATED'
   | 'TWO_FACTOR_RESET_BY_ADMIN'
   | 'TWO_FACTOR_REENROLLED'
+  // 2FA のバックアップコードの使用（要件40.3。backend の TwoFactorService が記録する。表示名は utils/audit-log-actions.ts）
+  | 'TWO_FACTOR_BACKUP_CODE_USED'
   | 'PROJECT_SCOPE_DENIED'
   | 'DATA_EXPORTED'
   | 'OPERATIONAL_SETTING_CHANGED'
