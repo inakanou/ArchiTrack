@@ -2398,6 +2398,38 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 各段は独立レビューで承認。単体 8,557 件・統合 2,429 件・frontend 13,734 件・E2E 3,060 件が緑。
   - **残し**: cost-monthly-close.routes.ts と単体テスト 2 本の注釈に、改訂前の「CRUD操作」の文がある。
 
+## タスク80: 判断待ちの 3 件の是正（要件35.8・40.13・42.10、2026-11-25 の利用者の判断）
+
+- [x] 80.1 中継のパスの検査を `/api/` と `/csrf-token` に足す
+  - `frontend/nginx.conf` の `/api/` と `/csrf-token` が、`.`・`..` の区切りと符号化したドット・スラッシュ・バックスラッシュを含むパス、字面が経路の名前と異なるパスを 400 で拒む
+  - 通常の API の呼び出し・CSRF トークンの発行・クエリに符号化した文字を含む要求は変わらない
+  - 実 nginx の E2E で拒む形と通る形を確かめる
+  - _Requirements: 42.10_
+- [x] 80.2 キャッシュ基盤のコマンドに期限を設ける
+  - `backend/src/redis.ts` に `commandTimeout` と `connectTimeout` を設定し、環境変数で変えられる（`env.ts` で正の整数に限る）
+  - 接続を受けて応答しない基盤に対し、コマンドが期限内に失敗し、回数制限がメモリへ退避することを統合試験で確かめる
+  - _Requirements: 35.8_
+- [x] 80.3 監査ログ画面に表示してよい付帯情報を出す
+  - 一覧の応答に `ipAddress` を加え（古い記録の `ip` を含む）、画面の詳細の欄に IP・ユーザーエージェント・結果・理由・外部アプリ・範囲だけを出す
+  - 単体試験と E2E で、出す項目と出さない項目（メールアドレス）を確かめる
+  - _Requirements: 40.13_
+
+**タスク80の記録（2026-11-25）**:
+- 80.1: `frontend/nginx.conf` の `/api/` と `/csrf-token` に `$request_uri` の検査を足した。`/api/` はパスの先頭が字面どおり `/api/` で、`/.`・`/..` の区切りと `%2e`・`%2f`・`%5c`（大文字小文字を問わない）を含まないときだけ中継する。`/csrf-token` は字面どおりのときだけ中継する。
+  - 新設 `e2e/specs/integration/api-proxy-path-normalization.spec.ts`（3 件）。直す前は `/docs/../api/...` が 200（backend の別の経路）で赤だった。
+  - 通る側は、CSRF トークンの発行・クエリに符号化した文字を含む要求・経路の値の他の符号化した文字（`%E3%81%82`）を確かめた。中継の既存の E2E（73.4・44.7・44.1）と合わせて 24 件が緑。
+- 80.2: `backend/src/config/redis-timeouts.ts` を新設し、`backend/src/redis.ts` に `commandTimeout`（既定 2,000 ms）と `connectTimeout`（既定 10,000 ms）を渡す。`env.ts` でも同じスキーマで検証する。`backend/.env.example` と `docs/deployment/environment-variables.md` に追記。
+  - 新設 `redis-command-timeout.integration.test.ts`（6 件）は、実 Redis との間に止められる TCP の中継を置き、本番の `initRedis` で接続してから止める。直す前は戻らず試験の期限切れだった。
+  - 直した後は、回数制限はメモリ、利用者の状態と権限は原本、2FA の途中は `CHALLENGE_STORE_UNAVAILABLE`、同意の途中は `SERVICE_UNAVAILABLE` で、いずれも期限 1 回分（約 300 ms）ごとに戻る。
+  - 共有のクライアントでブロッキングのコマンド（BullMQ・`BRPOP`・購読）を使う箇所は無いことを確かめた（期限で切れる用途は無い）。
+  - E2E は共有の Redis を止められないため、除外（infrastructure、代替検証は上の統合試験）に登録した。
+- 80.3: 一覧の API（`GET /api/v1/audit-logs`）の応答に `ipAddress`（`metadata.ipAddress`、無ければ `metadata.ip`）を足した（`withAuditLogIpAddress`）。`AuditLogService.getLogs` と JSON 出力の形は変えていない。
+  - 画面（`AuditLogs.tsx`）の詳細の欄は `getAuditLogDetailItems` の項目（ユーザーエージェント・結果・理由・外部アプリ・範囲）だけを出す。
+  - E2E（`auth-audit-log.spec.ts` に 1 件）で、実際のログインの失敗の行と、外部アプリの接続の行（同じ形の付帯情報を前提として DB へ足す）の詳細の欄を確かめ、メールアドレスが出ないことも確かめた。
+- 関門: 追跡表に 35.8・40.13・42.10 の行を足し、FrontendNginxConfig の自己申告に 42.10 を足した。
+  - 除外の件数の集計を実数へ揃えた（infrastructure 51・data-integrity 22。後者は `dba5a7ca` で REQ-3.7 の除外を外したときに直し漏れていた）。
+  - 鮮度の宣言 `t13-anchor-references-after-115303`（2512→2513。`dba5a7ca` の E2E による）と `featureless-headers-resolvable-by-own-feature-after-115308`（675→676。`audit-log.routes.test.ts` が印を得たことによる）を測り直した。
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）

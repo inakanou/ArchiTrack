@@ -1892,6 +1892,19 @@
       }
     },
     {
+      "id": "user-authentication/REQ-35.8",
+      "requirement": "user-authentication/REQ-35: 認証系の試行制限とクライアントの識別",
+      "title": "キャッシュ基盤の無応答時に待ち続けない",
+      "criterionText": "IF 試行回数の記録・権限や利用者の状態のキャッシュ・一時的な手続きの保存に用いるキャッシュ基盤が規定の時間内に応答しない THEN Authentication Serviceは応答を待ち続けず、試行回数はインスタンスごとの記録で数え、キャッシュは原本（データベース）を読み、原本を持たない一時的な手続き（2FAの検証の途中・外部アプリの接続の同意の途中）は汎用のエラーで拒否しなければならない",
+      "reason": "E2E が共有する試験の Redis を接続を保ったまま応答しない状態にすると、並行して動く他の E2E が全て巻き込まれ、無応答の状態も作れないためE2E範囲外",
+      "category": "infrastructure",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/integration/redis-command-timeout.integration.test.ts（@requirement user-authentication/REQ-35.8）が、実 Redis との間に止められる TCP の中継を置いて本番の initRedis で接続し、中継を止めた（接続は保ったまま規定の時間内に応答しない）状態で、応答を待ち続けずコマンドが期限内に失敗すること、試行回数の記録（RedisRateLimitStore）がインスタンスごとのメモリの記録で数えること、権限のキャッシュ（RBACService）と利用者の状態のキャッシュ（AuthenticatedUserStateService）が原本（データベース）を読むこと、原本を持たない一時的な手続きの保存のうち 2FA の検証の途中（TwoFactorChallengeService）が CHALLENGE_STORE_UNAVAILABLE、外部アプリの接続の同意の途中（ConsentInteractionService）が SERVICE_UNAVAILABLE の汎用のエラーで拒否することを主張し、backend/src/__tests__/unit/config/redis-timeouts.test.ts が期限の既定値と検証を確かめる"
+      }
+    },
+    {
       "id": "user-authentication/REQ-51.4",
       "requirement": "user-authentication/REQ-51: 外部アプリからの要求の制限と監査",
       "title": "外部アプリからの要求の利用者ごとの回数制限",
@@ -2012,9 +2025,9 @@
   "summary": {
     "totalExclusions": 147,
     "byCategory": {
-      "data-integrity": 23,
+      "data-integrity": 22,
       "fault-tolerance": 6,
-      "infrastructure": 50,
+      "infrastructure": 51,
       "integration-test": 44,
       "performance": 18,
       "security": 6

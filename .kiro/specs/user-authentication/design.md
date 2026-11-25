@@ -5304,6 +5304,7 @@ sequenceDiagram
 | 35.3-35.5 | 2FA 検証・リセット・登録の制限 | RateLimitPolicy | 専用の制限 | — |
 | 35.6 | 本番で無効化設定を無視 | RateLimitPolicy, RuntimeMode | `isRateLimitBypassAllowed` | — |
 | 35.7 | 登録の有無を推測させない応答 | PasswordService | `POST /api/v1/auth/password/reset-request` | — |
+| 35.8 | キャッシュ基盤の無応答で待ち続けない（用途ごとの失敗時の扱い） | RedisClient, RateLimitPolicy | `parseRedisTimeouts`（`commandTimeout`・`connectTimeout`） | — |
 | 36.1, 36.3, 36.5 | 無効化・再有効化・自己と最後の管理者の保護 | AccountStatusService, AuthenticateMiddleware | `POST /api/v1/users/:id/deactivate`、`POST /api/v1/users/:id/reactivate` | 利用者の状態の照合 |
 | 36.2, 36.7 | 無効化者のログイン拒否・最終ログインの記録 | AuthService | `POST /api/v1/auth/login` | 利用者の状態の照合 |
 | 36.4, 36.9 | 通知と監査 | AccountStatusService, AdminNotificationService | `notifyAllAdmins` | — |
@@ -5337,6 +5338,7 @@ sequenceDiagram
 | 40.9 | 出力の記録 | ExportAuditService | `POST /api/v1/audit-logs/exports`、`ExportAuditService.record` | — |
 | 40.10, 40.11 | ブラウザの出力の事前記録と失敗時の中止 | ExportAuditClient | `runRecordedExport`、`runRecordedClipboardWrite` | — |
 | 40.12 | 招待の記録の対象に招待先のメールアドレス | AuditLogsPage | `getAuditLogTargetLabel` | — |
+| 40.13 | 詳細の欄に表示してよい付帯情報だけを出す | AuditLogsPage, AuditLogRoutes | `getAuditLogDetailItems`、`withAuditLogIpAddress` | — |
 | 41.1-41.6 | アーカイブ・消去・鍵の必須・改ざん検知・復元・失敗時の保全 | AuditLogArchiveService, ScheduledJobRunner, RuntimeMode, AdminNotificationService | `audit-log-archive`、`POST /api/v1/audit-logs/archives/restore` | 監査ログのアーカイブ |
 | 42.1, 42.2 | 運用設定の保護と監査 | AdminLogLevelEndpoint | `GET/POST /api/v1/admin/log-level` | — |
 | 42.3, 42.5, 42.6 | クエリの伏せ字・要求識別子・利用者 ID | HttpLogger | `httpLogger` | — |
@@ -5344,6 +5346,7 @@ sequenceDiagram
 | 42.7 | ログイン失敗の応答にユーザー ID を含めない | AuthService | `POST /api/v1/auth/login` | 2FA を伴うログイン |
 | 42.8 | DB 障害の詳細を返さない | AuthService, ErrorHandler | 認証系の応答 | — |
 | 42.9 | 実行環境の指定が無いときの開発用機能 | RuntimeMode | `isDevelopmentFeatureEnabled` | — |
+| 42.10 | 正規化の前後で経路が変わりうる API・CSRF のパスを中継しない | FrontendNginxConfig | `location ^~ /api/`、`location = /csrf-token` | — |
 | 43.1-43.2, 43.4-43.7 | 異常の検知・通知の内容・抑止・設定 | SecurityAnomalyMonitor, AdminNotificationService, ExportAuditService | `SecurityAnomalyMonitor.observe` | — |
 | 43.3 | 429・5xx の急増 | SecurityAnomalyMonitor, RateLimitPolicy, ErrorHandler | `SecurityAnomalyMonitor.observe` | — |
 | 43.8, 43.9 | 利用者ごとの抑止・通知の総数の上限と溢れ分の通知 | SecurityAnomalyMonitor, ScheduledJobRunner | `SecurityAnomalyMonitor.observe`、`security-anomaly-overflow-summary` | — |
@@ -5375,7 +5378,7 @@ sequenceDiagram
 | InvitationService | Backend Service | 招待のトークンの保存・一覧・取り消し・監査 | 37, 40 | Prisma (P0) | Service, API |
 | InitialAdminSeeder | Backend Seed | 初期管理者のパスワード検証と初回変更 | 37 | PasswordService (P0) | Batch |
 | HttpLogger | Backend Middleware | 要求識別子・伏せ字・利用者 ID | 37, 42 | pino-http (P0) | Service |
-| FrontendNginxConfig | Web Server | ヘッダー・中継・アクセスログ | 37, 44 | nginx (P0) | — |
+| FrontendNginxConfig | Web Server | ヘッダー・中継・アクセスログ | 37, 42, 44 | nginx (P0) | — |
 | RegisterPage | Frontend Page | フラグメントのトークンと POST の検証 | 37 | ApiClient (P0) | State |
 | PasswordResetPage | Frontend Page | フラグメントのトークンと POST の検証 | 37 | ApiClient (P0) | State |
 | InvitationManager | Frontend Component | 作成直後だけの URL 表示と取り消し | 37 | ApiClient (P0) | State |
@@ -6306,9 +6309,10 @@ type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 
 | Field | Detail |
 |-------|--------|
 | Intent | 画面と静的ファイルの全応答にセキュリティヘッダーを付け、API を同一オリジンへ中継する |
-| Requirements | 37.3, 44.1, 44.2, 44.3, 44.4 |
+| Requirements | 37.3, 42.10, 44.1, 44.2, 44.3, 44.4 |
 
 - `server_tokens off;`（44.3）
+- `/api/` と `/csrf-token` は、`$request_uri` のパスが正規化の前後で経路が変わりうる形（`.`・`..` の区切り、符号化したドット・スラッシュ・バックスラッシュ、字面が経路の名前と異なる）なら 400 で拒み、中継しない（42.10。詳細は「Requirements 35.8・40.13・42.10」の節）
 - ヘッダーは一つの取り込みファイル（テンプレートから生成）にまとめ、サーバーの階層と `add_header` を持つ全ての `location` で取り込む（nginx の継承の規則による欠落を防ぐ。44.1、44.2）
 - CSP（44.1、44.4）:
   - `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${CSP_IMG_SRC_EXTRA}; connect-src 'self' blob: data: ${CSP_CONNECT_SRC_EXTRA}; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
@@ -7481,3 +7485,32 @@ erDiagram
 4. 公開された環境で Claude のカスタムコネクタに client ID と secret を入力して接続を確かめる
 
 `OAUTH_ALLOWED_CLIENTS` を設定しない環境では窓口が載らず、既存の動作は変わらない。
+
+## Requirements 35.8・40.13・42.10: 判断待ちの 3 件の是正（2026-11-25）
+
+利用者の判断（2026-11-25）で、OAuth の実装の途中で見つけた 3 件を是正する。新しい部品は作らず、既存の部品の設定と表示を改める。
+
+### キャッシュ基盤のコマンドの期限（要件35.8）
+
+- `backend/src/redis.ts` の ioredis のクライアントに `commandTimeout`（既定 2,000 ms、`REDIS_COMMAND_TIMEOUT_MS`）と `connectTimeout`（既定 10,000 ms、`REDIS_CONNECT_TIMEOUT_MS`）を設定する。値は `backend/src/config/env.ts` で正の整数に限る。
+- 期限切れは ioredis が要求の失敗（`Command timed out`）として返す。各用途は既存の失敗時の扱いに乗る。新しい分岐は足さない。
+
+| 用途 | 部品 | 期限切れのとき |
+| --- | --- | --- |
+| 試行回数の制限 | `RedisRateLimitStore` | インスタンスのメモリの記録で数える（可用性を優先） |
+| 利用者の状態・権限のキャッシュ | `AuthenticatedUserStateService`・`RBACService` | 原本（DB）を読む。無効化の失敗は TTL で消える（既存） |
+| 2FA の検証の途中 | `TwoFactorChallengeService` | `CHALLENGE_STORE_UNAVAILABLE`（汎用のエラー） |
+| 接続の同意の途中 | `OAuthConsentService` | 基盤の失敗として拒否 |
+
+- 期限切れのコマンドは Redis 側で後から実行されうる（ioredis は取り消さない）。原本の無い手続きの「一度だけ」の確保（`SET NX`）が後から成立しても、利用者側は失敗を受けているため、検証を省く方向には働かない。
+
+### 監査ログ画面の付帯情報（要件40.13）
+
+- 監査ログの一覧の API（`GET /api/v1/audit-logs`、`backend/src/routes/audit-log.routes.ts` の `withAuditLogIpAddress`）の応答の各記録に `ipAddress`（`metadata.ipAddress`、無ければ古い記録の `metadata.ip`。文字列でなければ null）を加える。`AuditLogService.getLogs` の返り値と JSON 出力の形は変えない。
+- 画面（`frontend/src/pages/AuditLogs.tsx` の詳細の欄）は、`frontend/src/utils/audit-log-actions.ts` の `getAuditLogDetailItems` が返す項目だけを出す。対象は `userAgent`（ユーザーエージェント）・`result`（結果）・`reason`（理由）・`clientId`（外部アプリ）・`scopes`（範囲）で、文字列か文字列の配列だけを出す。それ以外の鍵（`email` など）は出さない。IP は応答の `ipAddress` を出す。
+
+### 中継のパスの検査（要件42.10）
+
+- `frontend/nginx.conf` の `location ^~ /api/` と `location = /csrf-token` で、`$request_uri` のパスの部分（`?` の前）が次を含むとき 400 を返す: `/.`・`/..` の区切り、`%2e`・`%2f`・`%5c`（大文字小文字を問わない）。`/api/` はパスの先頭が字面どおり `/api/` であること、`/csrf-token` はパスが字面どおり `/csrf-token` であることも求める（`//api/x`・`/%61pi/x` を拒む）。
+- `/api/` は `%` を一律には拒まない。クエリの値は対象にしない。
+- 試験は実 nginx の E2E（`e2e/specs/integration/api-proxy-path-normalization.spec.ts`）で、拒む形と通る形を確かめる。

@@ -4,7 +4,7 @@
   "language": "Japanese",
   "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-11-25T12:00:00Z",
+  "updated_at": "2026-11-25T15:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -20,6 +20,12 @@
     }
   },
   "metadata": {
+    "requirement_update_2026_11_25": {
+      "updated_at": "2026-11-25T00:00:00Z",
+      "description": "判断待ちだった 3 件の是正（キャッシュ基盤のコマンドの期限、監査ログ画面の付帯情報の表示、画面の配信元の中継のパスの検査）。タスク80",
+      "added_criteria": ["35.8", "40.13", "42.10"],
+      "decision": "利用者の判断 2026-11-25（提案のとおり 3 件とも対応する。回数制限はメモリへ退避・キャッシュは原本・原本の無い手続きは拒否。表示する付帯情報は IP・ユーザーエージェント・結果・理由・外部アプリ・範囲）"
+    },
     "implementation_gap_analysis": {
       "conducted": true,
       "conducted_at": "2025-11-25T08:00:00Z",
