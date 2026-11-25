@@ -52,6 +52,26 @@
 
 > 詳細は[ストレージ構成](../architecture/storage-configuration.md)を参照してください。
 
+### 外部アプリの接続（OAuth 2.1 の認可サーバー）
+
+外部アプリ（Claude など）が利用者の同意を得て API を使うための認可サーバー（`oidc-provider`）の設定です。`OAUTH_*` は鍵を含むため `backend/src/config/env.ts` のスキーマには載せず、起動時の検証で `backend/src/oauth/client-registry.ts` の `parseExternalAppOAuthConfig` が読みます。`OAUTH_ALLOWED_CLIENTS` が未設定・空・空の配列なら認可の窓口を載せません。設定したときは下の「必須（有効時）」の値がすべて必要で、欠けや不正な値があると起動を止めます。
+
+| 変数名 | 説明 | 必須度 | デフォルト値 | 備考 |
+|--------|------|--------|--------------|------|
+| `OAUTH_ALLOWED_CLIENTS` | 許可するアプリの JSON 配列（`clientId`・`clientSecret`（32 文字以上）・`displayName`・`redirectUris`・`tokenEndpointAuthMethod`） | 任意（未設定で無効） | なし | 例: `[{"clientId":"<id>","clientSecret":"<32+ chars>","displayName":"Claude","redirectUris":["https://claude.ai/api/mcp/auth_callback"],"tokenEndpointAuthMethod":"client_secret_post"}]`。本番では戻り先を HTTPS の完全な URL に限る |
+| `OAUTH_ISSUER` | 認可サーバーの発行者（公開オリジン） | **必須**（有効時） | なし | 例: `https://<your-domain>`。末尾の `/` と問い合わせの無い正規形。本番は HTTPS |
+| `OAUTH_RESOURCE_URL` | 外部アプリ用トークンの想定利用者（リソースの URL） | **必須**（有効時） | なし | 例: `https://<your-domain>/mcp`。問い合わせとフラグメントの無い正規形。本番は HTTPS |
+| `OAUTH_JWKS` | 認可サーバーの署名用の秘密鍵の JWK Set | **必須**（有効時） | なし | `{"keys":[<private-jwk>]}`。`JWT_PRIVATE_KEY` と別の鍵にする。試験専用の鍵は本番で拒否 |
+| `OAUTH_COOKIE_KEYS` | 手続きの Cookie の署名鍵の JSON 配列 | **必須**（有効時） | なし | `["<your-cookie-key>"]`。各 32 文字以上・重複なし。JWT の鍵や `OAUTH_TOKEN_HMAC_KEY` と別にする |
+| `OAUTH_TOKEN_HMAC_KEY` | 保存するトークンの識別子の HMAC 鍵 | **必須**（有効時） | なし | 64 桁の 16 進（`<your-64-char-hex-key>`）。Cookie の鍵と別にする |
+| `OAUTH_RATE_LIMIT_AUTHORIZE_MAX` | 認可の要求（`/oauth/authorize` と再開）の送信元 IP ごとの上限 | 任意 | `60` | 1〜100000。`OAUTH_ALLOWED_CLIENTS` を設定したときは、不正な値は起動を止める |
+| `OAUTH_RATE_LIMIT_TOKEN_MAX` | トークンの要求（`/oauth/token`）の送信元 IP ごとの上限 | 任意 | `300` | 1〜100000 |
+| `OAUTH_RATE_LIMIT_WINDOW_MS` | 上の 2 つの集計期間（ミリ秒） | 任意 | `60000` | 1000〜86400000 |
+| `EXTERNAL_APP_RATE_LIMIT_MAX` | 外部アプリ用トークンでの要求の利用者ごとの上限（利用者の全ての接続を合算。認証に失敗した要求は数えない） | 任意 | `120` | 1〜100000 |
+| `EXTERNAL_APP_RATE_LIMIT_WINDOW_MS` | 上の集計期間（ミリ秒） | 任意 | `60000` | 1000〜86400000 |
+
+> 本番（`NODE_ENV` が `development`・`test` 以外）では、`DISABLE_RATE_LIMIT` を設定しても `OAUTH_RATE_LIMIT_*` と `EXTERNAL_APP_RATE_LIMIT_*` の制限は外れません。鍵の値は `backend/.env.example` のプレースホルダーに倣い、実際の値を文書や Git に残さないでください。
+
 ### Frontend Service
 
 | 変数名 | 説明 | 必須度 | デフォルト値 |

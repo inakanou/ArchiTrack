@@ -247,6 +247,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **2FA**: 全利用者で必須。パスワードの検証の成功で 5 分・一回限りの 2FA 待ちの資格（Redis）を発行し、2FA の検証の API（/api/v1/auth/verify-2fa）はその資格を要する。同じ時間ステップの TOTP の再利用を拒否する。2FA 未登録・初回のパスワード変更を要する利用者は、API（`backend/src/middleware/authenticate.middleware.ts` の利用者の状態の照合）と画面（`ProtectedRoute`）の両方で設定・変更の画面だけに制限する
 - **送信元の識別**: 送信元 IP は `getClientIp()`（`backend/src/middleware/client-ip.ts`）だけから得る。Express の `trust proxy` は信頼する中継の段数 `TRUST_PROXY_HOPS` で与え、`X-Forwarded-For` を直接読まない。画面の API は frontend の nginx が /api/ と /csrf-token を backend へ中継し、画面と同じオリジンで届く。段数は経路の中継の数に合わせる（試験・CI の compose は 1、Railway の本番・staging は 3＝エッジが利用者とエッジ自身の 2 段、nginx が 1 段。配備の後に監査ログの送信元 IP と自分の公開 IP の一致で確かめる）
 - **招待・リセットのトークン**: メールのリンクはトークンを URL のフラグメント（`#token=…`）に置き、画面が読んで POST の本文で検証する。保存は SHA-256 のハッシュだけである
+- **外部アプリの接続（OAuth 2.1）**: 外部アプリ（Claude など）の認可サーバーは `oidc-provider` を `backend/src/oauth/provider.ts` で Express の本文の解析より前に載せ、経路は `/oauth/*` と認可サーバーのメタデータ（RFC 8414 の既知の URL。frontend の nginx が中継）。事前登録の confidential client だけを受け付け（動的登録なし）、アクセストークンは不透明な値で、保存データ（PostgreSQL）を要求ごとに引いて検証する（`backend/src/services/external-app-token-verifier.service.ts`）。外部アプリ用の窓口は `createExternalAppAuth(deps)` の `protect(scope)` を掛け、主体は `getExternalAppPrincipal(req)` でだけ読む。設定は `OAUTH_*`（許可するアプリ・発行者・リソースの URL・署名鍵・Cookie の鍵・HMAC 鍵）で、鍵を含むため `config/env.ts` のスキーマに載せず `backend/src/oauth/client-registry.ts` が検証する。`OAUTH_ALLOWED_CLIENTS` が未設定なら認可の窓口を載せず、設定したときは全ての値が必要で不正なら起動を止める。回数制限は認可の窓口の送信元 IP ごと（`OAUTH_RATE_LIMIT_*`）と外部アプリ用トークンの利用者ごと（`EXTERNAL_APP_RATE_LIMIT_*`）で、本番では `DISABLE_RATE_LIMIT` で外れない（`docs/deployment/environment-variables.md`）
 
 ### 主要な依存関係
 
@@ -266,6 +267,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `jose` ^6.1.3 - JWT EdDSA署名・検証
+- `oidc-provider` 9.15.1 - 外部アプリの認可サーバー（OAuth 2.1。型定義は `backend/src/types/oidc-provider.d.ts`）
 - `otplib` ^12.0.1 - TOTP 2FA
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
@@ -345,13 +347,15 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### ジョブキュー（Bull）
 
 - **メールの送信**: キュー `email-queue`（`backend/src/services/email.service.ts` の `createEmailQueue()`）。完了したジョブは中身ごと消し、再試行を使い切った失敗はトークンを含まない形で記録してから消す
-- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 6 つ
+- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 8 つ
   - `expired-token-cleanup`（毎時 15 分）: 使用済み・期限切れの招待・リセット・リフレッシュのトークンの消去
   - `failed-email-job-cleanup`（毎時 45 分）: メールキューの失敗のジョブの掃除
   - `inactive-user-deactivation`（毎日 03:00）: 90 日使われていない利用者の自動無効化
   - `soft-deleted-project-purge`（毎日 03:30）: 論理削除から 90 日を過ぎたプロジェクトの、関連データとストレージのファイルを含む完全削除（1 回最大 20 件。監査ログに記録）。失敗したプロジェクトは次の回から後ろへ回し、5 回続けて失敗したら対象から外して全てのシステム管理者へ知らせる（外したものは `npm run project:purge-requeue -- --project-id <ID>` で対象に戻す）
+  - `soft-deleted-trading-partner-erase`（毎日 03:45）: 論理削除から 90 日を過ぎた取引先の個人情報を空にする（1 件の失敗では止まらず、次の回でやり直す）
   - `audit-log-archive`（毎月 1 日 04:00）: 13 か月を過ぎた監査ログの暗号化したアーカイブと、8 年を過ぎたアーカイブの消去
   - `security-anomaly-overflow-summary`（10 分ごと）: 異常の通知の総数の上限で送らなかった通知（溢れ分）が残り、上限の時間窓が明けていれば、要約を全システム管理者へ 1 通送る
+  - `external-app-maintenance`（毎時 20 分。`backend/src/jobs/external-app-maintenance.job.ts`）: 外部アプリの接続のうち未使用 30 日・同意から 90 日を過ぎたものと、許可の一覧（`OAUTH_ALLOWED_CLIENTS`）から外れたアプリのものを終了し、期限切れの認可サーバーの保存データと接続の無い Grant を消す（1 件ずつ別のトランザクション。失敗があれば全段の後に投げて Bull の再試行に任せる）。許可の一覧の照合は起動時にも `backend/src/index.ts` から 1 回行う（試験の実行環境でも行い、失敗で起動を止めない）
 
 ### 接続障害への耐性（backend 全体に効く規約）
 
@@ -1272,6 +1276,13 @@ JWT_AUDIENCE=architrack-api
 # 異常の通知の総数の上限（固定の時間窓あたりの通数。超えた分は溢れ分として次の通知に添えるか要約で送る）
 SECURITY_ALERT_NOTIFICATION_LIMIT=10
 SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS=3600
+# 外部アプリの認可（OAuth 2.1。未設定なら認可の窓口を載せない。設定したら下の全てが必要）
+# OAUTH_ALLOWED_CLIENTS=[{"clientId":"<id>","clientSecret":"<32+ chars>",...}]
+# OAUTH_ISSUER=https://<your-domain>
+# OAUTH_RESOURCE_URL=https://<your-domain>/mcp
+# OAUTH_JWKS / OAUTH_COOKIE_KEYS / OAUTH_TOKEN_HMAC_KEY（鍵。値は backend/.env.example のプレースホルダーに倣う）
+# 回数制限（既定値あり）: OAUTH_RATE_LIMIT_AUTHORIZE_MAX=60 / OAUTH_RATE_LIMIT_TOKEN_MAX=300 / OAUTH_RATE_LIMIT_WINDOW_MS=60000
+# EXTERNAL_APP_RATE_LIMIT_MAX=120 / EXTERNAL_APP_RATE_LIMIT_WINDOW_MS=60000
 ```
 
 本番の実行環境では `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL` のいずれかが欠けると backend は起動を止めます（`backend/src/config/runtime-mode.ts`）。

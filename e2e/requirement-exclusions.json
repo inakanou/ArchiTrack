@@ -1896,12 +1896,12 @@
       "requirement": "user-authentication/REQ-51: 外部アプリからの要求の制限と監査",
       "title": "操作の範囲・現在の権限・現在の閲覧範囲のすべてによる許可",
       "criterionText": "WHEN 外部アプリ用トークンで要求を処理する THEN Authentication Serviceは接続の操作の範囲、利用者の現在の権限、利用者の現在の閲覧範囲（要件39）のすべてが認める場合にだけ許可しなければならない",
-      "reason": "個々の業務の操作と閲覧範囲（要件39）の適用は claude-connector が持ち（要件51 の対象外）、本スペックの外部アプリ用の窓口は確認用の whoami だけで案件のデータを返さないため、E2E で閲覧範囲の判定を観測する入口が無い。操作の範囲の判定は e2e/specs/auth/oauth-consent.spec.ts（51.2）が、権限の喪失は e2e/specs/auth/oauth-connection-revocation.spec.ts（50.4）が確かめる",
+      "reason": "本スペックが確かめるのは、許可の判定の入口のうち接続の操作の範囲（scope）・接続の状態・利用者の状態と権限「外部アプリの接続」（external_app:connect）までである。個々の業務の操作ごとの現在の権限と現在の閲覧範囲（要件39）の適用は次の機能 claude-connector の窓口の責務として引き渡す（主体 ExternalAppPrincipal は利用者・アプリ・接続・範囲だけを持ち、閲覧範囲を載せない）。本スペックの外部アプリ用の窓口は確認用の whoami だけで案件のデータを返さないため、E2E で操作ごとの権限と閲覧範囲の判定を観測する入口が無い。操作の範囲の判定は e2e/specs/auth/oauth-consent.spec.ts（51.2）が、権限「外部アプリの接続」の喪失による失効は e2e/specs/auth/oauth-connection-revocation.spec.ts（50.4）が確かめる",
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / Supertest",
-        "description": "backend/src/__tests__/integration/external-app-auth.routes.integration.test.ts（@requirement user-authentication/REQ-51.1）が app.ts の外部アプリ用の窓口で、範囲・現在の権限・現在の閲覧範囲のいずれかが認めない要求を拒むことを、backend/src/__tests__/integration/external-app-token-verifier.integration.test.ts と backend/src/__tests__/integration/oauth-authorization-flow.integration.test.ts（@requirement user-authentication/REQ-51.1）が検証の結果に利用者の現在の権限と閲覧範囲が載ることを、backend/src/__tests__/unit/middleware/external-app-auth.middleware.test.ts が判定の組み合わせを主張する"
+        "description": "本スペックの範囲（scope・接続の状態・external_app:connect の権限）だけを確かめる。backend/src/__tests__/integration/external-app-auth.routes.integration.test.ts（@requirement user-authentication/REQ-51.1）が app.ts の外部アプリ用の窓口で、有効なトークンの whoami が範囲とアプリ名だけを返し、読み取りと書き込みの接続が書き込みの確認の窓口を通ることを主張する。backend/src/__tests__/integration/external-app-token-verifier.integration.test.ts（@requirement user-authentication/REQ-51.1）が実 DB で、成功の主体の範囲が接続の範囲を超えないこと、取り消し・期限切れの接続と、権限「外部アプリの接続」を外された・関係の無い権限だけの・無効化された利用者のトークンを INVALID_TOKEN にすることを主張する。backend/src/__tests__/integration/oauth-authorization-flow.integration.test.ts（@requirement user-authentication/REQ-51.1）が認可コードフローの全体で、終了した接続のトークンを 401 にすることを、backend/src/__tests__/unit/middleware/external-app-auth.middleware.test.ts（@requirement user-authentication/REQ-51.1）が範囲の確認の組み合わせを主張する。業務の操作ごとの現在の権限と現在の閲覧範囲（要件39）の適用は claude-connector の窓口が持ち、そのスペックで確かめる"
       }
     },
     {

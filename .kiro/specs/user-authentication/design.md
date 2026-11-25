@@ -6577,7 +6577,7 @@ model Project {
 - 認可・トークンの窓口と、認可サーバーのメタデータ
 - 接続（`ExternalAppConnection`）と認可サーバーの保存データ（`OAuthStoreRecord`）
 - 同意の画面、連携中のアプリの画面、接続の管理画面
-- 外部アプリ用トークンの検証の契約（`ExternalAppPrincipal`、`authenticateExternalApp`、`requireExternalScope`）
+- 外部アプリ用トークンの検証の契約（`ExternalAppPrincipal`、`createExternalAppAuth(deps)` が返す `protect()`（`authenticateExternalApp`・`requireExternalScope` の組）、`getExternalAppPrincipal(req)`）
 - 利用者単位の回数制限と、接続に関する監査・通知
 
 #### Out of Boundary
@@ -6591,11 +6591,12 @@ model Project {
 - 既存の `TokenService`、`AuthService`、`TwoFactorService`、`RBACService`、`AuditLogService`、`AdminNotificationService`、`SecurityAnomalyMonitor`、Prisma、Redis
 - 外部ライブラリ `oidc-provider` 9.15 系（新規の依存）
 - 依存の方向は Types → Config → OAuthStoreAdapter → ExternalAppConnectionService → OAuthProviderHost → ConsentInteractionService・ExternalAppTokenVerifier → Middleware → Routes → UI とする。`OAuthStoreAdapter` は上位の部品を参照せず、再利用の通知は `OAuthProviderHost` が組み立て時に注入するコールバックで受け渡す
+- 依存の向きの注記（2026-11-25 に実装に合わせて追記）: (1) `backend/src/config/env.ts` は起動時の検証で `backend/src/oauth/client-registry.ts` の `parseExternalAppOAuthConfig` と `ExternalAppConfigError` を読み込む（Config が OAuth の設定の解析を呼ぶ向き。`OAUTH_*` は鍵を含むため env のスキーマに載せない）。`client-registry.ts` は `config/env.ts` を参照しない。(2) `backend/src/oauth/provider.ts` は組み立ての根（composition root）であり、`createExternalAppAuth`（Middleware）・`AuditLogService`・`ExternalAppConnectionService`・`ExternalAppTokenVerifier` を読み込み（冒頭の import）、`mountExternalAppOAuth` でこれらを組み立てて `MountedExternalAppOAuth` として `app.ts` へ渡す。上の層の順序は部品の実行時の依存の向きであり、組み立ての根からの読み込みはこれに数えない
 - 既存の認証サービスは `ExternalAppConnectionService` の失効の入口だけを呼び、`oidc-provider` を直接参照しない
 
 #### Revalidation Triggers
 
-- `ExternalAppPrincipal` の形、`authenticateExternalApp` のエラー応答、操作の範囲の値の変更（claude-connector の再確認）
+- `ExternalAppPrincipal` の形、`createExternalAppAuth(deps)` の `protect()` のエラー応答（400・401・403・429・503）、`getExternalAppPrincipal(req)` の契約、操作の範囲の値の変更（claude-connector の再確認）
 - リソースの URL（`OAUTH_RESOURCE_URL`）、発行者（`OAUTH_ISSUER`）の変更（Claude 側の接続の作り直し）
 - 許可するアプリの追加と、そのクライアント情報の変更
 - `oidc-provider` のメジャー更新、および保存アダプターの契約の変更
@@ -6754,6 +6755,29 @@ frontend/src/utils/full-page-navigation.ts                       # 新設: 同�
 - `frontend/src/routes.tsx` — 3 つの画面を登録する
 - `frontend/src/utils/audit-log-actions.ts` — 監査の種別の表示名を足す
 
+2026-11-25 に `git diff --name-only 49d61284..HEAD` の実際の変更へ揃えて、以下を加えた（本章の変更だけ。テストと他 spec の文書の印付けは除く）。
+
+- `backend/package.json`、`backend/package-lock.json` — 依存 `oidc-provider` 9.15.1 を足す
+- `backend/src/config/env.ts` — 起動時の検証で `parseExternalAppOAuthConfig` を呼び、`OAUTH_*` の不正で起動を止める（46.4）
+- `backend/src/index.ts` — 起動時に許可の一覧を照合し、一覧から外れたアプリの接続を終了する（50.6）。失敗で起動を止めない
+- `backend/src/services/two-factor.service.ts` — 管理者による 2FA の再設定で接続を失効させる（50.7。タスク76.5）
+- `backend/src/middleware/rateLimit.middleware.ts` — 1 つの制限を組み立てる `createLimiterBuilder` を切り出し、429 を異常の検知へ送る `observeLimited` を足す（外部アプリ用の窓口と認可の窓口の回数制限が使う）
+- `backend/src/middleware/RedisRateLimitStore.ts` — 加算と期限の設定を Lua の 1 スクリプトで原子的に行い、期限の無いキーで恒久的に締め出されないようにする（51.10 の集計期間）
+- `backend/src/middleware/logger.middleware.ts`、`backend/src/utils/logger.ts` — 外部アプリの認可の値（`code_verifier`・トークン・client secret、要求の入れ物の `code`・`state`）をログから伏せる（48.8）
+- `backend/src/utils/sentry.ts` — `Referer`・`Location` などのヘッダーと事象・例外の文から認可の値を伏せる（48.8）
+- `backend/src/routes/audit-log.routes.ts`、`backend/src/schemas/export-audit.schema.ts` — 出力の記録の本文から外部アプリの欄を受けない（51.8）
+- `backend/src/generate-swagger.ts`、`backend/docs/api-spec.json` — 接続の一覧の応答のスキーマを足す
+- `docker-compose.dev.yml` — 開発用の試験専用の `OAUTH_*` の値と、開発サーバーの `/oauth/` の中継先を足す
+- `frontend/nginx-proxy-params.conf` — 中継の共通設定を `/oauth/` と認可サーバーのメタデータの location でも取り込めるよう、本文の上限を各 location へ移す
+- `frontend/vite.config.ts` — 開発サーバーで `/oauth/` と認可サーバーのメタデータを backend へ中継する
+- `frontend/src/api/client.ts` — 同意の API と接続の取り消しに使う、CSRF トークン付きの送信 `sendWithCsrf` を足す（47.11）
+- `frontend/src/contexts/AuthContext.tsx` — 明示のログアウトの 401 を操作中のセッション切れとして扱わない（タスク76.1）
+- `frontend/src/components/ProtectedRoute.tsx` — 同意の画面のために、制限中の利用者でも画面を置き換えない `allowRestrictedUser` を足す（タスク78.1）
+- `frontend/src/components/TwoFactorVerificationForm.tsx`、`frontend/src/components/TwoFactorVerificationForm.stories.tsx` — 同意の画面で使う注意・取り消しの文言・入力の停止を足す（47.2）
+- `frontend/src/components/Navigation/AppHeader.tsx` — 管理者のメニューに接続の管理画面を足す（49.6）
+- `frontend/src/pages/Profile.tsx` — 連携中のアプリの画面へのリンクを足す（49.1）
+- `frontend/src/pages/AuditLogs.tsx`、`frontend/src/components/AuditLogViewer.tsx`、`frontend/src/types/audit-log.types.ts` — 外部アプリの接続の監査の種別を絞り込みと表示に足す（51.7）
+
 ### System Flows
 
 #### 接続の同意
@@ -6861,12 +6885,12 @@ stateDiagram-v2
 | 50.7 | 管理者の 2FA の再設定で失効 | ExternalAppConnectionService | revokeAllForUser | 接続の状態 |
 | 50.6 | 許可の一覧から外れたアプリの失効 | ExternalAppClientRegistry, ExternalAppMaintenanceJob, ExternalAppConnectionService | revokeForRemovedClients | 接続の状態 |
 | 51.1 | 範囲・権限・閲覧範囲の全てで判定 | ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
-| 51.2 | 読み取りだけの接続の書き込みは 403 | ExternalAppAuthMiddleware | requireExternalScope | — |
+| 51.2 | 読み取りだけの接続の書き込みは 403 | ExternalAppAuthMiddleware | protect（requireExternalScope） | — |
 | 51.3 | 画面用トークンは 401 | ExternalAppTokenVerifier, ExternalAppAuthMiddleware | verify | — |
-| 51.4 | 利用者ごとに 1 分 120 回 | ExternalAppAuthMiddleware | authenticateExternalApp | — |
+| 51.4 | 利用者ごとに 1 分 120 回 | ExternalAppAuthMiddleware | protect（authenticateExternalApp） | — |
 | 51.5 | 回数と期間の環境設定 | ExternalAppAuthMiddleware | 環境変数 | — |
 | 51.6 | 本番では無効化できない | ExternalAppAuthMiddleware | isRateLimitBypassAllowed | — |
-| 51.7 | 接続の出来事と猶予の適用の監査 | ExternalAppConnectionService | recordEvent | 接続の状態 |
+| 51.7 | 接続の出来事と猶予の適用の監査 | ExternalAppConnectionService | recordEvent, recordRefreshGrace | 接続の状態 |
 | 51.8 | 出力記録に外部アプリを残す | ExportAuditService | record | — |
 | 51.9 | 再利用の検知を管理者へ通知 | ExternalAppConnectionService | handleReuse | 接続の状態 |
 | 51.10 | 認可の窓口の送信元 IP ごとの回数制限 | OAuthProviderHost | authorize, token | — |
@@ -7199,11 +7223,13 @@ interface ExternalAppConnectionService {
   // タスク75.1 で追加: 接続の行を FOR KEY SHARE で読み、未コミットの終了があればそのコミットを待って有無を返す
   confirmNotEnded(connectionId: string): Promise<boolean>;
   recordEvent(event: ConnectionAuditEvent, tx?: TransactionClient): Promise<void>;
+  // 48.11 の猶予の適用を接続の値で監査に残す。OAuthProviderHost が保存アダプターの onRefreshGraceApplied へ注入する
+  recordRefreshGrace(event: RefreshGraceEvent): Promise<void>;
 }
 ```
 
 - Postconditions: `assertActive` は期限を過ぎた接続を `IDLE_EXPIRED` または `ABSOLUTE_EXPIRED` で終了して `NOT_ACTIVE` を返す。期限切れの終了の持ち主はこのメソッドであり、検証と定期処理はこれを呼ぶ。要求の中で終了したときは `source` の送信元 IP とユーザーエージェントを監査に記録し、要求の無い定期処理では `source` を渡さず送信元 IP を null として記録する
-- Postconditions: `RefreshGraceEvent` は `grantId` から接続を引いて `REFRESH_GRACE_APPLIED` の `ConnectionAuditEvent` へ写す。実行者と対象は接続の利用者、アプリと範囲は接続の値、理由は null、日時は記録の時刻、IP とユーザーエージェントはイベントの値とする
+- Postconditions: `recordRefreshGrace`（`backend/src/services/external-app-connection.service.ts`）は、保存アダプターがリフレッシュトークンの再提示に猶予（48.11）を適用したときに呼ばれ、`RefreshGraceEvent`（`grantId`・送信元 IP・ユーザーエージェント。`backend/src/oauth/oauth.types.ts`）の `grantId` から接続を引いて `REFRESH_GRACE_APPLIED` の `ConnectionAuditEvent` へ写す。実行者と対象は接続の利用者、アプリと範囲は接続の値、理由は null、日時は記録の時刻、IP とユーザーエージェントはイベントの値とする。接続の行が無ければ何もしない
 - Postconditions: `handleReuse` は接続を `TOKEN_REUSE` で終了し、イベントの送信元 IP とユーザーエージェントを監査に記録して管理者へ通知する（信号 `external_app_token_reuse` に接続の利用者を渡す。抑止は利用者ごとで、閾値と上限の対象外。51.9）。同じ Grant への 2 回目以降の呼び出しは何もしない
 - Postconditions（接続の無い Grant の再利用。2026-11-24、利用者の判断）: `handleReuse` は Grant の保存データの行を消し、行を実際に消せた呼び出しだけが監査と通知を行う。監査の対象の利用者とアプリは Grant の行の payload の `accountId` と `clientId` を検証して使い、読めないときだけ不明として記録する。これが 51.7 の唯一の例外である
 - Invariants（失効の世代。50.1〜50.4、2026-11-24、利用者の判断）: `users.external_app_revocation_generation`（整数、既定 0）を失効の世代とする。`revokeAllForUser` と `revokeForUsersWithoutPermission` は呼び出し元のトランザクションの中で、利用者単位の排他の取引ロックを Grant の行より先に（複数の利用者はキーの昇順で）取り、接続の有無によらず対象の利用者の世代を 1 進めてから、ロックの後の文で接続を読んで失効する。`createOrReplace` は最初に同じキーの共有の取引ロックを取り、同意の手続きの開始時に読んだ世代（入力 `expectedRevocationGeneration`）と現在の世代を比べ、違えば接続を作らず失敗する。これにより、失効と同時に進んだ同意の接続が失効の後に残らない
@@ -7248,13 +7274,32 @@ interface ExternalAppTokenVerifier {
 **Contracts**: Service [x]
 
 ```typescript
-declare function authenticateExternalApp(): RequestHandler;
-declare function requireExternalScope(scope: ExternalAppScope): RequestHandler;
+// backend/src/middleware/external-app-auth.middleware.ts（2026-11-25 に実装の形へ揃えた）
+interface ExternalAppAuthDeps {
+  readonly verifier: Pick<ExternalAppTokenVerifier, 'verify'>;
+  readonly resourceUrl: string;                       // OAUTH_RESOURCE_URL
+  readonly rateLimit: ExternalAppResourceRateLimit;   // EXTERNAL_APP_RATE_LIMIT_*
+  readonly rateLimitDeps?: RateLimiterDependencies;
+  readonly now?: () => Date;
+}
+
+interface ExternalAppAuth {
+  authenticateExternalApp(): RequestHandler;                 // 認証と利用者ごとの回数制限
+  requireExternalScope(scope: ExternalAppScope): RequestHandler; // 範囲の確認（認証の後）
+  protect(scope: ExternalAppScope): RequestHandler[];        // 経路に掛ける一式（上の 2 つ）
+}
+
+declare function createExternalAppAuth(deps: ExternalAppAuthDeps): ExternalAppAuth;
+declare function getExternalAppPrincipal(req: Request): ExternalAppPrincipal;
 ```
 
+- 部品は `createExternalAppAuth(deps)` が組み立てて返す。経路は `protect(scope)`（`authenticateExternalApp()` と `requireExternalScope(scope)` の組）を掛け、範囲を経路ごとに必ず明示する。`authenticateExternalApp` と `requireExternalScope` は単独の関数ではなく、返された `ExternalAppAuth` のメソッドである。組み立ては `mountExternalAppOAuth`（`backend/src/oauth/provider.ts`）が行い、`MountedExternalAppOAuth.externalAppAuth` として渡す
+- 主体は `getExternalAppPrincipal(req)` でだけ読む。認証していない要求、または範囲の確認を通していない要求で読むと例外にする（範囲の宣言の漏れを通さない）。画面用の `req.user` は設定も参照もしない
+- 400 は、トークンを問い合わせ・本文の `access_token` で渡した要求と、`Authorization` が 2 つある要求に `invalid_request` で返す（RFC 6750 の 2.1・3.1）
 - 401 は `WWW-Authenticate: Bearer resource_metadata="<URL>", scope="read write"` を返す
 - 403 は `error="insufficient_scope", scope="read write"` を返す
 - 429 は `Retry-After` を返す。キーは利用者の ID とし、利用者の全接続を合算する
+- 503 は、検証（`ExternalAppTokenVerifier.verify`）が基盤の失敗（`ExternalAppTokenVerificationError`。トークンの読み出し・接続の判定・利用者の読み出し・接続の終了の確認の DB の失敗）を投げたときに `{ error: 'temporarily_unavailable' }` で返し、挑戦を付けない。401 にすると外部アプリが正常な接続を捨てて再度の同意へ進むためである。それ以外の想定外の例外はエラーの処理へ渡す（500）。利用の記録（`touch`）の失敗は検証を失敗させない
 - 既定は 1 分 120 回。`EXTERNAL_APP_RATE_LIMIT_MAX` と `EXTERNAL_APP_RATE_LIMIT_WINDOW_MS` で変更する
 - 無効化の判定は既存の `isRateLimitBypassAllowed` だけを使い、本番では無効化できない
 
@@ -7278,8 +7323,8 @@ declare function requireExternalScope(scope: ExternalAppScope): RequestHandler;
 | POST | /oauth/interaction/:uid/second-factor | SecondFactorCode | 204 | 400, 401, 403, 404, 429 |
 | POST | /oauth/interaction/:uid/approve | `{ scopes }` | `{ redirectTo }` | 400, 401, 403, 404 |
 | POST | /oauth/interaction/:uid/deny | — | `{ redirectTo }` | 401, 403, 404 |
-| GET | /oauth/resource/whoami | Bearer | `{ scopes, appName }` | 401, 429 |
-| GET | /oauth/resource/whoami/write-access | Bearer | 204 | 401, 403, 429 |
+| GET | /oauth/resource/whoami | Bearer | `{ scopes, appName }` | 400, 401, 429, 503 |
+| GET | /oauth/resource/whoami/write-access | Bearer | 204 | 400, 401, 403, 429, 503 |
 | GET | /api/v1/external-app-connections | — | 本人の一覧 | 401, 403 |
 | DELETE | /api/v1/external-app-connections/:id | — | 204 | 401, 403（CSRF）, 404 |
 | GET | /api/v1/admin/external-app-connections | 利用者・アプリ・ページ | 全利用者の一覧 | 400（クエリの不正、`VALIDATION_ERROR`）, 401, 403 |
