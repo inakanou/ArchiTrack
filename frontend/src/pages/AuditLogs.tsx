@@ -21,6 +21,7 @@ import {
   USER_DELETION_AUDIT_ACTIONS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
+  getAuditLogDetailItems,
   getAuditLogTargetLabel,
 } from '../utils/audit-log-actions';
 
@@ -407,6 +408,12 @@ export function AuditLogs() {
                     </td>
                     <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
                       {log.ipAddress && <div>IP: {log.ipAddress}</div>}
+                      {/* 表示してよい付帯情報だけを出す（要件40.13） */}
+                      {getAuditLogDetailItems(log).map((item) => (
+                        <div key={item.label} style={{ wordBreak: 'break-all' }}>
+                          {`${item.label}: ${item.value}`}
+                        </div>
+                      ))}
                       {log.before && <div>変更前: {JSON.stringify(log.before)}</div>}
                       {log.after && <div>変更後: {JSON.stringify(log.after)}</div>}
                     </td>

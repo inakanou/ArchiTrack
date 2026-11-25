@@ -17,6 +17,8 @@
  * - REQ-40.7: 実行者の利用者を削除しても、その利用者が実行者・対象の記録が残り、監査ログ画面に実行者の
  *   メールアドレス（記録時の写し）が出る
  * - REQ-40.9: 監査ログの JSON 出力が、実行者・種別・件数とともに記録され、監査ログ画面に出る
+ * - REQ-40.13: 監査ログ画面の詳細の欄に、表示してよい付帯情報（送信元 IP・ユーザーエージェント・結果・
+ *   理由・外部アプリ・範囲）だけが出て、メールアドレスは出ない（タスク80.3）
  *
  * ロック・削除・実行者の削除の対象は、テストの中で作る一意のメールアドレスの利用者
  * （`SESSION_USER_EMAIL_PREFIX`）とし、各テストの後始末で消す（共有の役割の利用者をロック・削除・
@@ -329,6 +331,92 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
       target: user.id,
       count: 1,
     });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.13
+   */
+  test('監査ログ画面の詳細の欄に送信元 IP・ユーザーエージェント・結果・理由・外部アプリ・範囲が出て、メールアドレスは出ない', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const user = await createSessionUser('REGULAR_USER');
+
+    // 実際の経路で書かれる記録: パスワード誤りのログインの失敗（付帯情報にメールアドレスを持つ）
+    expect(await submitCredentials(page, user.email, 'WrongPassword123!')).toBe(401);
+    const failures = await prisma.auditLog.findMany({
+      where: { action: 'LOGIN_FAILED', targetId: user.id },
+    });
+    expect(failures).toHaveLength(1);
+    const failureMeta = metadataOf(failures[0]!);
+    expect(failureMeta.email).toBe(user.email);
+    expectRequestContext(failureMeta);
+
+    // 外部アプリの接続の記録（アプリ・範囲・理由を持つ）。同意の流れは別の spec が通すため、表示の前提として
+    // 同じ形の付帯情報（ExternalAppConnectionService の auditMetadata）の記録を足す。監査の行は消せないため、
+    // 対象は実行ごとに一意にする
+    const connectionId = `${SESSION_USER_EMAIL_PREFIX}connection-${randomBytes(6).toString('hex')}`;
+    const consentEmail = `${SESSION_USER_EMAIL_PREFIX}consent-detail@example.com`;
+    await prisma.auditLog.create({
+      data: {
+        action: 'CONSENT_GRANTED',
+        actorId: null,
+        targetType: 'ExternalAppConnection',
+        targetId: connectionId,
+        metadata: {
+          clientId: 'architrack-test-client',
+          scopes: ['read', 'write'],
+          reason: 'USER_CONSENTED',
+          occurredAt: new Date().toISOString(),
+          ipAddress: '198.51.100.23',
+          userAgent: 'E2E-Detail-Agent/1.0',
+          email: consentEmail,
+        },
+      },
+    });
+
+    await openAuditLogsAsAdmin(page);
+
+    await expectAuditRowsOnScreen(page, {
+      action: 'LOGIN_FAILED',
+      label: 'ログイン失敗',
+      actor: SYSTEM_ACTOR,
+      target: user.id,
+      count: 1,
+    });
+    const failureDetail = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('cell', { name: user.id, exact: true }) })
+      .getByRole('cell')
+      .nth(4);
+    await expect(failureDetail).toContainText(`IP: ${String(failureMeta.ipAddress)}`);
+    await expect(failureDetail).toContainText(
+      `ユーザーエージェント: ${String(failureMeta.userAgent)}`
+    );
+    await expect(failureDetail).toContainText('結果: failure');
+    await expect(failureDetail).toContainText('理由: invalid_password');
+    await expect(failureDetail).not.toContainText(user.email);
+
+    await expectAuditRowsOnScreen(page, {
+      action: 'CONSENT_GRANTED',
+      label: '外部アプリの接続の同意',
+      actor: SYSTEM_ACTOR,
+      target: connectionId,
+      count: 1,
+    });
+    const consentDetail = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('cell', { name: connectionId, exact: true }) })
+      .getByRole('cell')
+      .nth(4);
+    await expect(consentDetail).toContainText('IP: 198.51.100.23');
+    await expect(consentDetail).toContainText('ユーザーエージェント: E2E-Detail-Agent/1.0');
+    await expect(consentDetail).toContainText('理由: USER_CONSENTED');
+    await expect(consentDetail).toContainText('外部アプリ: architrack-test-client');
+    await expect(consentDetail).toContainText('範囲: read write');
+    await expect(consentDetail).not.toContainText(consentEmail);
   });
 
   /**

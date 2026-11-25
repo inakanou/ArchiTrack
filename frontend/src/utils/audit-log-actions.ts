@@ -194,3 +194,54 @@ export function getAuditLogTargetLabel(
   }
   return log.targetName || log.targetId || '-';
 }
+
+/** 詳細の欄の 1 項目 */
+export interface AuditLogDetailItem {
+  label: string;
+  value: string;
+}
+
+/**
+ * 詳細の欄に出してよい付帯情報の鍵と表示名（要件40.13。並びは表示の順）
+ *
+ * 送信元 IP アドレスは一覧の応答の ipAddress で出すため含めない。ここに無い鍵（email など個人に関わる値、
+ * 内部の識別子）は出さない
+ */
+const AUDIT_LOG_DETAIL_FIELDS: readonly { key: string; label: string }[] = [
+  { key: 'userAgent', label: 'ユーザーエージェント' },
+  { key: 'result', label: '結果' },
+  { key: 'reason', label: '理由' },
+  { key: 'clientId', label: '外部アプリ' },
+  { key: 'scopes', label: '範囲' },
+];
+
+/** 付帯情報の値を表示の文字列にする（空でない文字列か、空でない文字列の配列だけ） */
+function detailValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value === '' ? null : value;
+  }
+  if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string')) {
+    return value.join(' ');
+  }
+  return null;
+}
+
+/**
+ * 監査ログの詳細の欄に出す付帯情報（要件40.13）
+ *
+ * 付帯情報をそのまま出さず、表示してよい項目（ユーザーエージェント・結果・理由・外部アプリ・範囲）だけを返す
+ */
+export function getAuditLogDetailItems(log: Pick<AuditLog, 'metadata'>): AuditLogDetailItem[] {
+  const metadata = log.metadata;
+  if (!metadata) {
+    return [];
+  }
+  const items: AuditLogDetailItem[] = [];
+  for (const { key, label } of AUDIT_LOG_DETAIL_FIELDS) {
+    const value = detailValue(metadata[key]);
+    if (value !== null) {
+      items.push({ label, value });
+    }
+  }
+  return items;
+}

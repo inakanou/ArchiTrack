@@ -38,6 +38,24 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 const prisma = getPrismaClient();
+
+/**
+ * 一覧の記録に、付帯情報の送信元 IP アドレスを `ipAddress` として載せる（要件40.13）
+ *
+ * IP は記録の列でなく付帯情報にだけある。現在の経路は `metadata.ipAddress`、古い経路は `metadata.ip` に
+ * 書いたため、前者を優先して後者へ落とす。文字列でなければ null。監査ログは改変できないため、
+ * 既に書かれた記録には読み出しの時点で適用する。付帯情報そのものは従来どおり返す。
+ */
+function withAuditLogIpAddress<T extends { metadata: unknown }>(
+  log: T
+): T & { ipAddress: string | null } {
+  const metadata =
+    typeof log.metadata === 'object' && log.metadata !== null && !Array.isArray(log.metadata)
+      ? (log.metadata as Record<string, unknown>)
+      : {};
+  const candidate = metadata.ipAddress ?? metadata.ip;
+  return { ...log, ipAddress: typeof candidate === 'string' ? candidate : null };
+}
 const auditLogService = new AuditLogService({ prisma });
 const exportAuditService = new ExportAuditService({
   auditLogService,
@@ -209,7 +227,7 @@ router.get(
         'Audit logs retrieved'
       );
 
-      res.json(logs);
+      res.json(logs.map(withAuditLogIpAddress));
     } catch (error) {
       next(error);
     }
