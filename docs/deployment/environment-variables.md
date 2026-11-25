@@ -12,6 +12,8 @@
 |--------|------|--------|--------------|----------|
 | `DATABASE_URL` | PostgreSQL接続文字列 | **必須** | なし | Railway自動設定 |
 | `REDIS_URL` | Redis接続文字列（キャッシュ・メールキュー・定期処理） | **本番で必須**（未設定では起動を止める） | なし | Railway自動設定（`${{Redis.REDIS_URL}}`） |
+| `REDIS_COMMAND_TIMEOUT_MS` | Redis のコマンドの期限（ミリ秒。接続を保ったままの無応答で待ち続けない。期限切れは Redis の失敗として扱う。user-authentication 要件35.8） | 任意 | `2000` | 通常は未設定 |
+| `REDIS_CONNECT_TIMEOUT_MS` | Redis の接続の確立の期限（ミリ秒） | 任意 | `10000` | 通常は未設定 |
 | `JWT_PUBLIC_KEY` | JWT検証用公開鍵（Base64エンコード） | **必須** | なし | [JWT鍵の生成](secrets-management.md#jwt鍵の生成) |
 | `JWT_PRIVATE_KEY` | JWT署名用秘密鍵（Base64エンコード） | **必須** | なし | [JWT鍵の生成](secrets-management.md#jwt鍵の生成) |
 | `TWO_FACTOR_ENCRYPTION_KEY` | 2FA秘密鍵暗号化用AES-256-GCM鍵 | **必須** | なし | [2FA鍵の生成](secrets-management.md#2fa暗号化鍵の生成) |

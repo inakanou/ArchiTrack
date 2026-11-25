@@ -2,6 +2,7 @@ import { z } from 'zod';
 import logger from '../utils/logger.js';
 import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
 import { securityAlertEnvSchema } from './security-alert.js';
+import { redisCommandTimeoutSchema, redisConnectTimeoutSchema } from './redis-timeouts.js';
 import { ExternalAppConfigError, parseExternalAppOAuthConfig } from '../oauth/client-registry.js';
 
 /**
@@ -204,6 +205,9 @@ const envSchema = z
 
     // Redis
     REDIS_URL: z.string().url().optional(),
+    // コマンドと接続の確立の期限（ミリ秒。要件35.8）
+    REDIS_COMMAND_TIMEOUT_MS: redisCommandTimeoutSchema,
+    REDIS_CONNECT_TIMEOUT_MS: redisConnectTimeoutSchema,
 
     // 信頼する中継の段数（送信元 IP の識別。要件35.1、35.2）
     TRUST_PROXY_HOPS: trustProxyHopsSchema,
