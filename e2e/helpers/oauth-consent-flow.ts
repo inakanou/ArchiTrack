@@ -342,6 +342,49 @@ export async function refreshExternalAppToken(
 }
 
 /**
+ * 外部アプリのアクセストークンで確認用の窓口（`/oauth/resource/whoami`）を呼び、応答の状態を返す
+ */
+export async function whoamiStatus(accessToken: string): Promise<number> {
+  const api = await newExternalAppRequestContext();
+  try {
+    const response = await api.get('/oauth/resource/whoami', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return response.status();
+  } finally {
+    await api.dispose();
+  }
+}
+
+/** 画面の API へ状態を変える要求を送るためのヘッダー（画面用のアクセストークン・送信元・CSRF のトークン） */
+export interface ScreenApiHeaders {
+  readonly Authorization: string;
+  readonly Origin: string;
+  readonly 'X-CSRF-Token': string;
+}
+
+/**
+ * ログイン中のページが画面の API に付ける画面用のアクセストークンと、CSRF のトークンを得る
+ *
+ * 連携中のアプリの画面を開き、画面が送る一覧の要求のヘッダーから読む（トークンを作らない）。
+ */
+export async function screenApiHeadersOf(page: Page): Promise<ScreenApiHeaders> {
+  const listRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === '/api/v1/external-app-connections' &&
+      request.method() === 'GET',
+    { timeout: getTimeout(15000) }
+  );
+  await page.goto('/connected-apps');
+  const bearer = await (await listRequest).headerValue('authorization');
+  expect(bearer, '画面が画面用のアクセストークンで API を呼んでいる').toMatch(/^Bearer /);
+  const csrf = await page.request.get(`${OAUTH_APP_ORIGIN}/csrf-token`);
+  expect(csrf.status()).toBe(200);
+  const { csrfToken } = (await csrf.json()) as { csrfToken: string };
+  return { Authorization: bearer!, Origin: OAUTH_APP_ORIGIN, 'X-CSRF-Token': csrfToken };
+}
+
+/**
  * 利用者の接続を DB から読む（終了した接続は行が消える）
  */
 export async function findConnections(userId: string) {
@@ -379,6 +422,18 @@ export async function findConnectionEndedAudits(targetUserId: string, since: Dat
       targetId: targetUserId,
       createdAt: { gte: since },
     },
+    select: { actorId: true, targetId: true, metadata: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/**
+ * 利用者を対象とする接続の出来事の監査（`CONNECTION_REPLACED`・`TOKEN_REUSE_DETECTED`・
+ * `REFRESH_GRACE_APPLIED` など）を、指定の時刻以後について読む
+ */
+export async function findConnectionEventAudits(targetUserId: string, since: Date, action: string) {
+  return getPrismaClient().auditLog.findMany({
+    where: { action, targetType: 'User', targetId: targetUserId, createdAt: { gte: since } },
     select: { actorId: true, targetId: true, metadata: true },
     orderBy: { createdAt: 'asc' },
   });

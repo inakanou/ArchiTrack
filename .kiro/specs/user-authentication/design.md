@@ -6699,24 +6699,36 @@ graph TB
 
 #### Directory Structure
 
+タスク79.4 で実在のパスへ揃えた（予定の 17 本はすべて同じパスで作られた。後半の 10 本は実装の途中で足したもの）。
+
 ```text
-backend/src/oauth/provider.ts                                    # 新設予定: 認可サーバーの設定と Express への搭載
-backend/src/oauth/store-adapter.ts                               # 新設予定: 保存アダプター（値の HMAC 化と再利用の検知）
-backend/src/oauth/client-registry.ts                             # 新設予定: 許可するアプリの読み込みと検証
-backend/src/oauth/oauth.types.ts                                 # 新設予定: 操作の範囲・主体・エラーの型
-backend/src/oauth/request-context.ts                             # 新設予定: 認可の窓口の要求の送信元を保存アダプターの通知へ渡す文脈
-backend/src/services/oauth-consent.service.ts                    # 新設予定: 同意の手続き
-backend/src/services/second-factor-verifier.service.ts           # 新設予定: 2FA の検証と失敗の計数の共通部品
-backend/src/services/external-app-connection.service.ts          # 新設予定: 接続の作成・一覧・失効・監査
-backend/src/services/external-app-token-verifier.service.ts      # 新設予定: 外部アプリ用トークンの検証
-backend/src/middleware/external-app-auth.middleware.ts           # 新設予定: 認証・範囲の確認・回数制限
-backend/src/middleware/require-system-admin.middleware.ts        # 新設予定: システム管理者ロールの確認
-backend/src/routes/external-app.routes.ts                        # 新設予定: 同意・一覧・取り消しの API
-backend/src/jobs/external-app-maintenance.job.ts                 # 新設予定: 期限切れの失効と許可一覧の照合
-frontend/src/api/external-apps.ts                                # 新設予定: API クライアント
-frontend/src/pages/OAuthConsentPage.tsx                          # 新設予定: 同意の画面
-frontend/src/pages/ConnectedAppsPage.tsx                         # 新設予定: 連携中のアプリの画面
-frontend/src/pages/AdminExternalAppConnectionsPage.tsx           # 新設予定: 接続の管理画面
+backend/src/oauth/provider.ts                                    # 新設: 認可サーバーの設定と Express への搭載
+backend/src/oauth/store-adapter.ts                               # 新設: 保存アダプター（値の HMAC 化と再利用の検知）
+backend/src/oauth/client-registry.ts                             # 新設: 許可するアプリの読み込みと検証
+backend/src/oauth/oauth.types.ts                                 # 新設: 操作の範囲・主体・エラーの型
+backend/src/oauth/request-context.ts                             # 新設: 認可の窓口の要求の送信元を保存アダプターの通知へ渡す文脈
+backend/src/services/oauth-consent.service.ts                    # 新設: 同意の手続き
+backend/src/services/second-factor-verifier.service.ts           # 新設: 2FA の検証と失敗の計数の共通部品
+backend/src/services/external-app-connection.service.ts          # 新設: 接続の作成・一覧・失効・監査
+backend/src/services/external-app-token-verifier.service.ts      # 新設: 外部アプリ用トークンの検証
+backend/src/middleware/external-app-auth.middleware.ts           # 新設: 認証・範囲の確認・回数制限
+backend/src/middleware/require-system-admin.middleware.ts        # 新設: システム管理者ロールの確認
+backend/src/routes/external-app.routes.ts                        # 新設: 同意・一覧・取り消しの API
+backend/src/jobs/external-app-maintenance.job.ts                 # 新設: 期限切れの失効と許可一覧の照合
+frontend/src/api/external-apps.ts                                # 新設: API クライアント
+frontend/src/pages/OAuthConsentPage.tsx                          # 新設: 同意の画面
+frontend/src/pages/ConnectedAppsPage.tsx                         # 新設: 連携中のアプリの画面
+frontend/src/pages/AdminExternalAppConnectionsPage.tsx           # 新設: 接続の管理画面
+backend/src/oauth/rate-limit.ts                                  # 新設: 認可の窓口の送信元 IP ごとの回数制限（51.10。タスク73.5）
+backend/src/services/auth-audit-recorder.ts                      # 新設: AuthService と SecondFactorVerifier で共有する認証の監査の記録（タスク74.1）
+backend/src/utils/access-token-generation.ts                     # 新設: 画面用アクセストークンの世代を接続の失効と同じトランザクションで進める（タスク76.1）
+backend/src/routes/auth-database-error.ts                        # 新設: 認証の経路の DB 障害の応答を auth.routes と session.routes で揃える（タスク76.1）
+backend/src/utils/log-error-serializer.ts                        # 新設: ログへ書くエラーと要求の入れ物の伏せ字（48.8。タスク71.4）
+backend/src/types/oidc-provider.d.ts                             # 新設: 型定義を同梱しない oidc-provider 9.15.1 の、本システムが使う範囲の宣言
+backend/prisma/migrations/20261123000000_external_app_connections/migration.sql            # 新設: 接続と保存データのモデル、権限 external_app:connect
+backend/prisma/migrations/20261124000000_external_app_revocation_generation/migration.sql   # 新設: users の失効の世代の列
+frontend/src/utils/external-app-scopes.ts                        # 新設: 操作の範囲の表示を ConnectedAppsPage と AdminExternalAppConnectionsPage で共有する（タスク78.2・78.3）
+frontend/src/utils/full-page-navigation.ts                       # 新設: 同意・拒否の後の再開の URL への全ページの遷移（タスク78.1）
 ```
 
 #### Modified Files
@@ -7000,6 +7012,7 @@ interface ConnectionAuditEvent {
 - Validation: 必須の環境変数（`OAUTH_ISSUER`、`OAUTH_RESOURCE_URL`、`OAUTH_JWKS`、`OAUTH_COOKIE_KEYS`、`OAUTH_TOKEN_HMAC_KEY`）が欠けると、許可するアプリが設定された環境では起動を止める。許可するアプリが無い環境では窓口を載せない
 - Rate limit（51.10。2026-11-24、利用者の判断）: `/oauth/authorize`（再開を含む）と `/oauth/token` に、既存の回数制限の仕組み（`rateLimit.middleware.ts`、Redis の保存先）で送信元 IP ごとの上限を掛ける。既定は 1 分あたり認可 60 回・トークン 300 回で、`OAUTH_RATE_LIMIT_AUTHORIZE_MAX`・`OAUTH_RATE_LIMIT_TOKEN_MAX`・`OAUTH_RATE_LIMIT_WINDOW_MS` で変える。Claude は共有の送信元から更新するのでトークンの上限を高くする。送信元は `TRUST_PROXY_HOPS` の判定を使い、本番では無効化の設定を無視する
 - Risks: 毎回の同意の強制、手続きの Cookie の到達、再開、`read write` でのリフレッシュトークンの発行は、タスク70.1 のインメモリの検証で確かめた。PostgreSQL の上での動作はタスク73 の統合テストで確かめる。セッションの Cookie を外すと毎回の同意の方針だけを外しても検査が通るため、統合テストでは両者を分けて確かめる
+- 確認の結果（タスク79.1〜79.4）: PostgreSQL と Redis の上で、認可（PKCE S256）・ログイン・同意の 2FA・再開・`client_secret_post` の交換・更新・取り消しの一連が `backend/src/__tests__/integration/oauth-authorization-flow.integration.test.ts` で通り、同じ利用者の 2 回目の申し込みでも 2FA と同意へ戻ることを確かめた。試験の compose の nginx を経たブラウザの流れでも、手続きの Cookie（`_interaction`）が同意の API へ届き、未ログインからログイン・次の TOTP の待ち・同意を経て戻り先まで 17〜26 秒で、手続きの有効期間（600 秒）に収まった（`e2e/specs/auth/oauth-consent.spec.ts`）。開発サーバー（画面と API が別のオリジン）での Cookie の到達はブラウザでは確かめていない。https の構成での `Secure` の付与は統合テストで確かめ、公開された環境での確認は配備の前提の 4 に残る
 
 ##### OAuthStoreAdapter
 
@@ -7156,6 +7169,7 @@ interface SecondFactorVerifier {
 - 既存のサービスは自身のトランザクションを `tx` として渡す。1 端末のログアウトからは呼ばない
 - `lastUsedAt` は 1 分に 1 回まで更新する。未使用 30 日の判定にはこの粒度で足りる
 - `lastLoginAt` は更新しない
+- 一覧の `expiresAt`（画面の「期限」）は DB の `expiresAt`（同意 + 90 日）ではなく、`toView` が DB の `expiresAt` と最後の利用（未使用なら同意）から 30 日の早い方（min）を返す。画面は実際に使えなくなる日時を示す（タスク78.2 の決定。E2E の `e2e/specs/auth/oauth-connections.spec.ts` が DB の値から同じ式で求めた日時と照合する）
 
 **Contracts**: Service [x]
 
@@ -7166,6 +7180,7 @@ interface ExternalAppConnectionView {
   readonly scopes: readonly ExternalAppScope[];
   readonly consentedAt: string;
   readonly lastUsedAt: string | null;
+  /** 実際に使えなくなる日時。同意から 90 日（48.3）と最後の利用（未使用なら同意）から 30 日（48.2）の早い方 */
   readonly expiresAt: string;
 }
 
@@ -7265,12 +7280,13 @@ declare function requireExternalScope(scope: ExternalAppScope): RequestHandler;
 | POST | /oauth/interaction/:uid/deny | — | `{ redirectTo }` | 401, 403, 404 |
 | GET | /oauth/resource/whoami | Bearer | `{ scopes, appName }` | 401, 429 |
 | GET | /oauth/resource/whoami/write-access | Bearer | 204 | 401, 403, 429 |
-| GET | /api/v1/external-app-connections | — | 本人の一覧 | 401 |
-| DELETE | /api/v1/external-app-connections/:id | — | 204 | 401, 404 |
-| GET | /api/v1/admin/external-app-connections | 利用者・アプリ・ページ | 全利用者の一覧 | 401, 403 |
-| DELETE | /api/v1/admin/external-app-connections/:id | — | 204 | 401, 403, 404 |
+| GET | /api/v1/external-app-connections | — | 本人の一覧 | 401, 403 |
+| DELETE | /api/v1/external-app-connections/:id | — | 204 | 401, 403（CSRF）, 404 |
+| GET | /api/v1/admin/external-app-connections | 利用者・アプリ・ページ | 全利用者の一覧 | 400（クエリの不正、`VALIDATION_ERROR`）, 401, 403 |
+| DELETE | /api/v1/admin/external-app-connections/:id | — | 204 | 401, 403（`SYSTEM_ADMIN_REQUIRED` または CSRF）, 404 |
 
 - 状態を変える経路は既存の CSRF 検証を通す。`/oauth/interaction/:uid` の下の API は画面用のアクセストークンで認証し、手続きの Cookie も要求する
+- 一覧と取り消しの 4 経路の 403 には、要件34.2 の制限中の利用者の拒否も含む。管理者用の 2 経路は `SystemAdminGuard` の後に CSRF を検証し、不正な形の `:id` は存在しない接続と同じ 404 にする（タスク77.1）
 - 2FA の経路は既存の 2FA の試行制限を掛ける
 
 ##### SystemAdminGuard
@@ -7399,6 +7415,8 @@ erDiagram
 - **Unit**: `OAuthStoreAdapter` の HMAC 化と `jti` の除去、期限の計算（30 日と 90 日の短い方）、`ExternalAppClientRegistry` の検証、範囲の判定、ワイルドカードを含む権限喪失の判定
 - **Integration**: 認可コードフロー全体、PKCE の不一致、コードとリフレッシュトークンの再利用（期限切れ後と同時要求を含む）、画面用と外部アプリ用のトークンの相互拒否、50.1〜50.6 の各契機の失効と 50.5 の非失効、利用者単位の回数制限、トークンの値がログと DB に現れないこと
 - **E2E**: ログインと 2FA を通した同意から接続の表示まで、書き込みの既定の未選択、拒否、本人の取り消し、管理者の一覧と取り消し、権限の無い利用者の拒否
+  - 実在の spec（タスク79.4 で揃えた）: `e2e/specs/integration/oauth-public-origin-proxy.spec.ts`（公開オリジンの中継、不正なアプリと戻り先、登録の拒否。46.1・46.4〜46.6）、`e2e/specs/auth/oauth-consent.spec.ts`（同意の流れ、2FA の失敗とロック、制限中の利用者、CSRF と枠内の表示。46.2・46.3・46.7・47.1〜47.7・47.11・51.2）、`e2e/specs/auth/oauth-connections.spec.ts`（一覧と取り消し、最終ログインを数えないこと。48.9・48.10・49.1〜49.9）、`e2e/specs/auth/oauth-tokens.spec.ts`（コードの交換、トークンの種別、更新・猶予・再同意・再利用。33.1・33.3・47.8〜47.10・48.1・48.4〜48.7・48.11・51.3）、`e2e/specs/auth/oauth-connection-revocation.spec.ts`（状態の変化による失効と 1 端末のログアウトの非失効。50.1〜50.5・50.7）。補助は `e2e/helpers/oauth-consent-flow.ts`
+  - E2E の対象外（`e2e/requirement-exclusions.json` に代替の統合・単体テストとともに登録）: 48.2・48.3（30 日と 90 日の経過）、48.8（ログとエラー監視への出力）、50.6（起動時の許可の一覧の変更）、51.1（閲覧範囲の判定は claude-connector の操作が持つ）、51.4〜51.6・51.10（試験の backend は回数制限を無効にして動く）、51.7（期限と許可の一覧による失効の監査と送信元 IP）、51.8（外部アプリ経由の出力は claude-connector が持つ）、51.9（全システム管理者へのメール）
 - **回帰**: 既存のログイン・2FA・ロックの試験を `SecondFactorVerifier` への切り出しの後に通す
 
 ### Security Considerations

@@ -175,6 +175,13 @@ describe('接続の一覧と取り消しの API（タスク77.1、app.ts）', ()
         where: { payload: { path: ['params', 'client_id'], equals: clientId } },
       });
     }
+    // 再開で作られる認可サーバーの Session の行は clientId を持たないので、利用者で消す（タスク79.4）
+    await prisma.oAuthStoreRecord.deleteMany({
+      where: {
+        kind: 'Session',
+        OR: userIds.map((id) => ({ payload: { path: ['accountId'], equals: id } })),
+      },
+    });
     await deleteAuditLogsWithArchivePermission(prisma, { targetId: { in: userIds } });
     await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });

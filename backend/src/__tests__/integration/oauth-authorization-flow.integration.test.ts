@@ -1030,8 +1030,8 @@ describe('認可コードフロー全体（タスク79.1）', () => {
       const payload = row.payload as { iat: number; exp: number };
       expect(payload.exp - payload.iat).toBe(600);
 
-      // 申し込みから 590 秒が過ぎた（残り 10 秒）手続き
-      const exp = Math.floor(Date.now() / 1000) + 10;
+      // 申し込みから 555 秒が過ぎた（残り 45 秒）手続き。残りは同意と再開の要求の時間に余裕を持たせる
+      const exp = Math.floor(Date.now() / 1000) + 45;
       await prisma.oAuthStoreRecord.update({
         where: { id },
         data: { expiresAt: new Date(exp * 1000), payload: { ...payload, exp } },

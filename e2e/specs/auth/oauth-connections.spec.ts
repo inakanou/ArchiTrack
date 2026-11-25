@@ -20,6 +20,7 @@
  * - REQ-49.9: 管理者でない利用者には管理画面を出さず、全利用者の一覧と管理者の取り消しの API は 403
  * - REQ-48.9: 取り消した接続のアクセストークンは 401（再度の同意へ進む `WWW-Authenticate: Bearer`）、
  *   リフレッシュトークンは `invalid_grant` になる
+ * - REQ-48.10: 外部アプリの利用（最後に使われた日時の記録）は、利用者の最終ログインの日時を変えない
  *
  * 観測の方針:
  * - ArchiTrack の応答は差し替えない。外部アプリの戻り先は試験の工程の中の loopback の受け口で受ける
@@ -114,6 +115,15 @@ async function onlyConnectionOf(userId: string) {
   const connections = await findConnectionsWithTimes(userId);
   expect(connections, '利用者の接続は 1 件').toHaveLength(1);
   return connections[0]!;
+}
+
+/** 利用者の最終ログインの日時を DB から読む */
+async function lastLoginAtOf(userId: string): Promise<Date | null> {
+  const user = await getPrismaClient().user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { lastLoginAt: true },
+  });
+  return user.lastLoginAt;
 }
 
 /** 外部アプリのアクセストークンで確認用の窓口を呼び、状態と応答の `WWW-Authenticate` を返す */
@@ -222,6 +232,7 @@ test.describe('外部アプリの接続の一覧と取り消し（user-authentic
    * @requirement user-authentication/REQ-49.3
    * @requirement user-authentication/REQ-49.4
    * @requirement user-authentication/REQ-48.9
+   * @requirement user-authentication/REQ-48.10
    */
   test('同意で作った接続が本人の一覧に出て、確認の後に本人が取り消すとトークンが使えなくなる', async ({
     page,
@@ -231,7 +242,12 @@ test.describe('外部アプリの接続の一覧と取り消し（user-authentic
     const owner = await createUser('ADMIN_USER');
     const startedAt = new Date(Date.now() - 5000);
     const token = await connectViaConsent(page, owner, { grantWrite: true, recordUid });
+    const loggedIn = await lastLoginAtOf(owner.id);
+    expect(loggedIn, '同意の前のログインが最終ログインとして記録されている').not.toBeNull();
     const connection = await useConnection(owner.id, token);
+    // 48.10: 外部アプリの利用は記録されるが、最終ログインの日時は変わらない
+    expect(connection.lastUsedAt!.getTime()).toBeGreaterThan(loggedIn!.getTime());
+    expect(await lastLoginAtOf(owner.id)).toEqual(loggedIn);
 
     // 49.1: プロフィールの導線から開くと、本人の接続が名称・範囲・日時・期限とともに出る
     await page.goto('/profile');

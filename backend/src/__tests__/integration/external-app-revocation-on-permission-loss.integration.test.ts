@@ -240,6 +240,13 @@ describe('権限の喪失による接続の失効（統合・タスク76.3）', 
     await prisma.oAuthStoreRecord.deleteMany({
       where: { payload: { path: ['params', 'client_id'], equals: CLIENT_ID } },
     });
+    // 再開で作られる認可サーバーの Session の行は clientId を持たないので、利用者で消す（タスク79.4）
+    await prisma.oAuthStoreRecord.deleteMany({
+      where: {
+        kind: 'Session',
+        OR: userIds.map((id) => ({ payload: { path: ['accountId'], equals: id } })),
+      },
+    });
     await deleteAuditLogsWithArchivePermission(prisma, {
       OR: [
         { actorId: { in: userIds } },

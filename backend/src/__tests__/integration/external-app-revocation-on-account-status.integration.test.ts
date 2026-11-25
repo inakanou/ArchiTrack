@@ -221,6 +221,13 @@ describe('アカウントの無効化（自動を含む）と削除による接�
     await prisma.oAuthStoreRecord.deleteMany({
       where: { payload: { path: ['params', 'client_id'], equals: CLIENT_ID } },
     });
+    // 再開で作られる認可サーバーの Session の行は clientId を持たないので、利用者で消す（タスク79.4）
+    await prisma.oAuthStoreRecord.deleteMany({
+      where: {
+        kind: 'Session',
+        OR: userIds.map((id) => ({ payload: { path: ['accountId'], equals: id } })),
+      },
+    });
     await deleteAuditLogsWithArchivePermission(prisma, {
       OR: [{ actorId: { in: userIds } }, { targetId: { in: userIds } }],
     });

@@ -7,7 +7,7 @@
  * TOTP の時間ステップとバックアップコードは、TwoFactorService の照合の中で条件付きの更新により
  * 使用済みになる。照合と使用済みの記録を分けないので、同じ値がログインと同意をまたいで二度通ることはない。
  *
- * Requirements: 47.2, 47.3（35.3 の試行制限と 40.2・40.3 の監査を同意にも適用する）, 32.7
+ * 対応する要件（user-authentication）: 47.2, 47.3（35.3 の試行制限と 40.2・40.3 の監査を同意にも適用する）, 32.7
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';

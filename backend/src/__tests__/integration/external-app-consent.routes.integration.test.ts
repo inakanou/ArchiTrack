@@ -159,6 +159,13 @@ describe('同意の API（タスク74.3）', () => {
     await prisma.oAuthStoreRecord.deleteMany({
       where: { payload: { path: ['params', 'client_id'], equals: CLIENT_ID } },
     });
+    // 再開で作られる認可サーバーの Session の行は clientId を持たないので、利用者で消す（タスク79.4）
+    await prisma.oAuthStoreRecord.deleteMany({
+      where: {
+        kind: 'Session',
+        OR: userIds.map((id) => ({ payload: { path: ['accountId'], equals: id } })),
+      },
+    });
     await deleteAuditLogsWithArchivePermission(prisma, { targetId: { in: userIds } });
     await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });

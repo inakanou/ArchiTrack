@@ -6,6 +6,9 @@
  *
  * Requirements coverage (user-authentication):
  * - REQ-46.1: 許可したアプリが公開オリジンの認可の経路（メタデータ・認可・トークン）へ届く
+ * - REQ-46.4: 許可の一覧に無いアプリの申し込みは受け付けない（エラー画面）
+ * - REQ-46.5: 許可の一覧に無いアプリと、登録と一致しない戻り先の申し込みは、同意の画面へ進めず戻り先へも遷移させない
+ * - REQ-46.6: アプリの自身による登録の要求を拒む
  *
  * 観測の方針:
  * - 応答の差し替えは用いない。
@@ -22,6 +25,7 @@ import {
   headerValues,
   type HeaderEntry,
 } from '../../helpers/frontend-security-headers';
+import { cleanupOAuthArtifacts } from '../../helpers/oauth-consent-flow';
 
 const APP_ORIGIN = new URL(FRONTEND_BASE_URL).origin;
 const METADATA_PATH = '/.well-known/oauth-authorization-server';
@@ -119,7 +123,15 @@ function tokenBody(): string {
 
 const FORM_HEADERS = { 'Content-Type': 'application/x-www-form-urlencoded' };
 
+/** 認可の要求が作った申し込みの手続き（Interaction）の uid（後始末で消す） */
+const interactionUids: string[] = [];
+
 test.describe('公開オリジンから認可の経路への中継（user-authentication 73.4）', () => {
+  test.afterEach(async () => {
+    await cleanupOAuthArtifacts([], interactionUids);
+    interactionUids.length = 0;
+  });
+
   /** @requirement user-authentication/REQ-46.1 */
   test('メタデータの発行者とエンドポイントが公開オリジンになり、偽の Host と転送ヘッダーで変わらない', async () => {
     const expected = {
@@ -160,6 +172,7 @@ test.describe('公開オリジンから認可の経路への中継（user-authen
     expect(location.origin).toBe(APP_ORIGIN);
     const uid = location.pathname.match(/^\/oauth\/interaction\/([A-Za-z0-9_-]+)$/)?.[1];
     expect(uid, '同意の URL が /oauth/interaction/:uid である').toBeTruthy();
+    interactionUids.push(uid!);
 
     const cookies = headerValues(response.headers, 'set-cookie');
     const interaction = cookies.find((cookie) => cookie.startsWith('_interaction='));
@@ -192,7 +205,11 @@ test.describe('公開オリジンから認可の経路への中継（user-authen
     expect(location.searchParams.get('state')).toBe(state);
   });
 
-  /** @requirement user-authentication/REQ-46.1 */
+  /**
+   * @requirement user-authentication/REQ-46.1
+   * @requirement user-authentication/REQ-46.4
+   * @requirement user-authentication/REQ-46.5
+   */
   test('不正なアプリの要求は認可サーバーのエラー画面になり、値を反映しない', async () => {
     const response = await send('GET', authorizePath({ client_id: 'unknown<script>' }));
     expect(response.status).toBe(400);
@@ -200,6 +217,36 @@ test.describe('公開オリジンから認可の経路への中継（user-authen
     expect(response.body).not.toContain('unknown');
     expect(headerValues(response.headers, 'location')).toEqual([]);
     expectSecurityHeaders(response.headers, '/oauth/authorize のエラー');
+
+    // 46.5: 許可したアプリでも、登録された戻り先と一致しない戻り先へは遷移させず、同意の画面へも進めない
+    const mismatched = await send(
+      'GET',
+      authorizePath({ redirect_uri: 'http://127.0.0.1:4999/oauth/other-callback' })
+    );
+    expect(mismatched.status).toBe(400);
+    expect(mismatched.body).toContain('接続できませんでした');
+    expect(mismatched.body).not.toContain('other-callback');
+    expect(headerValues(mismatched.headers, 'location')).toEqual([]);
+    expect(headerValues(mismatched.headers, 'set-cookie')).toEqual([]);
+  });
+
+  /** @requirement user-authentication/REQ-46.6 */
+  test('アプリの自身による登録の要求を受け付けず、メタデータも登録の窓口を示さない', async () => {
+    const metadata = await send('GET', METADATA_PATH);
+    expect(metadata.status).toBe(200);
+    expect(JSON.parse(metadata.body)).not.toHaveProperty('registration_endpoint');
+
+    const registration = await send('POST', '/oauth/reg', {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_name: 'E2E Unlisted App',
+        redirect_uris: ['http://127.0.0.1:4999/oauth/callback'],
+        token_endpoint_auth_method: 'client_secret_post',
+      }),
+    });
+    expect(registration.status).toBe(404);
+    expect(registration.body).not.toContain('client_secret');
+    expect(registration.body).not.toContain('client_id');
   });
 
   /** @requirement user-authentication/REQ-46.1 */

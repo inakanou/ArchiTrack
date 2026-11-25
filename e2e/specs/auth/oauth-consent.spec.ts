@@ -12,12 +12,15 @@
  *   接続を作らない
  * - REQ-47.1: 未ログインの申し込みはログインを求め、ログインの後に同じ申し込みの同意の画面へ戻る
  * - REQ-47.2: ログイン中でも申し込みごとに 2FA を求め、同じブラウザの 2 回目の申し込みも 2FA へ戻る
+ * - REQ-47.3: 同意の 2FA の誤ったコードでは同意の内容を示さず、連続の失敗でロックし（要件35.3）、失敗とロックを
+ *   監査に残す（要件40.2・40.3）
  * - REQ-47.4: 同意の画面にアプリの名称・戻り先のホスト名・利用者・範囲・期限を示す
  * - REQ-47.5: 「読み取り」は外せず、「書き込み」は既定で未選択（そのまま同意すると読み取りだけの接続）
  * - REQ-47.6: 同意で選んだ範囲の接続が作られ、戻り先へ認可コードが返り、交換できる
  * - REQ-47.7: 拒否（2FA の段階・同意の段階）で戻り先へ `access_denied` が返り、接続もトークンも作られない
  * - REQ-47.11: 同意の送信は CSRF のトークンが無いと拒まれ、同意の画面は他のサイトの枠内に表示されない
  *   （応答の CSP `frame-ancestors 'none'` と `X-Frame-Options: DENY`）
+ * - REQ-51.2: 「読み取り」だけの接続のトークンで書き込みの操作を求めると 403
  *
  * 観測の方針:
  * - ArchiTrack の応答は差し替えない。外部アプリの戻り先は試験の工程の中の loopback の受け口で受ける
@@ -27,6 +30,7 @@
  * - 利用者はテストの中で作り（`createSessionUser`）、後で接続・保存データ・Redis の鍵とともに消す
  */
 
+import { generateSync } from 'otplib';
 import { test, expect, type Page, type Request } from '@playwright/test';
 import {
   OAUTH_APP_ORIGIN,
@@ -46,6 +50,8 @@ import {
   type OAuthTokenResponse,
 } from '../../helpers/oauth-consent-flow';
 import { headerValues, parseCsp } from '../../helpers/frontend-security-headers';
+import { E2E_TOTP_SECRET, fillTotpCode } from '../../helpers/two-factor-totp';
+import { getPrismaClient } from '../../fixtures/database';
 import { getTimeout } from '../../helpers/wait-helpers';
 import {
   createSessionUser,
@@ -85,6 +91,20 @@ const RESTRICTED_CASES = [
   setupPath: string;
   code: string;
 }[];
+
+/** 2FA の連続の失敗でロックするまでの回数（backend の SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES） */
+const TWO_FACTOR_MAX_FAILURES = 5;
+
+/** 前後の時間ステップを含め、いま受理されうるどの TOTP のコードとも違う 6 桁を返す */
+function wrongTotpCode(secret: string = E2E_TOTP_SECRET): string {
+  const now = Math.floor(Date.now() / 1000);
+  const acceptable = new Set(
+    [-30, 0, 30].map((offset) => generateSync({ secret, epoch: now + offset }))
+  );
+  const candidate = ['000000', '111111', '222222', '333333'].find((code) => !acceptable.has(code));
+  expect(candidate, '受理されないコードを作れる').toBeTruthy();
+  return candidate!;
+}
 
 const CONSENT_API_PATH =
   /^\/oauth\/interaction\/[A-Za-z0-9_-]{43}\/(details|second-factor|approve|deny)$/;
@@ -135,6 +155,7 @@ test.describe('外部アプリの接続の同意（user-authentication 79.2）',
    * @requirement user-authentication/REQ-47.6
    * @requirement user-authentication/REQ-47.7
    * @requirement user-authentication/REQ-47.11
+   * @requirement user-authentication/REQ-51.2
    */
   test('未ログインからログインと 2FA を通して同意すると読み取りだけの接続ができ、2 回目の申し込みも 2FA と同意へ戻る', async ({
     page,
@@ -305,6 +326,70 @@ test.describe('外部アプリの接続の同意（user-authentication 79.2）',
     expect(callback.searchParams.get('code')).toBeNull();
     expect(await findConnections(user.id)).toEqual([]);
     expect(await findIssuedOAuthRecords(user.id)).toEqual([]);
+  });
+
+  /** @requirement user-authentication/REQ-47.3 */
+  test('同意の 2FA の誤ったコードでは同意の内容を示さず、連続の失敗でロックして失敗とロックを監査に残す', async ({
+    page,
+  }) => {
+    const user = await createUser('ADMIN_USER');
+    const startedAt = new Date(Date.now() - 5000);
+    const authorization = buildAuthorizationRequest();
+    await openAuthorizationAndLogin(page, user, authorization.url);
+    await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(15000) });
+
+    const submitWrongCode = async () => {
+      await fillTotpCode(page, wrongTotpCode());
+      const verified = page.waitForResponse(
+        (response) => isConsentApi(response.request(), 'second-factor', 'POST'),
+        { timeout: getTimeout(20000) }
+      );
+      await page.getByRole('button', { name: '検証', exact: true }).click();
+      const status = (await verified).status();
+      // 誤ったコードでは同意の内容も同意の操作も示さない
+      await expect(page.getByRole('region', { name: '接続の内容' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '許可する' })).toHaveCount(0);
+      return status;
+    };
+    const statuses = [await submitWrongCode()];
+    await expect(page.getByText('認証コードが正しくありません。')).toBeVisible();
+    for (let attempt = 1; attempt < TWO_FACTOR_MAX_FAILURES; attempt += 1) {
+      statuses.push(await submitWrongCode());
+    }
+    // 35.3: 連続の失敗でロックし、解除の時刻を示す
+    expect(statuses).toEqual([400, 400, 400, 400, 403]);
+    await expect(page.getByText(/^二要素認証が一時的にロックされました。/)).toBeVisible();
+    const locked = await getPrismaClient().user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { twoFactorLockedUntil: true },
+    });
+    expect(locked.twoFactorLockedUntil!.getTime()).toBeGreaterThan(Date.now());
+
+    // 40.3・40.2: 同意の 2FA の失敗の各回とロックを、同意の目的とともに監査に残す
+    const audits = await getPrismaClient().auditLog.findMany({
+      where: {
+        targetType: 'User',
+        targetId: user.id,
+        action: { in: ['TWO_FACTOR_FAILED', 'LOGIN_LOCKED'] },
+        createdAt: { gte: startedAt },
+      },
+      select: { action: true, metadata: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(audits).toEqual([
+      ...Array.from({ length: TWO_FACTOR_MAX_FAILURES }, () => ({
+        action: 'TWO_FACTOR_FAILED',
+        metadata: expect.objectContaining({ reason: 'invalid_code', purpose: 'oauth_consent' }),
+      })),
+      {
+        action: 'LOGIN_LOCKED',
+        metadata: expect.objectContaining({
+          trigger: 'two_factor_failures',
+          purpose: 'oauth_consent',
+        }),
+      },
+    ]);
+    expect(await findConnections(user.id)).toEqual([]);
   });
 
   /**
