@@ -14,6 +14,7 @@
  * @requirement execution-budget-management/REQ-3.4: 各項目に発注関連列を表示する
  * @requirement execution-budget-management/REQ-3.5: 各項目に原価関連列を表示する
  * @requirement execution-budget-management/REQ-3.6: 各項目に出来高関連列を表示する
+ * @requirement execution-budget-management/REQ-3.7: 親項目の各金額列に子項目の合計値を自動計算して表示する
  * @requirement execution-budget-management/REQ-3.8: 全項目の合計行を表示する
  * @requirement execution-budget-management/REQ-3.9: 契約金額と実行金額合計の差額（利益見込額）を表示する
  * @requirement execution-budget-management/REQ-3.10: 発注進捗率（発注済み/全項目数）を表示する
@@ -370,6 +371,30 @@ test.describe('実行予算管理 - 作成・表示・一覧', () => {
     const table = page.locator('table').first();
     await expect(table.getByRole('columnheader', { name: '出来高金額' })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: '出来高率' })).toBeVisible();
+  });
+
+  test('親項目の金額列に子項目の合計が表示される (execution-budget-management/REQ-3.7)', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    await page.goto(`/projects/${displayProjectId}/execution-budget`);
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+
+    // 親工種A 自身は見積 1,000,000・実行 800,000、子項目A1 は 10 × 50,000 = 500,000・10 × 40,000 = 400,000。
+    // 親の行には自身の値ではなく子の合計が出る
+    const parentRow = page.locator('tr', {
+      has: page.getByRole('cell', { name: '親工種A' }),
+    });
+    await expect(parentRow).toHaveCount(1, { timeout: getTimeout(15000) });
+    const cells = parentRow.locator('td');
+    // 列: 5 見積金額, 7 実行金額, 8 変更金額, 10 発注金額, 14 累計支出, 16 出来高金額
+    await expect(cells.nth(5)).toHaveText('500,000');
+    await expect(cells.nth(7)).toHaveText('400,000');
+    await expect(cells.nth(8)).toHaveText('0');
+    // 子に発注済みが無いので合計は 0（親自身の値は空）
+    await expect(cells.nth(10)).toHaveText('0');
+    await expect(cells.nth(14)).toHaveText('0');
+    await expect(cells.nth(16)).toHaveText('0');
   });
 
   test('合計行が表示される (execution-budget-management/REQ-3.8)', async ({ page }) => {

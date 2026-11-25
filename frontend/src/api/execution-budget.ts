@@ -68,6 +68,16 @@ export interface ExecutionBudgetItem {
   /** 出来高関連情報 */
   progressAmount: string | null;
   progressRate: string | null;
+  /**
+   * 親項目の子項目（末端）の合計（バックエンドで計算、REQ-3.7）。子を持たない項目では null
+   */
+  calculatedEstimateAmount?: string | null;
+  calculatedExecutionAmount?: string | null;
+  calculatedAmendmentAmount?: string | null;
+  calculatedOrderAmount?: string | null;
+  /** 先月までの支出と今月の支出の和の合計 */
+  calculatedTotalExpense?: string | null;
+  calculatedProgressAmount?: string | null;
 }
 
 /**

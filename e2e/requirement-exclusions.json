@@ -1397,19 +1397,6 @@
       }
     },
     {
-      "id": "execution-budget-management/REQ-3.7",
-      "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
-      "title": "親項目の金額列自動集計",
-      "criterionText": "The システム shall 親項目の各金額列（見積金額、実行金額、変更金額、発注金額、累計支出、出来高金額）に子項目の合計値を自動計算して表示する",
-      "reason": "親項目への金額自動集計はバックエンド計算ロジック検証で、計算精度は統合テストで実施",
-      "category": "data-integrity",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest",
-        "description": "集計計算ロジックを検証"
-      }
-    },
-    {
       "id": "execution-budget-management/REQ-4.1",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "実行単価変更時に実行金額自動計算",
