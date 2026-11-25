@@ -8,6 +8,30 @@ import type { NextFunction, Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { requireSystemAdmin } from '../../../middleware/require-system-admin.middleware.js';
 
+const shared = vi.hoisted(() => ({
+  prisma: { userRole: { findFirst: vi.fn() } },
+  createLog: vi.fn(),
+  auditLogServiceDeps: vi.fn(),
+  observeSecurityAnomaly: vi.fn(),
+}));
+
+vi.mock('../../../db.js', () => ({
+  default: () => shared.prisma,
+}));
+
+vi.mock('../../../services/audit-log.service.js', () => ({
+  AuditLogService: class {
+    constructor(deps: unknown) {
+      shared.auditLogServiceDeps(deps);
+    }
+    createLog = shared.createLog;
+  },
+}));
+
+vi.mock('../../../services/security-anomaly-monitor.service.js', () => ({
+  observeSecurityAnomaly: shared.observeSecurityAnomaly,
+}));
+
 function createResponse() {
   const res = {
     status: vi.fn(),
@@ -136,5 +160,86 @@ describe('requireSystemAdmin', () => {
 
     expect(next).toHaveBeenCalledWith(failure);
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('User-Agent と送信元 IP が無い要求の拒否は unknown として監査と異常の検知に送る', async () => {
+    findFirst.mockResolvedValue(null);
+    const res = createResponse();
+    const req = {
+      user: { userId: 'u5', email: 'e@example.test', roles: [] },
+      ip: undefined,
+      get: vi.fn(() => undefined),
+    } as unknown as Request;
+
+    await guard()(req, res as unknown as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: 'u5',
+        metadata: { required: 'role:admin', ip: 'unknown', userAgent: 'unknown' },
+      })
+    );
+    expect(observeAnomaly).toHaveBeenCalledWith({
+      signal: 'permission_denied',
+      sourceIp: 'unknown',
+      userId: 'u5',
+    });
+  });
+
+  describe('依存を省略したとき', () => {
+    beforeEach(() => {
+      shared.prisma.userRole.findFirst.mockReset();
+      shared.createLog.mockReset();
+      shared.createLog.mockResolvedValue(undefined);
+      shared.auditLogServiceDeps.mockReset();
+      shared.observeSecurityAnomaly.mockReset();
+    });
+
+    it('共有のクライアントでロールを読み、ロール admin を持つ利用者は通す', async () => {
+      shared.prisma.userRole.findFirst.mockResolvedValue({ id: 'user-role-9' });
+      const res = createResponse();
+
+      await requireSystemAdmin()(
+        createRequest({ userId: 'u6', email: 'f@example.test', roles: [] }),
+        res as unknown as Response,
+        next
+      );
+
+      expect(next).toHaveBeenCalledWith();
+      expect(shared.prisma.userRole.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'u6', role: { name: 'admin' } },
+        select: { id: true },
+      });
+      expect(shared.auditLogServiceDeps).not.toHaveBeenCalled();
+      expect(shared.observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
+
+    it('拒否は共有のクライアントで作った監査ログと共有の異常検知へ送り、403 を返す', async () => {
+      shared.prisma.userRole.findFirst.mockResolvedValue(null);
+      const res = createResponse();
+
+      await requireSystemAdmin()(
+        createRequest({ userId: 'u7', email: 'g@example.test', roles: [] }),
+        res as unknown as Response,
+        next
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(shared.auditLogServiceDeps).toHaveBeenCalledWith({ prisma: shared.prisma });
+      expect(shared.createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId: 'u7',
+        targetType: 'Role',
+        targetId: 'admin',
+        metadata: { required: 'role:admin', ip: '203.0.113.7', userAgent: 'unit-agent' },
+      });
+      expect(shared.observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: '203.0.113.7',
+        userId: 'u7',
+      });
+    });
   });
 });
