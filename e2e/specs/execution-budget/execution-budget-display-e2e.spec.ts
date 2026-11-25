@@ -12,7 +12,7 @@
  * @requirement execution-budget-management/REQ-3.2: ネスト項目の折り畳み・展開操作を提供する
  * @requirement execution-budget-management/REQ-3.3: 各項目に予算関連列を表示する
  * @requirement execution-budget-management/REQ-3.4: 各項目に発注関連列を表示する
- * @requirement execution-budget-management/REQ-3.5: 各項目に原価関連列を表示する
+ * @requirement execution-budget-management/REQ-3.5: 各項目に原価関連列を表示する（親項目は子項目の合計）
  * @requirement execution-budget-management/REQ-3.6: 各項目に出来高関連列を表示する
  * @requirement execution-budget-management/REQ-3.7: 親項目の各金額列に子項目の合計値を自動計算して表示する
  * @requirement execution-budget-management/REQ-3.8: 全項目の合計行を表示する
@@ -395,6 +395,39 @@ test.describe('実行予算管理 - 作成・表示・一覧', () => {
     await expect(cells.nth(10)).toHaveText('0');
     await expect(cells.nth(14)).toHaveText('0');
     await expect(cells.nth(16)).toHaveText('0');
+  });
+
+  test('子項目の今月の支出を入力すると、親項目の今月支出・累計支出・残予算に子の合計が出る (execution-budget-management/REQ-3.5)', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    await page.goto(`/projects/${displayProjectId}/execution-budget`);
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+
+    const childRow = page.locator('tr', { has: page.getByRole('cell', { name: '子項目A1' }) });
+    const costInput = childRow.locator('input[data-testid^="current-month-expense-input-"]');
+    await expect(costInput).toBeVisible({ timeout: getTimeout(15000) });
+    await costInput.click();
+    await costInput.fill('30000');
+    const patched = page.waitForResponse(
+      (response) =>
+        /\/items\/[^/]+\/cost$/.test(new URL(response.url()).pathname) &&
+        response.request().method() === 'PATCH',
+      { timeout: getTimeout(30000) }
+    );
+    await costInput.blur();
+    expect((await patched).status()).toBe(200);
+    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+
+    // 親の行（自身は今月の支出を持たない）に子の合計が出る。列: 12 先月支出, 13 今月支出, 14 累計支出, 15 残予算
+    const parentCells = page
+      .locator('tr', { has: page.getByRole('cell', { name: '親工種A' }) })
+      .locator('td');
+    await expect(parentCells.nth(12)).toHaveText('0');
+    await expect(parentCells.nth(13)).toHaveText('30,000');
+    await expect(parentCells.nth(14)).toHaveText('30,000');
+    // 残予算 = 子の合計の実行金額 400,000 − 子の合計の累計支出 30,000
+    await expect(parentCells.nth(15)).toHaveText('370,000');
   });
 
   test('合計行が表示される (execution-budget-management/REQ-3.8)', async ({ page }) => {

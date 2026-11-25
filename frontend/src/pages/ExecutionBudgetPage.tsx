@@ -392,6 +392,13 @@ function TreeRow({
   const progressAmount = isParent
     ? (item.calculatedProgressAmount ?? item.progressAmount)
     : item.progressAmount;
+  // REQ-3.5: 親項目の先月までの支出と今月の支出も子項目の合計を表示する（累計支出と食い違わせない）
+  const previousMonthExpense = isParent
+    ? (item.calculatedPreviousMonthExpense ?? item.previousMonthExpense)
+    : item.previousMonthExpense;
+  const currentMonthExpense = isParent
+    ? (item.calculatedCurrentMonthExpense ?? item.currentMonthExpense)
+    : item.currentMonthExpense;
   const ownTotalExpense = String(
     parseInt(item.previousMonthExpense || '0', 10) + parseInt(item.currentMonthExpense || '0', 10)
   );
@@ -457,14 +464,12 @@ function TreeRow({
           )}
         </td>
         {/* 先月までの支出 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.previousMonthExpense)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(previousMonthExpense)}</td>
         {/* 今月の支出 (REQ-13.2: 入力可能) */}
         <td style={{ ...styles.td, ...styles.tdRight }}>
           {hasChildren ? (
-            // 親項目は子の合計を表示するのみ
-            formatAmount(item.currentMonthExpense)
+            // 親項目は子の合計を表示するのみ（入力は子を持たない項目で行う）
+            formatAmount(currentMonthExpense)
           ) : (
             <CurrentMonthExpenseInput
               itemId={item.id}

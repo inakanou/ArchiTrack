@@ -77,6 +77,10 @@ export interface ExecutionBudgetItem {
   calculatedOrderAmount?: string | null;
   /** 先月までの支出と今月の支出の和の合計 */
   calculatedTotalExpense?: string | null;
+  /** 先月までの支出の合計（REQ-3.5） */
+  calculatedPreviousMonthExpense?: string | null;
+  /** 今月の支出の合計（REQ-3.5） */
+  calculatedCurrentMonthExpense?: string | null;
   calculatedProgressAmount?: string | null;
 }
 

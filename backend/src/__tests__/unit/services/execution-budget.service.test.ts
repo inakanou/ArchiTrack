@@ -906,6 +906,26 @@ describe('ExecutionBudgetService', () => {
       expect(parentItem.calculatedTotalExpense).toBe('380000');
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-3.5
+     */
+    it('親項目の先月までの支出と今月の支出に子項目の合計を計算し、子を持たない項目では null とする', async () => {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBudgetWithItems
+      );
+
+      const result = await service.getWithItems(projectId);
+
+      const parentItem = result!.items[0]!;
+      // 先月までの支出 = 100000 + 200000、今月の支出 = 50000 + 30000
+      expect(parentItem.calculatedPreviousMonthExpense).toBe('300000');
+      expect(parentItem.calculatedCurrentMonthExpense).toBe('80000');
+      // 両者の和が累計支出の合計と一致する
+      expect(Number(parentItem.calculatedPreviousMonthExpense) + 80000).toBe(380000);
+      expect(parentItem.children[0]!.calculatedPreviousMonthExpense).toBeNull();
+      expect(parentItem.children[0]!.calculatedCurrentMonthExpense).toBeNull();
+    });
+
     it('合計行データ（全金額列の合計）と利益見込額を算出する', async () => {
       // Arrange
       (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(

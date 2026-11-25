@@ -333,6 +333,38 @@ describe('ExecutionBudgetPage', () => {
       expect(cells[16]).toBe('200,000');
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-3.5: 各項目に原価関連列を表示する（親項目は子項目の合計）
+     */
+    it('親項目の先月支出と今月支出には子項目の合計を表示し、累計支出と食い違わない (execution-budget-management/REQ-3.5)', async () => {
+      const parent = mockBudget.items[0]!;
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue({
+        ...mockBudget,
+        items: [
+          {
+            ...parent,
+            // 親自身の値は子の合計と食い違わせる
+            previousMonthExpense: '0',
+            currentMonthExpense: '0',
+            calculatedPreviousMonthExpense: '100000',
+            calculatedCurrentMonthExpense: '50000',
+            calculatedTotalExpense: '150000',
+          },
+        ],
+      });
+
+      renderPage();
+      const nameCell = await screen.findByText('直接工事費');
+      const cells = Array.from(nameCell.closest('tr')!.querySelectorAll('td')).map(
+        (td) => td.textContent
+      );
+
+      // 列: 12 先月支出, 13 今月支出, 14 累計支出
+      expect(cells[12]).toBe('100,000');
+      expect(cells[13]).toBe('50,000');
+      expect(cells[14]).toBe('150,000');
+    });
+
     it('発注済み項目の発注金額を表示する', async () => {
       renderPage();
       const amounts = await screen.findAllByText('440,000');
