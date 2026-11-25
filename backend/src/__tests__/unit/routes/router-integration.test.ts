@@ -7,8 +7,8 @@
  * - REQ-19.2: 実行予算のCRUD操作にRESTful APIを提供する
  * - REQ-19.3: 発注データのCRUD操作にRESTful APIを提供する
  * - REQ-19.4: 出来高データのCRUD操作にRESTful APIを提供する
- * - REQ-19.5: 原価（支出実績）データのCRUD操作にRESTful APIを提供する
- * - REQ-19.6: 月次締めデータのCRUD操作にRESTful APIを提供する
+ * - REQ-19.5: 原価（支出実績）の入力に、項目ごとの今月の支出を更新する RESTful API（PATCH items/:itemId/cost）を提供する
+ * - REQ-19.6: 月次締めの実行と履歴の取得に RESTful API（POST・GET monthly-close）を提供する
  *
  * app.tsのソースコードを静的に検証し、全ルーターが正しく登録されていることを確認する。
  */
