@@ -11,12 +11,14 @@
  * - REQ-40.1: ログインの成功、パスワード誤りと存在しないメールアドレスによる失敗が、結果・対象のメール
  *   アドレス・送信元 IP・ユーザーエージェントとともに記録され、監査ログ画面に出る
  * - REQ-40.2: ログイン失敗の連続と 2FA 検証失敗の連続によるロックが記録され、監査ログ画面に出る
- * - REQ-40.3: 2FA の検証（TOTP）の成功と失敗が記録され、監査ログ画面に出る
+ * - REQ-40.3: 2FA の検証（TOTP とバックアップコード）の成功と失敗が記録され、監査ログ画面に出る
  * - REQ-40.4: ログアウトと全デバイスのログアウトが記録され、監査ログ画面に出る
  * - REQ-40.6: ユーザーの削除が実行者と削除対象とともに記録され、監査ログ画面に出る
  * - REQ-40.7: 実行者の利用者を削除しても、その利用者が実行者・対象の記録が残り、監査ログ画面に実行者の
  *   メールアドレス（記録時の写し）が出る
  * - REQ-40.9: 監査ログの JSON 出力が、実行者・種別・件数とともに記録され、監査ログ画面に出る
+ * - REQ-40.13: 監査ログ画面の詳細の欄に、表示してよい付帯情報（送信元 IP・ユーザーエージェント・結果・
+ *   理由・外部アプリ・範囲）だけが出て、メールアドレスは出ない（タスク80.3）
  *
  * ロック・削除・実行者の削除の対象は、テストの中で作る一意のメールアドレスの利用者
  * （`SESSION_USER_EMAIL_PREFIX`）とし、各テストの後始末で消す（共有の役割の利用者をロック・削除・
@@ -32,6 +34,7 @@ import {
   SESSION_USER_EMAIL_PREFIX,
   createSessionUser,
   createTestUser,
+  createTwoFactorBackupCodes,
   deleteSessionUsers,
   type SessionUser,
 } from '../../fixtures/auth.fixtures';
@@ -269,13 +272,15 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
         where: { action: 'TWO_FACTOR_VERIFIED', targetId: user.id, actorId: user.id },
       })
     ).toBe(2);
-    // ログアウトはメニューからの 1 回と、全デバイスのログアウトの後に画面が続けて行う 1 回
-    // （frontend/src/pages/Sessions.tsx の handleConfirmLogoutAll が logout-all の後に logout を呼ぶ）
+    // ログアウトはメニューからの 1 回だけが残る。全デバイスのログアウトの後に画面が続けて行うログアウト
+    // （frontend/src/pages/Sessions.tsx の handleConfirmLogoutAll）は、logout-all がアクセストークンの世代を
+    // 進めるため失効済みのトークンで 401 になり、LOGOUT_ALL だけが残る（user-authentication タスク76.1、
+    // 2026-11-24 の利用者の判断）
     expect(
       await prisma.auditLog.count({
         where: { action: 'LOGOUT', targetId: user.id, actorId: user.id },
       })
-    ).toBe(2);
+    ).toBe(1);
     expect(
       await prisma.auditLog.count({
         where: { action: 'LOGOUT_ALL', targetId: user.id, actorId: user.id },
@@ -317,11 +322,138 @@ test.describe('認証・アカウント操作とデータ出力の監査の記�
       label: 'ログアウト',
       actor: user.email,
       target: user.id,
-      count: 2,
+      // logout-all の後のログアウトは失効済みのトークンで 401 になり、LOGOUT_ALL だけが残る（タスク76.1）
+      count: 1,
     });
     await expectAuditRowsOnScreen(page, {
       action: 'LOGOUT_ALL',
       label: '全デバイスからログアウト',
+      actor: user.email,
+      target: user.id,
+      count: 1,
+    });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.13
+   */
+  test('監査ログ画面の詳細の欄に送信元 IP・ユーザーエージェント・結果・理由・外部アプリ・範囲が出て、メールアドレスは出ない', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const user = await createSessionUser('REGULAR_USER');
+
+    // 実際の経路で書かれる記録: パスワード誤りのログインの失敗（付帯情報にメールアドレスを持つ）
+    expect(await submitCredentials(page, user.email, 'WrongPassword123!')).toBe(401);
+    const failures = await prisma.auditLog.findMany({
+      where: { action: 'LOGIN_FAILED', targetId: user.id },
+    });
+    expect(failures).toHaveLength(1);
+    const failureMeta = metadataOf(failures[0]!);
+    expect(failureMeta.email).toBe(user.email);
+    expectRequestContext(failureMeta);
+
+    // 外部アプリの接続の記録（アプリ・範囲・理由を持つ）。同意の流れは別の spec が通すため、表示の前提として
+    // 同じ形の付帯情報（ExternalAppConnectionService の auditMetadata）の記録を足す。監査の行は消せないため、
+    // 対象は実行ごとに一意にする
+    const connectionId = `${SESSION_USER_EMAIL_PREFIX}connection-${randomBytes(6).toString('hex')}`;
+    const consentEmail = `${SESSION_USER_EMAIL_PREFIX}consent-detail@example.com`;
+    await prisma.auditLog.create({
+      data: {
+        action: 'CONSENT_GRANTED',
+        actorId: null,
+        targetType: 'ExternalAppConnection',
+        targetId: connectionId,
+        metadata: {
+          clientId: 'architrack-test-client',
+          scopes: ['read', 'write'],
+          reason: 'USER_CONSENTED',
+          occurredAt: new Date().toISOString(),
+          ipAddress: '198.51.100.23',
+          userAgent: 'E2E-Detail-Agent/1.0',
+          email: consentEmail,
+        },
+      },
+    });
+
+    await openAuditLogsAsAdmin(page);
+
+    await expectAuditRowsOnScreen(page, {
+      action: 'LOGIN_FAILED',
+      label: 'ログイン失敗',
+      actor: SYSTEM_ACTOR,
+      target: user.id,
+      count: 1,
+    });
+    const failureDetail = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('cell', { name: user.id, exact: true }) })
+      .getByRole('cell')
+      .nth(4);
+    await expect(failureDetail).toContainText(`IP: ${String(failureMeta.ipAddress)}`);
+    await expect(failureDetail).toContainText(
+      `ユーザーエージェント: ${String(failureMeta.userAgent)}`
+    );
+    await expect(failureDetail).toContainText('結果: failure');
+    await expect(failureDetail).toContainText('理由: invalid_password');
+    await expect(failureDetail).not.toContainText(user.email);
+
+    await expectAuditRowsOnScreen(page, {
+      action: 'CONSENT_GRANTED',
+      label: '外部アプリの接続の同意',
+      actor: SYSTEM_ACTOR,
+      target: connectionId,
+      count: 1,
+    });
+    const consentDetail = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('cell', { name: connectionId, exact: true }) })
+      .getByRole('cell')
+      .nth(4);
+    await expect(consentDetail).toContainText('IP: 198.51.100.23');
+    await expect(consentDetail).toContainText('ユーザーエージェント: E2E-Detail-Agent/1.0');
+    await expect(consentDetail).toContainText('理由: USER_CONSENTED');
+    await expect(consentDetail).toContainText('外部アプリ: architrack-test-client');
+    await expect(consentDetail).toContainText('範囲: read write');
+    await expect(consentDetail).not.toContainText(consentEmail);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.3
+   */
+  test('バックアップコードでの 2FA の検証の成功が記録され、監査ログ画面に表示名で出て絞り込める', async ({
+    page,
+    request,
+  }) => {
+    const prisma = getPrismaClient();
+    const user = await createSessionUser('REGULAR_USER');
+    const [created] = await createTwoFactorBackupCodes({ userId: user.id, count: 1 });
+    expect(created, 'テストの中で作ったバックアップコード').toBeTruthy();
+
+    // パスワードの検証で得た資格とバックアップコードで 2FA を通す
+    const login = await request.post(`${API_BASE_URL}${LOGIN_PATH}`, {
+      data: { email: user.email, password: user.password },
+    });
+    expect(login.status()).toBe(200);
+    const { challengeToken } = (await login.json()) as { challengeToken?: string };
+    expect(challengeToken).toEqual(expect.any(String));
+    const verified = await request.post(`${API_BASE_URL}${VERIFY_2FA_PATH}/backup`, {
+      data: { challengeToken, backupCode: created!.code },
+    });
+    expect(verified.status()).toBe(200);
+
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'TWO_FACTOR_BACKUP_CODE_USED', targetId: user.id, actorId: user.id },
+      })
+    ).toBe(1);
+
+    await openAuditLogsAsAdmin(page);
+    await expectAuditRowsOnScreen(page, {
+      action: 'TWO_FACTOR_BACKUP_CODE_USED',
+      label: '2FAバックアップコード使用',
       actor: user.email,
       target: user.id,
       count: 1,

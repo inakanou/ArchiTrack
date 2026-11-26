@@ -636,6 +636,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(getResponse.status).toBe(404);
       });
 
+      /**
+       * @requirement estimate-request/REQ-14.5
+       */
       it('削除後もレコードが DB に残り deletedAt が設定される（Req 14.5）', async () => {
         const response = await request(app)
           .delete(`/api/quotations/${testQuotationId}`)
@@ -715,6 +718,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
       testQuotationUpdatedAt = quotation.updatedAt.toISOString();
     });
 
+    /**
+     * @requirement estimate-request/REQ-14.6
+     */
     it('更新時に古いupdatedAtを使用すると409を返す', async () => {
       // 別のリクエストで先に更新
       await request(app)
@@ -734,6 +740,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
     });
 
+    /**
+     * @requirement estimate-request/REQ-14.6
+     */
     it('削除時に古いupdatedAtを使用すると409を返す', async () => {
       const response = await request(app)
         .delete(`/api/quotations/${testQuotationId}`)
@@ -3040,6 +3049,120 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(resolved.quotation.quoteDiscriminator).toBe('第2案');
       expect(resolved.sharedOriginalCount).toBe(1);
       expect(first.quotation.id).not.toBe(second.quotation.id);
+    });
+  });
+
+  /**
+   * ファイルの保存と関連付け、作成日時・更新日時の記録を、実際の DB とローカルのストレージで確かめる。
+   * 本番のサービス（ReceivedQuotationService）を、構成済みのストレージの代わりに一時ディレクトリの
+   * LocalStorageProvider で組み立てる（保存先のファイルを直接読むため）
+   */
+  describe('受領見積書のファイルの保存と日時の記録（実 DB・ローカルのストレージ）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+    let storageRoot: string;
+    const createdIds: string[] = [];
+
+    beforeAll(async () => {
+      storageRoot = await mkdtemp(join(tmpdir(), 'rq-storage-'));
+      const storageProvider = new LocalStorageProvider({ basePath: storageRoot });
+      await storageProvider.initialize();
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.receivedQuotation.deleteMany({ where: { id: { in: createdIds } } });
+      await rm(storageRoot, { recursive: true, force: true });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-14.3
+     */
+    it('アップロードしたファイルはストレージに同じ内容で保存され、受領見積書の行が格納先とファイルの情報を持つ', async () => {
+      const buffer = Buffer.from(`%PDF-1.4 保存の確認 ${suffix}`);
+
+      const { quotation } = await service.create(
+        { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
+        {
+          origin: { kind: 'screen' },
+          name: `保存の確認_${suffix}`,
+          submittedAt: new Date('2026-11-25T00:00:00.000Z'),
+          file: {
+            buffer,
+            originalName: '保存の確認.pdf',
+            mimeType: 'application/pdf',
+            size: buffer.length,
+          },
+        },
+        testUserId
+      );
+      createdIds.push(quotation.id);
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotation.id },
+        select: {
+          estimateRequestId: true,
+          filePath: true,
+          fileName: true,
+          fileMimeType: true,
+          fileSize: true,
+        },
+      });
+      expect(row.estimateRequestId).toBe(testEstimateRequestId);
+      expect(row.fileName).toBe('保存の確認.pdf');
+      expect(row.fileMimeType).toBe('application/pdf');
+      expect(row.fileSize).toBe(buffer.length);
+      expect(row.filePath).toEqual(expect.stringContaining(quotation.id));
+      // 行が指す格納先に、送ったファイルが同じ内容で置かれている
+      expect(readFileSync(join(storageRoot, row.filePath!)).equals(buffer)).toBe(true);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-14.4
+     */
+    it('作成で作成日時と更新日時を記録し、更新で更新日時だけを進める', async () => {
+      const before = Date.now();
+      const { quotation } = await service.create(
+        { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
+        {
+          origin: { kind: 'screen' },
+          name: `日時の記録_${suffix}`,
+          submittedAt: new Date('2026-11-25T00:00:00.000Z'),
+          lineItems: [{ name: '日時の明細', sortOrder: 0, quantity: 1, unitPrice: 100 }],
+        },
+        testUserId
+      );
+      createdIds.push(quotation.id);
+      const after = Date.now();
+
+      const created = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotation.id },
+        select: { createdAt: true, updatedAt: true },
+      });
+      expect(created.createdAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(created.createdAt.getTime()).toBeLessThanOrEqual(after + 1000);
+      expect(created.updatedAt.getTime()).toBeGreaterThanOrEqual(created.createdAt.getTime());
+
+      // 時刻の分解能で同じ値にならないよう、少し待ってから更新する
+      await new Promise((done) => setTimeout(done, 20));
+      await service.update(
+        quotation.id,
+        { name: `日時の記録_更新_${suffix}` },
+        created.updatedAt,
+        testUserId
+      );
+
+      const updated = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotation.id },
+        select: { name: true, createdAt: true, updatedAt: true },
+      });
+      expect(updated.name).toBe(`日時の記録_更新_${suffix}`);
+      expect(updated.createdAt.getTime()).toBe(created.createdAt.getTime());
+      expect(updated.updatedAt.getTime()).toBeGreaterThan(created.updatedAt.getTime());
     });
   });
 });

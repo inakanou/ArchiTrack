@@ -112,7 +112,7 @@
 
 - [x] estimate-request -- 受領見積の見積依頼を任意にし（14.1 の改訂）、明細行に区分（諸経費・交通費・産廃・値引き・法定福利費・別途）・条件・換算・分類キー・数量表の行のキー、受領見積に案件の条件・参考の印・読取の確認・採否・業者名（文字）・原本の指紋（sha256）・見積の区別を持たせ、指紋と区別で二重登録を検出する。同じ回に IPA の是正項目（5.5）も行う。Dependencies: IPA の user-authentication の完了
 - [x] project-management -- 案件の詳細画面に「受領見積書」の欄を置き、estimate-request の案件の受領見積書の一覧（同 spec の Requirement 43）への入口にする（同 spec の Requirement 27・38・40 の先例）。同じ回に IPA の是正項目（5.3）も行う。Dependencies: estimate-request の拡張（完了。2026-11-12 に develop へ統合〔#893〕。完全削除の詰まりの是正は #894）
-- [ ] estimate-request（追補。2026-11-17 の決定） -- 受領見積書に読取の確認の経路（画面・台帳の取り込み・ArchiBench）の欄を足して画面にも出し、登録の応答と現在の状態で原本の指紋（fileSha256）を返し、409 DUPLICATE_ORIGINAL に同じ案件の中の既存の受領見積書の ID を含め、明細行の区分に「端数調整」（正も負も取り、見積の合計に数える）を足す。Dependencies: none（claude-connector の要件の前に）
+- [x] estimate-request（追補。2026-11-17 の決定） -- 受領見積書に読取の確認の経路（画面・台帳の取り込み・ArchiBench）の欄を足して画面にも出し、登録の応答と現在の状態で原本の指紋（fileSha256）を返し、409 DUPLICATE_ORIGINAL に同じ案件の中の既存の受領見積書の ID を含め、明細行の区分に「端数調整」（正も負も取り、見積の合計に数える）を足す。Dependencies: none（claude-connector の要件の前に）（完了。2026-11-21 に develop へ統合〔#924〕）
 - [ ] unit-price-ledger（追補） -- 2026-11-17 に develop へ統合した（#918・#919・#920）。残り：受領見積書の保存と台帳で書き写した処理の共通化（タスク 6.6）と、似た単価の丸める前の按分の値（要件 8.9・タスク 6.7）の develop への統合。明細行の区分「端数調整」を、似た単価の検索の対象と按分の基準から外す（2026-11-17 の決定 4）。Dependencies: 端数調整は estimate-request の追補
 - [ ] estimate-creation -- 明細行ごとに似た過去単価を表示し（単価＋諸経費按分−値引き按分、業者名つき）、実行金額の行へ反映して出典を記録する（4.5 の改訂、実行金額行の出典欄）。同じ回に IPA の是正項目（5.8）も行う。Dependencies: unit-price-ledger
 - [ ] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）

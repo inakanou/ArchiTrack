@@ -34,6 +34,10 @@ import { createTestUser } from './test-user-factory.js';
 /**
  * 発注API統合テスト
  */
+/**
+ * @requirement execution-budget-management/REQ-19.3
+ * 発注の作成（POST）・一覧と詳細の取得（GET）・項目とステータスの更新（PUT / PATCH）・削除（DELETE）を、実際の app の REST の経路で確かめる。
+ */
 describe('Order API Integration Tests', () => {
   let prisma: PrismaClient;
   let accessToken: string;
@@ -282,6 +286,7 @@ describe('Order API Integration Tests', () => {
   // POST /api/projects/:projectId/execution-budget/orders（発注作成）
   // =================================================================
   describe('POST /api/projects/:projectId/execution-budget/orders', () => {
+    /** @requirement execution-budget-management/REQ-6.8 */
     it('取引先を指定して発注を作成できること', async () => {
       const response = await request(app)
         .post(`/api/projects/${testProjectId}/execution-budget/orders`)
@@ -467,6 +472,7 @@ describe('Order API Integration Tests', () => {
       expect([400, 422]).toContain(response.status);
     });
 
+    /** @requirement execution-budget-management/REQ-8.9 */
     it('発注取消により案分済みの発注金額がクリアされること', async () => {
       // 発注を作成して確定まで進める
       const createResponse = await request(app)
@@ -500,6 +506,19 @@ describe('Order API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ status: 'ORDERED', confirmedAmount: '50000' });
 
+      // 取消の前に、確定で案分した発注金額がチェック済みの項目に入っていること（空の主張を避ける）
+      const orderedResponse = await request(app)
+        .get(`/api/projects/${testProjectId}/execution-budget/orders/${orderId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(orderedResponse.body.status).toBe('ORDERED');
+      const checkedBeforeCancel = orderedResponse.body.items.filter(
+        (item: { checked: boolean }) => item.checked
+      );
+      expect(checkedBeforeCancel.length).toBeGreaterThan(0);
+      for (const item of checkedBeforeCancel) {
+        expect(item.orderAmount).not.toBeNull();
+      }
+
       // 発注取消
       const cancelResponse = await request(app)
         .patch(`/api/projects/${testProjectId}/execution-budget/orders/${orderId}/status`)
@@ -517,6 +536,7 @@ describe('Order API Integration Tests', () => {
       const checkedItems = afterCancelResponse.body.items.filter(
         (item: { checked: boolean }) => item.checked
       );
+      expect(checkedItems.length).toBeGreaterThan(0);
       for (const item of checkedItems) {
         expect(item.orderAmount).toBeNull();
       }

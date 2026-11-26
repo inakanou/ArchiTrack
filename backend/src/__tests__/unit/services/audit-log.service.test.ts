@@ -14,6 +14,7 @@ import {
   TradingPartnerAuditAction,
   TRADING_PARTNER_TARGET_TYPE,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
+  EXTERNAL_APP_AUDIT_ACTIONS,
 } from '../../../types/audit-log.types.js';
 
 // PrismaClientのモック
@@ -752,6 +753,52 @@ describe('AuditLogService', () => {
         expect(result.actorDisplayName).toBeNull();
       }
     );
+  });
+
+  describe('外部アプリの接続の監査の種別（要件51.7）', () => {
+    const designedActions = [
+      'CONSENT_GRANTED',
+      'CONSENT_DENIED',
+      'CONNECTION_REPLACED',
+      'CONNECTION_ENDED',
+      'TOKEN_REUSE_DETECTED',
+      'REFRESH_GRACE_APPLIED',
+    ] as const;
+
+    /**
+     * @requirement user-authentication/REQ-51.7
+     */
+    it('設計の ConnectionAuditEvent の種別を過不足なく一覧に持つ', () => {
+      expect([...EXTERNAL_APP_AUDIT_ACTIONS].sort()).toEqual([...designedActions].sort());
+    });
+
+    /**
+     * @requirement user-authentication/REQ-51.7
+     */
+    it.each(designedActions)('種別 %s を実行者なしでも記録できる', async (action) => {
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockImplementation(
+        async ({ data }: { data: CreateAuditLogInput }) => ({
+          id: 'log-1',
+          actorEmail: null,
+          actorDisplayName: null,
+          before: null,
+          after: null,
+          metadata: null,
+          createdAt: new Date('2026-11-23T00:00:00Z'),
+          ...data,
+        })
+      );
+
+      const log = await service.createLog({
+        action,
+        actorId: null,
+        targetType: 'ExternalAppConnection',
+        targetId: 'connection-1',
+      });
+
+      expect(log.action).toBe(action);
+      expect(log.actorId).toBeNull();
+    });
   });
 
   describe('取引先監査ログアクション', () => {

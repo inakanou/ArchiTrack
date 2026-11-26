@@ -2075,6 +2075,10 @@ describe('ScheduleExportService', () => {
     /** 上限を超えたときに所要時間の主張で落ちるよう、テストのタイムアウトは上限より長く取る */
     const TEST_TIMEOUT_MS = EXPORT_TIME_LIMIT_MS * 2;
 
+    /**
+     * 本物の生成処理で 200 項目の Excel を出力し、単調時計で 30 秒以内を主張する。
+     * @requirement construction-schedule/REQ-12.3
+     */
     it(
       '200項目の工程表のExcel出力が30秒以内に完了し、200項目すべてが出力される',
       async () => {
@@ -2099,6 +2103,10 @@ describe('ScheduleExportService', () => {
       TEST_TIMEOUT_MS
     );
 
+    /**
+     * 本物の生成処理で 200 項目の PDF を出力し、単調時計で 30 秒以内を主張する。
+     * @requirement construction-schedule/REQ-12.4
+     */
     it(
       '200項目の工程表のPDF出力が30秒以内に完了し、200項目すべての項目とバーが出力される',
       async () => {

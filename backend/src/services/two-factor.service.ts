@@ -30,8 +30,15 @@ import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
-import { snapshotAuditActor } from './audit-log.service.js';
-import { revokeAllRefreshTokensForUser } from '../utils/refresh-token-lock.js';
+import { AuditLogService, snapshotAuditActor } from './audit-log.service.js';
+import {
+  ExternalAppConnectionService,
+  type UserConnectionRevoker,
+} from './external-app-connection.service.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
@@ -67,22 +74,36 @@ export class TwoFactorService implements ITwoFactorService {
   private readonly BACKUP_CODE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   /** Prisma Client instance */
   private readonly prisma: PrismaClient;
+  /** 外部アプリの接続の失効（再設定で使う時点で作る） */
+  private connectionRevokerInstance?: UserConnectionRevoker;
 
   /**
    * @param userStateService - 状態を変える処理（管理者による再設定）の後に、対象者の状態のキャッシュを
    *   無効化する部品（タスク47.5）。省略時は無効化しない
    * @param ceilingOptions - 管理者による再設定の上限の判定と拒否の記録（要件38.13）。省略時は判定しない
+   * @param connectionRevoker - 再設定による外部アプリの接続の失効（要件50.7。タスク76.5）。省略時は接続の管理を
+   *   監査ログとともに作る（認可サーバーを載せない環境でも失効させる）
    */
   constructor(
     private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>,
-    private readonly ceilingOptions: TwoFactorResetCeilingOptions = {}
+    private readonly ceilingOptions: TwoFactorResetCeilingOptions = {},
+    connectionRevoker?: UserConnectionRevoker
   ) {
+    this.connectionRevokerInstance = connectionRevoker;
     // otplibの設定（RFC 6238準拠）
     // @requirement user-authentication/REQ-27C.1
     authenticator.options = {
       window: 1, // ±1ステップ許容（合計90秒）
     };
     this.prisma = getPrismaClient();
+  }
+
+  /** 外部アプリの接続の失効の部品。注入が無ければ初回の再設定で接続の管理を作る */
+  private get connectionRevoker(): UserConnectionRevoker {
+    return (this.connectionRevokerInstance ??= new ExternalAppConnectionService({
+      prisma: this.prisma,
+      auditLogService: new AuditLogService({ prisma: this.prisma }),
+    }));
   }
 
   /**
@@ -789,13 +810,16 @@ export class TwoFactorService implements ITwoFactorService {
    *
    * 1 トランザクションで秘密鍵・再登録中の秘密鍵・バックアップコードを消して未登録にし、全リフレッシュ
    * トークンを失効させ、アクセストークンの世代を 1 つ進め（再設定より前のアクセストークンを認証ミドルウェアが
-   * 拒否する）、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
+   * 拒否する）、外部アプリの全ての接続を理由 `TWO_FACTOR_RESET`（実行者の管理者・送信元）で失効させ
+   * （要件50.7・51.7）、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
    * 対象者の状態のキャッシュを無効化し、次の要求から TTL を待たずに 2FA 未登録として扱わせる。
    * 存在の確認の後、書き込みより前に、他のユーザーの管理の上限（要件38.13）を同じトランザクションの
    * クライアントで判定する。拒否では何も書かず、トランザクションの外で権限チェックの失敗を記録する。
    * @requirement user-authentication/REQ-34.7
    * @requirement user-authentication/REQ-34.9
    * @requirement user-authentication/REQ-34.10
+   * @requirement user-authentication/REQ-50.7
+   * @requirement user-authentication/REQ-51.7
    *
    * @param actorId - 実行者（管理者）の ID
    * @param targetUserId - 対象者の ID
@@ -812,6 +836,9 @@ export class TwoFactorService implements ITwoFactorService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // ロックの順序は「リフレッシュトークンの取引ロック → users の行 → 失効の取引ロック → Grant の行 → 接続の行」
+      // とする（タスク45.2・72.3・76.1）。上限の判定の有無によらず、users の行に触れる前に取る
+      await lockUserRefreshTokens(tx, targetUserId);
       const target = await tx.user.findUnique({
         where: { id: targetUserId },
         select: { id: true, email: true },
@@ -846,6 +873,13 @@ export class TwoFactorService implements ITwoFactorService {
           accessTokenGeneration: { increment: 1 },
         },
       });
+      // 外部アプリの全ての接続を同じ取引で失効させる（取引を戻すと失効も戻る。要件50.7・51.7）
+      await this.connectionRevoker.revokeAllForUser(
+        targetUserId,
+        'TWO_FACTOR_RESET',
+        { userId: actorId, source: ctx },
+        tx
+      );
 
       // 実行者と対象者を記録する（要件34.10）
       await tx.auditLog.create({
@@ -937,12 +971,14 @@ export class TwoFactorService implements ITwoFactorService {
    *
    * 判定（classifyUndecryptableTwoFactor）が `full` のときは管理者による再設定（resetByAdmin）と同じく、
    * 1 トランザクションで秘密鍵・再登録中の秘密鍵・バックアップコードを消して未登録にし、全リフレッシュ
-   * トークンを失効させ、アクセストークンの世代を 1 つ進める。`pending_only` のときは再登録中の秘密だけを消す。
+   * トークンを失効させ、アクセストークンの世代を 1 つ進め、外部アプリの全ての接続を理由 `TWO_FACTOR_RESET`
+   * （実行者・送信元は null）で失効させる（要件50.7）。`pending_only` のときは再登録中の秘密だけを消す。
    * どちらも実行者の無い監査 `TWO_FACTOR_RESET_BY_ADMIN`（`metadata.trigger='operator_script'`）を記録し、
    * コミットの後に状態のキャッシュを無効化する。読み出しの後に秘密が書き換わっていたとき（入れ替え後の鍵での
    * 再登録）は書き込まず `none` を返す（新しい鍵で登録し直した秘密を消さない）。
    * @requirement user-authentication/REQ-34.7
    * @requirement user-authentication/REQ-34.10
+   * @requirement user-authentication/REQ-50.7
    *
    * @param targetUserId - 対象者の ID
    * @param reason - 監査に記録する理由
@@ -982,6 +1018,9 @@ export class TwoFactorService implements ITwoFactorService {
 
       let revokedRefreshTokens = 0;
       if (kind === 'full') {
+        // ロックの順序は「リフレッシュトークンの取引ロック → users の行 → 失効の取引ロック」とする。users の行を
+        // 先に更新すると、全デバイスのログアウト・パスワードの変更・利用者の削除とデッドロックする（タスク76.1・76.5）
+        await lockUserRefreshTokens(tx, targetUserId);
         const { count } = await tx.user.updateMany({
           where: unchanged,
           data: {
@@ -996,6 +1035,14 @@ export class TwoFactorService implements ITwoFactorService {
         }
         revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, targetUserId);
         await tx.twoFactorBackupCode.deleteMany({ where: { userId: targetUserId } });
+        // 2FA を未登録へ戻す再設定は管理者による再設定（要件34.7）と同じく外部アプリの全ての接続を失効させる
+        // （要件50.7）。実行者も要求も無いので、監査の実行者と送信元は null で記録する（偽の IP を置かない）
+        await this.connectionRevoker.revokeAllForUser(
+          targetUserId,
+          'TWO_FACTOR_RESET',
+          { userId: null },
+          tx
+        );
       } else {
         const { count } = await tx.user.updateMany({
           where: unchanged,

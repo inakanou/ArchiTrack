@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、41.6、43.9、45.3）
+ * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、41.6、43.9、45.3、48.2、48.3、50.6）
  *
  * キャッシュ基盤と同じ REDIS_URL で接続するキュー `scheduled-jobs` に、Bull の繰り返しジョブ
  * （`repeat`、cron は Asia/Tokyo）として定期処理を登録し、同じキューで実行する。
@@ -53,6 +53,11 @@ import {
   SOFT_DELETED_TRADING_PARTNER_ERASE_JOB_NAME,
   createSoftDeletedTradingPartnerEraseRun,
 } from './soft-deleted-trading-partner-erase.job.js';
+import {
+  EXTERNAL_APP_MAINTENANCE_CRON,
+  EXTERNAL_APP_MAINTENANCE_JOB_NAME,
+  createExternalAppMaintenanceRun,
+} from './external-app-maintenance.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -122,6 +127,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: SOFT_DELETED_TRADING_PARTNER_ERASE_JOB_NAME,
       cron: SOFT_DELETED_TRADING_PARTNER_ERASE_CRON,
       run: createSoftDeletedTradingPartnerEraseRun(prisma),
+    },
+    {
+      name: EXTERNAL_APP_MAINTENANCE_JOB_NAME,
+      cron: EXTERNAL_APP_MAINTENANCE_CRON,
+      run: createExternalAppMaintenanceRun(prisma),
     },
   ];
 }

@@ -661,6 +661,9 @@ describe('LineItemEditor', () => {
   });
 
   describe('Tabキーフォーカス移動テスト（Requirements: 11.19, 11.20）', () => {
+    /**
+     * @requirement estimate-request/REQ-11.20
+     */
     it('フィールド間をTabキーで順次移動できる', async () => {
       const user = userEvent.setup();
       const lineItem: LineItemFormData = {
@@ -702,6 +705,9 @@ describe('LineItemEditor', () => {
       expect(document.activeElement).toBe(specInput);
     });
 
+    /**
+     * @requirement estimate-request/REQ-11.21
+     */
     it('最終フィールドでTabキーを押すと次の明細行の最初のフィールドへフォーカスが移動する', async () => {
       const user = userEvent.setup();
       const lineItems: LineItemFormData[] = [
@@ -857,6 +863,9 @@ describe('LineItemEditor', () => {
       expect(item.workType).toBe('');
     });
 
+    /**
+     * @requirement estimate-request/REQ-11.20
+     */
     it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、金額、分類キー、参考、備考になっている（Task 62.1: NET金額列削除済み、Task 117.2: 列を追加）', async () => {
       const user = userEvent.setup();
       const lineItem: LineItemFormData = {

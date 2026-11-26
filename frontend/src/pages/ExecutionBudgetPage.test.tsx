@@ -287,6 +287,84 @@ describe('ExecutionBudgetPage', () => {
       expect(badges.length).toBeGreaterThanOrEqual(1);
     });
 
+    /**
+     * @requirement execution-budget-management/REQ-3.7: 親項目の各金額列に子項目の合計値を表示する
+     */
+    it('親項目の金額列には自身の値ではなく子項目の合計を表示する (execution-budget-management/REQ-3.7)', async () => {
+      const parent = mockBudget.items[0]!;
+      // 親自身の値は子の合計と食い違わせ、どちらを表示したかを見分けられるようにする
+      const budgetWithParentTotals: executionBudgetApi.ExecutionBudgetWithItems = {
+        ...mockBudget,
+        items: [
+          {
+            ...parent,
+            estimateAmount: '7777777',
+            executionAmount: '6666666',
+            amendmentAmount: '12345',
+            orderAmount: null,
+            previousMonthExpense: '0',
+            currentMonthExpense: '0',
+            calculatedEstimateAmount: '1000000',
+            calculatedExecutionAmount: '930000',
+            calculatedAmendmentAmount: '-30000',
+            calculatedOrderAmount: '440000',
+            calculatedTotalExpense: '150000',
+            calculatedProgressAmount: '200000',
+            progressAmount: '200000',
+          },
+        ],
+      };
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue(budgetWithParentTotals);
+
+      renderPage();
+      const nameCell = await screen.findByText('直接工事費');
+      const cells = Array.from(nameCell.closest('tr')!.querySelectorAll('td')).map(
+        (td) => td.textContent
+      );
+
+      // 列: 0 項目名 … 5 見積金額, 7 実行金額, 8 変更金額, 10 発注金額, 14 累計支出, 15 残予算, 16 出来高金額
+      expect(cells[5]).toBe('1,000,000');
+      expect(cells[7]).toBe('930,000');
+      expect(cells[8]).toBe('-30,000');
+      expect(cells[10]).toBe('440,000');
+      expect(cells[14]).toBe('150,000');
+      // 残予算は子の合計の実行金額から子の合計の累計支出を引いた値
+      expect(cells[15]).toBe('780,000');
+      expect(cells[16]).toBe('200,000');
+    });
+
+    /**
+     * @requirement execution-budget-management/REQ-3.5: 各項目に原価関連列を表示する（親項目は子項目の合計）
+     */
+    it('親項目の先月支出と今月支出には子項目の合計を表示し、累計支出と食い違わない (execution-budget-management/REQ-3.5)', async () => {
+      const parent = mockBudget.items[0]!;
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue({
+        ...mockBudget,
+        items: [
+          {
+            ...parent,
+            // 親自身の値は子の合計と食い違わせる
+            previousMonthExpense: '0',
+            currentMonthExpense: '0',
+            calculatedPreviousMonthExpense: '100000',
+            calculatedCurrentMonthExpense: '50000',
+            calculatedTotalExpense: '150000',
+          },
+        ],
+      });
+
+      renderPage();
+      const nameCell = await screen.findByText('直接工事費');
+      const cells = Array.from(nameCell.closest('tr')!.querySelectorAll('td')).map(
+        (td) => td.textContent
+      );
+
+      // 列: 12 先月支出, 13 今月支出, 14 累計支出
+      expect(cells[12]).toBe('100,000');
+      expect(cells[13]).toBe('50,000');
+      expect(cells[14]).toBe('150,000');
+    });
+
     it('発注済み項目の発注金額を表示する', async () => {
       renderPage();
       const amounts = await screen.findAllByText('440,000');
@@ -954,6 +1032,26 @@ describe('ExecutionBudgetPage', () => {
       await userEvent.tab();
       // 全ての CostInput でエラーが共有表示されるため findAllByText を使用
       const errors = await screen.findAllByText('バージョン競合');
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * @requirement execution-budget-management/REQ-4.5
+     * 版の競合（409）では、サーバーが返す再取得を促す文言（ExecutionBudgetConflictError の既定の文言。
+     * backend の progress-cost-monthly.api.integration.test.ts が実際の応答で確かめる）を画面に表示する。
+     */
+    it('他の利用者の更新と競合したとき、競合のメッセージと画面の更新を促す文言を表示する', async () => {
+      const conflictMessage = '他のユーザーによって更新されました。画面を更新してください';
+      vi.mocked(executionBudgetApi.updateItemCost).mockRejectedValue(
+        new ApiError(409, conflictMessage, { code: 'EXECUTION_BUDGET_CONFLICT' })
+      );
+      renderPage();
+      const input = await screen.findByTestId('current-month-expense-input-item-2');
+      await userEvent.click(input);
+      await userEvent.clear(input);
+      await userEvent.type(input, '70000');
+      await userEvent.tab();
+      const errors = await screen.findAllByText(conflictMessage);
       expect(errors.length).toBeGreaterThan(0);
     });
 

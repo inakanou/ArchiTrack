@@ -89,6 +89,16 @@ vi.mock('../../../jobs/soft-deleted-trading-partner-erase.job.js', () => ({
     createSoftDeletedTradingPartnerEraseRunMock(prisma),
 }));
 
+const externalAppMaintenanceRunMock = vi.fn();
+const createExternalAppMaintenanceRunMock = vi.fn(
+  (_prisma: unknown) => externalAppMaintenanceRunMock
+);
+vi.mock('../../../jobs/external-app-maintenance.job.js', () => ({
+  EXTERNAL_APP_MAINTENANCE_JOB_NAME: 'external-app-maintenance',
+  EXTERNAL_APP_MAINTENANCE_CRON: '20 * * * *',
+  createExternalAppMaintenanceRun: (prisma: unknown) => createExternalAppMaintenanceRunMock(prisma),
+}));
+
 import {
   ScheduledJobRunner,
   createScheduledJobDefinitions,
@@ -398,6 +408,7 @@ describe('createScheduledJobDefinitions', () => {
       { name: 'security-anomaly-overflow-summary', cron: '*/10 * * * *' },
       { name: 'soft-deleted-project-purge', cron: '30 3 * * *' },
       { name: 'soft-deleted-trading-partner-erase', cron: '45 3 * * *' },
+      { name: 'external-app-maintenance', cron: '20 * * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -488,6 +499,30 @@ describe('createScheduledJobDefinitions', () => {
 
     expect(job?.cron).toBe('45 3 * * *');
     expect(createSoftDeletedTradingPartnerEraseRunMock).toHaveBeenCalledWith(prisma);
+    await expect(job?.run()).resolves.toEqual(runResult);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-48.2
+   * @requirement user-authentication/REQ-48.3
+   * @requirement user-authentication/REQ-50.6
+   */
+  it('external-app-maintenance を毎時 20 分に登録し、処理は外部アプリの接続の定期処理を呼ぶ', async () => {
+    const prisma = {} as PrismaClient;
+    const runResult = {
+      removedClientConnectionsEnded: 1,
+      expiredConnectionsEnded: 2,
+      expiredStoreRecordsDeleted: 3,
+      orphanedStoreRecordsDeleted: 4,
+      failures: 0,
+    };
+    externalAppMaintenanceRunMock.mockResolvedValue(runResult);
+
+    const jobs = createScheduledJobDefinitions(prisma);
+    const job = jobs.find(({ name }) => name === 'external-app-maintenance');
+
+    expect(job?.cron).toBe('20 * * * *');
+    expect(createExternalAppMaintenanceRunMock).toHaveBeenCalledWith(prisma);
     await expect(job?.run()).resolves.toEqual(runResult);
   });
 });

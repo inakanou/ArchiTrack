@@ -13,6 +13,7 @@ import {
   createScheduledJobDefinitions,
   createScheduledJobsQueue,
 } from './jobs/scheduled-job-runner.js';
+import { reconcileExternalAppClientsAtStartup } from './jobs/external-app-maintenance.job.js';
 
 // Initialize Sentry (must run first)
 initSentry();
@@ -39,6 +40,21 @@ function startScheduledJobs(): void {
     const err = error instanceof Error ? error : new Error(String(error));
     logger.error({ err }, 'Failed to register scheduled jobs');
     captureException(err, { component: 'ScheduledJobRunner' });
+  });
+}
+
+/**
+ * 起動時に外部アプリの許可の一覧を照合し、一覧から外れたアプリの接続を終了する（要件50.6）
+ *
+ * 設定は起動の最初の validateEnv で検証済み。認可の窓口を載せない環境（一覧が空）でも動き、全接続を終了する。
+ * 試験の実行環境でも行う（定期処理と違い、一覧にあるアプリの接続は消さない）。
+ * 失敗で起動を止めず、エラーログと Sentry へ送る（毎時の定期処理が照合をやり直す）。
+ */
+function reconcileExternalAppClients(): void {
+  reconcileExternalAppClientsAtStartup(getPrismaClient()).catch((error: unknown) => {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err }, 'Failed to reconcile external app connections at startup');
+    captureException(err, { component: 'ExternalAppClientReconciliation' });
   });
 }
 
@@ -102,6 +118,7 @@ async function startServer(): Promise<void> {
           apiSpec: `http://localhost:${PORT}/docs/json`,
         }),
       });
+      reconcileExternalAppClients();
       startScheduledJobs();
     });
   } catch (error) {

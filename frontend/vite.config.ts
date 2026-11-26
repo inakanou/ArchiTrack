@@ -101,6 +101,17 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       // 開発環境でのみHMR有効化
       hmr: isDevelopment,
+      // 外部アプリの認可（user-authentication 要件46・47）を開発サーバーで確かめるための中継。
+      // 開発の発行者（OAUTH_ISSUER）は画面のオリジンなので、認可の窓口と同意の URL（/oauth/interaction/:uid）
+      // への遷移を backend へ渡す。本番・staging は nginx が中継し、この設定は開発サーバーだけに効く
+      proxy: {
+        '/oauth/': {
+          target: process.env.OAUTH_DEV_PROXY_TARGET ?? 'http://localhost:3000',
+        },
+        '/.well-known/oauth-authorization-server': {
+          target: process.env.OAUTH_DEV_PROXY_TARGET ?? 'http://localhost:3000',
+        },
+      },
     },
 
     // ビルド設定

@@ -120,6 +120,10 @@ export interface ExecutionBudgetItemWithCalculations {
   calculatedAmendmentAmount: string | null;
   calculatedOrderAmount: string | null;
   calculatedTotalExpense: string | null;
+  /** 親項目の子項目（末端）の先月までの支出の合計（REQ-3.5。子を持たない項目では null） */
+  calculatedPreviousMonthExpense: string | null;
+  /** 親項目の子項目（末端）の今月の支出の合計（REQ-3.5。子を持たない項目では null） */
+  calculatedCurrentMonthExpense: string | null;
   calculatedProgressAmount: string | null;
 }
 
@@ -1410,6 +1414,8 @@ export class ExecutionBudgetService {
       calculatedAmendmentAmount: null,
       calculatedOrderAmount: null,
       calculatedTotalExpense: null,
+      calculatedPreviousMonthExpense: null,
+      calculatedCurrentMonthExpense: null,
       calculatedProgressAmount: null,
     };
 
@@ -1423,6 +1429,8 @@ export class ExecutionBudgetService {
       processed.calculatedAmendmentAmount = this.sumField(leafItems, 'amendmentAmount');
       processed.calculatedOrderAmount = this.sumOrderAmount(leafItems);
       processed.calculatedTotalExpense = this.sumTotalExpense(leafItems);
+      processed.calculatedPreviousMonthExpense = this.sumField(leafItems, 'previousMonthExpense');
+      processed.calculatedCurrentMonthExpense = this.sumField(leafItems, 'currentMonthExpense');
       processed.calculatedProgressAmount = null; // 出来高は別途計算
     }
 

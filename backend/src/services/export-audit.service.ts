@@ -12,6 +12,8 @@
  *   `POST /api/v1/audit-logs/exports` を出力の開始前に呼ぶ
  * - 記録した出力と範囲外の案件の記録の要求は SecurityAnomalyMonitor へ観測を送る（タスク55.4。
  *   出力は利用者ごとに数える。要件43.4、39.7）
+ * - 外部アプリ経由の出力は、サーバー側のコードが入力の `externalClientId` に外部アプリの client ID を渡し、
+ *   監査の metadata に残す（タスク77.2、要件51.8）。記録の API の本文では受け付けない
  */
 
 import type { IAuditLogService } from '../types/audit-log.types.js';
@@ -72,6 +74,12 @@ export interface ExportRecordInput {
   targetIds: string[];
   /** 出力した件数 */
   itemCount: number;
+  /**
+   * 外部アプリ経由の出力のときの外部アプリの client ID（要件51.8）。
+   * サーバー側のコードが `ExternalAppPrincipal` から渡す。`POST /api/v1/audit-logs/exports` の本文では受け付けない
+   * （strict な検証スキーマに無い欄として 400 にする）
+   */
+  externalClientId?: string;
 }
 
 export type ExportAuditError = { type: 'PROJECT_OUT_OF_SCOPE' } | { type: 'RECORD_FAILED' };
@@ -146,10 +154,15 @@ export class ExportAuditService {
           targetIdCount: input.targetIds.length,
           ...(targetIdsTruncated && { targetIdsTruncated: true }),
           itemCount: input.itemCount,
+          // 外部アプリ経由の出力は実行者の利用者に加えてアプリを残す（要件51.8）。トークンと Grant の ID は残さない
+          ...(input.externalClientId !== undefined && {
+            externalClientId: input.externalClientId,
+          }),
           ...requestMetadata(ctx),
         },
       });
-      // 利用者ごとの出力の急増を検知へ送る（要件43.4。計数を待たない）
+      // 利用者ごとの出力の急増を検知へ送る（要件43.4。計数を待たない）。
+      // 外部アプリ経由の出力も実行者の利用者の出力として同じ桶で数える
       observeSecurityAnomaly({
         signal: 'data_export',
         sourceIp: ctx.ipAddress ?? null,

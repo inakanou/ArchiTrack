@@ -64,6 +64,9 @@ import OrderDetailPage from './pages/OrderDetailPage';
 import ProgressInputPage from './pages/ProgressInputPage';
 import UnitPriceLedgerPage from './pages/UnitPriceLedgerPage';
 import LedgerQuotationDetailPage from './pages/LedgerQuotationDetailPage';
+import { OAuthConsentPage } from './pages/OAuthConsentPage';
+import { ConnectedAppsPage } from './pages/ConnectedAppsPage';
+import { AdminExternalAppConnectionsPage } from './pages/AdminExternalAppConnectionsPage';
 
 /**
  * アプリケーションのルート設定
@@ -114,6 +117,17 @@ export const routes: RouteObject[] = [
     ),
   },
 
+  // 外部アプリの接続の同意（user-authentication 要件47.1・47.4、タスク78.1。AppHeaderなし）
+  // 未ログインならログインの後に同じ経路へ戻る。制限中の利用者は置き換えず、画面が案内だけを出す
+  {
+    path: '/connect/consent/:uid',
+    element: (
+      <ProtectedRoute allowRestrictedUser>
+        <OAuthConsentPage />
+      </ProtectedRoute>
+    ),
+  },
+
   // 保護されたルート（AppHeader付きレイアウト）
   // REQ-28.21: 認証済みユーザーが保護された画面にアクセスすると共通ヘッダーナビゲーションが表示される
   {
@@ -137,6 +151,11 @@ export const routes: RouteObject[] = [
       {
         path: '/sessions',
         element: <Sessions />,
+      },
+      // 連携中のアプリ（user-authentication 要件49.1〜49.3、タスク78.2）
+      {
+        path: '/connected-apps',
+        element: <ConnectedAppsPage />,
       },
       // 2FA設定
       {
@@ -594,6 +613,11 @@ export const routes: RouteObject[] = [
       {
         path: '/admin/user-inventory',
         element: <UserInventoryPage />,
+      },
+      // 外部アプリの接続の管理（user-authentication 要件49.6〜49.8、タスク78.3）
+      {
+        path: '/admin/external-app-connections',
+        element: <AdminExternalAppConnectionsPage />,
       },
       // システム設定（estimate-request の design.md の D8、タスク119.2）
       {

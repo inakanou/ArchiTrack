@@ -26,6 +26,7 @@ import {
 } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
+import { mountExternalAppOAuth } from './oauth/provider.js';
 import { getStorageType } from './storage/index.js';
 import adminRoutes from './routes/admin.routes.js';
 import adminSettingsRoutes from './routes/admin-settings.routes.js';
@@ -67,6 +68,13 @@ import orderRoutes from './routes/order.routes.js';
 import progressRoutes from './routes/progress.routes.js';
 import costMonthlyCloseRoutes from './routes/cost-monthly-close.routes.js';
 import exportRoutes from './routes/export.routes.js';
+import {
+  mountExternalAppConnectionRoutes,
+  mountExternalAppConsentRoutes,
+  mountExternalAppResourceRoutes,
+} from './routes/external-app.routes.js';
+import { AuditLogService } from './services/audit-log.service.js';
+import { ExternalAppConnectionService } from './services/external-app-connection.service.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +116,10 @@ app.use(
   })
 );
 
+// 外部アプリの認可サーバー（要件46〜48）。本文の解析と CORS より前に載せ、担当の経路だけを扱う。
+// 許可するアプリが無ければ何も載せない。構築の失敗は例外で起動を止める
+const externalAppOAuth = mountExternalAppOAuth(app, getPrismaClient());
+
 app.use(
   cors({
     origin: env.FRONTEND_URL,
@@ -129,6 +141,14 @@ app.use(
     level: 6,
   })
 );
+
+// 同意の API（要件46・47）。認証と CSRF の検証の後に小さな上限で本文を読むので、全体の本文の解析より前に載せる。
+// 認可サーバーが載っていない環境では載せない（404 のまま）
+if (externalAppOAuth) {
+  mountExternalAppConsentRoutes(app, externalAppOAuth, getPrismaClient());
+  // 外部アプリ用の窓口の確認用の経路（要件51.2。業務データを返さない）。設定が無ければ載せない（404 のまま）
+  mountExternalAppResourceRoutes(app, externalAppOAuth);
+}
 
 // Claude Vision API routes (registered BEFORE global body-parser to use route-level 50MB limit)
 // Requirements: 21.1 - ルートレベルで独自のexpress.json({ limit: '50mb' })を持つ
@@ -337,6 +357,14 @@ app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes
 app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// 外部アプリの接続の一覧と取り消し（要件49）。本人用と管理者用（ロール admin）の経路。既にある接続を確かめて
+// 止める経路なので、認可サーバーが載っていない環境でも載せる（そのとき表示名は client ID になる）
+mountExternalAppConnectionRoutes(
+  app,
+  externalAppOAuth?.connectionService ??
+    new ExternalAppConnectionService({ prisma, auditLogService: new AuditLogService({ prisma }) })
+);
 
 // 運用設定（ログレベル）の管理。認証と ops:manage の権限を経路ごとに課す（認証の無い旧経路 /admin は設けない）
 app.use('/api/v1/admin', adminRoutes);

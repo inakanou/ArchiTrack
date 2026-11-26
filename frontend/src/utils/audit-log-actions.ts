@@ -96,6 +96,26 @@ export const USER_DELETION_AUDIT_ACTION_LABELS: Record<UserDeletionAuditAction, 
 };
 
 /**
+ * 2FA のバックアップコードの使用の種別（要件40.3）
+ *
+ * backend の TwoFactorService がバックアップコードでの検証の成功ごとに記録する。backend では
+ * SECURITY_REMEDIATION_AUDIT_ACTIONS に含まれないため別の並びとする。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS = [
+  'TWO_FACTOR_BACKUP_CODE_USED',
+] as const satisfies readonly AuditLogAction[];
+
+export type TwoFactorBackupCodeAuditAction = (typeof TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS)[number];
+
+/** 2FA のバックアップコードの使用の種別の表示名 */
+export const TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS: Record<
+  TwoFactorBackupCodeAuditAction,
+  string
+> = {
+  TWO_FACTOR_BACKUP_CODE_USED: '2FAバックアップコード使用',
+};
+
+/**
  * 外部の AI での読み取り（Claude Vision）の送信の種別（estimate-request の 49.7）
  *
  * backend は送信のたびに利用者・機能・画像の枚数・結果を記録する（画像と読み取りの結果は入れない）。
@@ -135,6 +155,31 @@ export const PROJECT_PURGE_AUDIT_ACTION_LABELS: Record<ProjectPurgeAuditAction, 
   PROJECT_PURGE_RUN_COMPLETED: 'プロジェクトの完全削除の定期処理の結果',
 };
 
+/**
+ * 外部アプリの接続の種別（user-authentication 要件51.7。backend の EXTERNAL_APP_AUDIT_ACTIONS と
+ * 一致させる）。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const EXTERNAL_APP_AUDIT_ACTIONS = [
+  'CONSENT_GRANTED',
+  'CONSENT_DENIED',
+  'CONNECTION_REPLACED',
+  'CONNECTION_ENDED',
+  'TOKEN_REUSE_DETECTED',
+  'REFRESH_GRACE_APPLIED',
+] as const satisfies readonly AuditLogAction[];
+
+export type ExternalAppAuditAction = (typeof EXTERNAL_APP_AUDIT_ACTIONS)[number];
+
+/** 外部アプリの接続の種別の表示名 */
+export const EXTERNAL_APP_AUDIT_ACTION_LABELS: Record<ExternalAppAuditAction, string> = {
+  CONSENT_GRANTED: '外部アプリの接続の同意',
+  CONSENT_DENIED: '外部アプリの接続の拒否',
+  CONNECTION_REPLACED: '外部アプリの接続の置き換え',
+  CONNECTION_ENDED: '外部アプリの接続の終了（取り消し・失効）',
+  TOKEN_REUSE_DETECTED: '外部アプリのトークン再利用検知',
+  REFRESH_GRACE_APPLIED: '外部アプリのトークン更新の猶予の適用',
+};
+
 /** 招待の記録の対象の種別（backend の InvitationService.recordAudit と register の記録の targetType） */
 const INVITATION_TARGET_TYPE = 'Invitation';
 
@@ -168,4 +213,55 @@ export function getAuditLogTargetLabel(
     }
   }
   return log.targetName || log.targetId || '-';
+}
+
+/** 詳細の欄の 1 項目 */
+export interface AuditLogDetailItem {
+  label: string;
+  value: string;
+}
+
+/**
+ * 詳細の欄に出してよい付帯情報の鍵と表示名（要件40.13。並びは表示の順）
+ *
+ * 送信元 IP アドレスは一覧の応答の ipAddress で出すため含めない。ここに無い鍵（email など個人に関わる値、
+ * 内部の識別子）は出さない
+ */
+const AUDIT_LOG_DETAIL_FIELDS: readonly { key: string; label: string }[] = [
+  { key: 'userAgent', label: 'ユーザーエージェント' },
+  { key: 'result', label: '結果' },
+  { key: 'reason', label: '理由' },
+  { key: 'clientId', label: '外部アプリ' },
+  { key: 'scopes', label: '範囲' },
+];
+
+/** 付帯情報の値を表示の文字列にする（空でない文字列か、空でない文字列の配列だけ） */
+function detailValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value === '' ? null : value;
+  }
+  if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string')) {
+    return value.join(' ');
+  }
+  return null;
+}
+
+/**
+ * 監査ログの詳細の欄に出す付帯情報（要件40.13）
+ *
+ * 付帯情報をそのまま出さず、表示してよい項目（ユーザーエージェント・結果・理由・外部アプリ・範囲）だけを返す
+ */
+export function getAuditLogDetailItems(log: Pick<AuditLog, 'metadata'>): AuditLogDetailItem[] {
+  const metadata = log.metadata;
+  if (!metadata) {
+    return [];
+  }
+  const items: AuditLogDetailItem[] = [];
+  for (const { key, label } of AUDIT_LOG_DETAIL_FIELDS) {
+    const value = detailValue(metadata[key]);
+    if (value !== null) {
+      items.push({ label, value });
+    }
+  }
+  return items;
 }

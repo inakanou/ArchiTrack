@@ -1093,6 +1093,18 @@ describe('seedPermissions - 工事写真・工事看板管理権限', () => {
     });
   });
 
+  describe('外部アプリの接続の権限の定義（user-authentication/REQ-46.2）', () => {
+    it('external_app:connect が定義されている', async () => {
+      const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+      await seedPermissions(mockPrisma as PrismaClient);
+
+      const perms = createManyData.filter((p) => p.resource === 'external_app');
+      expect(perms).toEqual([
+        { resource: 'external_app', action: 'connect', description: '外部アプリの接続' },
+      ]);
+    });
+  });
+
   describe('工事看板権限の定義（construction-photo/REQ-13.3）', () => {
     it.each([
       ['create', '工事看板の作成'],

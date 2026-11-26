@@ -330,6 +330,110 @@ describe('OverheadCostPanel', () => {
       });
     });
 
+    // 上の 7.4・7.6 の検証は既定の共通仮設費だけを通る。現場管理費（要件8）と
+    // 一般管理費（要件9）は、費目ごとに入力欄と計算への受け渡しが分岐するため個別に確かめる
+    describe('現場管理費・一般管理費の計算パラメータと計算中の表示', () => {
+      const cases = [
+        {
+          option: 'SITE_MANAGEMENT',
+          label: '純工事費',
+          value: '105000',
+          expectedParam: { pureConstructionCost: '105000' },
+        },
+        {
+          option: 'GENERAL_ADMIN',
+          label: '工事原価',
+          value: '120000',
+          expectedParam: { constructionCost: '120000' },
+        },
+      ] as const;
+
+      const fillParams = async (option: string, label: string, value: string) => {
+        await userEvent.selectOptions(screen.getByLabelText('諸経費種別'), option);
+        await userEvent.type(screen.getByLabelText('直接工事費'), '100000');
+        await userEvent.type(screen.getByLabelText(label), value);
+      };
+
+      /**
+       * 費目を選ぶとその計算式が必要とするパラメータの入力欄が現れ、入力した値がそのまま
+       * 計算へ渡ること（他の費目の入力欄は出ない）。
+       * @requirement estimate-creation/REQ-8.4
+       * @requirement estimate-creation/REQ-9.4
+       */
+      it.each(cases)(
+        '$option では直接工事費と $label の入力画面を提供し計算へ渡す',
+        async ({ option, label, value, expectedParam }) => {
+          const onCalculate = vi
+            .fn()
+            .mockResolvedValue({ rate: '10.00', amount: '100000', formula: 'test' });
+          render(
+            <OverheadCostPanel
+              estimateId="estimate-1"
+              onItemAdded={vi.fn()}
+              onCalculate={onCalculate}
+            />
+          );
+
+          await fillParams(option, label, value);
+
+          // 共通仮設費の工期の欄は出ない（費目ごとに入力画面が切り替わる）
+          expect(screen.queryByLabelText('工期')).not.toBeInTheDocument();
+          const otherLabel = label === '純工事費' ? '工事原価' : '純工事費';
+          expect(screen.queryByLabelText(otherLabel)).not.toBeInTheDocument();
+
+          await userEvent.click(screen.getByRole('button', { name: '計算' }));
+
+          await waitFor(() => {
+            expect(onCalculate).toHaveBeenCalledWith({
+              costType: option,
+              directCost: '100000',
+              isRenovation: false,
+              ...expectedParam,
+            });
+          });
+        }
+      );
+
+      /**
+       * 計算の応答を待つ間は計算中の表示を出して計算の釦を無効にし、応答が届くと戻ること。
+       * @requirement estimate-creation/REQ-8.6
+       * @requirement estimate-creation/REQ-9.6
+       */
+      it.each(cases)(
+        '$option の自動計算の処理中は計算中であることを表示する',
+        async ({ option, label, value }) => {
+          let resolveCalculation: (result: OverheadCostResult) => void = () => {};
+          const onCalculate = vi.fn(
+            (): Promise<OverheadCostResult> =>
+              new Promise((resolve) => {
+                resolveCalculation = resolve;
+              })
+          );
+          render(
+            <OverheadCostPanel
+              estimateId="estimate-1"
+              onItemAdded={vi.fn()}
+              onCalculate={onCalculate}
+            />
+          );
+
+          await fillParams(option, label, value);
+          await userEvent.click(screen.getByRole('button', { name: '計算' }));
+
+          expect(onCalculate).toHaveBeenCalledTimes(1);
+          expect(screen.getByRole('button', { name: '計算中...' })).toBeDisabled();
+
+          resolveCalculation({ rate: '10.00', amount: '100000', formula: 'test' });
+
+          await waitFor(() => {
+            expect(screen.getByRole('button', { name: '計算' })).toBeEnabled();
+          });
+          expect(screen.queryByText('計算中...')).not.toBeInTheDocument();
+          expect(screen.getByTestId('calculated-amount')).toHaveTextContent('100,000');
+        }
+      );
+    });
+
     describe('項目追加', () => {
       it('項目追加ボタンクリックでonItemAddedが呼ばれる', async () => {
         const onItemAdded = vi.fn();

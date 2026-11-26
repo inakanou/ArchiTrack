@@ -7,8 +7,8 @@
  *
  * Requirements:
  * - 17.5: 原価（支出実績）の入力・月次締めをEDITOR以上のロールに許可する
- * - 19.5: 原価（支出実績）データのCRUD操作にRESTful APIを提供する
- * - 19.6: 月次締めデータのCRUD操作にRESTful APIを提供する
+ * - 19.5: 原価（支出実績）の入力に、項目ごとの今月の支出を更新する RESTful API（PATCH items/:itemId/cost）を提供する
+ * - 19.6: 月次締めの実行と履歴の取得に RESTful API（POST・GET monthly-close）を提供する
  * - 19.9: APIレスポンスに適切なHTTPステータスコードを返却する
  */
 

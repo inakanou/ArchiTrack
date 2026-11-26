@@ -1,13 +1,26 @@
 import * as Sentry from '@sentry/node';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import logger from './logger.js';
-import { redactUrlQuery } from './url-query-redaction.js';
+import {
+  hasRequestBodyParseError,
+  redactSensitiveText,
+  redactUrlQuery,
+} from './url-query-redaction.js';
 
 /** 伏せた値の表記（Sentry の既定の伏せ字と同じ） */
 const FILTERED = '[Filtered]';
 
 /** 値を伏せる要求ヘッダー（小文字で比べる。要件42.4） */
-const SENSITIVE_HEADERS: ReadonlySet<string> = new Set(['authorization', 'cookie', 'x-csrf-token']);
+const SENSITIVE_HEADERS: ReadonlySet<string> = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-csrf-token',
+  // 認可の戻り先と同意の URL は認可コードと state を含む（要件48.8）
+  'referer',
+  'location',
+]);
 
 /** クエリの文字列（先頭の `?` なし）を HttpLogger と同じ規則で伏せる */
 function redactQueryString(query: string): string {
@@ -15,12 +28,30 @@ function redactQueryString(query: string): string {
 }
 
 /**
- * エラー監視へ送る事象から機密を除く（要件42.4）
+ * 事象の文と例外の文から外部アプリの認可の値を伏せる（要件48.8）
+ *
+ * 要求本文の JSON の解析の失敗は、例外の文が本文の断片を引用するため文ごと送らない。
+ */
+function scrubEventText(event: Sentry.Event, originalException?: unknown): void {
+  if (typeof event.message === 'string') {
+    event.message = redactSensitiveText(event.message);
+  }
+  const bodyParseFailed = hasRequestBodyParseError(originalException);
+  for (const exception of event.exception?.values ?? []) {
+    if (typeof exception.value !== 'string') continue;
+    exception.value = bodyParseFailed ? FILTERED : redactSensitiveText(exception.value);
+  }
+}
+
+/**
+ * エラー監視へ送る事象から機密を除く（要件42.4、48.8）
  *
  * 要求本文・Cookie を消し、認証ヘッダー・Cookie ヘッダー・CSRF トークンを伏せ、
- * URL とクエリの機密の値を HttpLogger と同じ規則で伏せる。
+ * URL とクエリの機密の値を HttpLogger と同じ規則で伏せる。事象の文と例外の文の認可の値も伏せる。
  */
-export function scrubSentryEvent<T extends Sentry.Event>(event: T): T {
+export function scrubSentryEvent<T extends Sentry.Event>(event: T, originalException?: unknown): T {
+  scrubEventText(event, originalException);
+
   const request = event.request;
   if (!request) return event;
 
@@ -53,6 +84,9 @@ export function scrubSentryEvent<T extends Sentry.Event>(event: T): T {
  * 出ていく HTTP の記録（breadcrumb）の URL とクエリの機密の値を伏せる（要件42.4）
  */
 export function scrubSentryBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb {
+  if (typeof breadcrumb.message === 'string') {
+    breadcrumb.message = redactSensitiveText(breadcrumb.message);
+  }
   const data = breadcrumb.data;
   if (!data) return breadcrumb;
   if (typeof data.url === 'string') {
@@ -101,7 +135,7 @@ export function initSentry(): void {
     // エラーフィルタリング
     beforeSend(rawEvent, hint) {
       // 機密を除いてから記録・送信する（要件42.4）
-      const event = scrubSentryEvent(rawEvent);
+      const event = scrubSentryEvent(rawEvent, hint?.originalException);
 
       // 開発環境では詳細ログを出力
       if (process.env.NODE_ENV === 'development') {

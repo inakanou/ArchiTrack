@@ -11,9 +11,11 @@ import React, { useState } from 'react';
 import type { AuditLog, AuditLogFilter, AuditLogAction } from '../types/audit-log.types';
 import {
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
+  EXTERNAL_APP_AUDIT_ACTION_LABELS,
   INVITATION_AUDIT_ACTION_LABELS,
   PROJECT_PURGE_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
   getAuditLogTargetLabel,
@@ -67,8 +69,10 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
       ...INVITATION_AUDIT_ACTION_LABELS,
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+      ...TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
       ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
       ...PROJECT_PURGE_AUDIT_ACTION_LABELS,
+      ...EXTERNAL_APP_AUDIT_ACTION_LABELS,
     };
     return actionTexts[action] || action;
   };

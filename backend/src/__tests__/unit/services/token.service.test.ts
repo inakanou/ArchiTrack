@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import * as jose from 'jose';
 import type { CryptoKey } from 'jose';
 import { TokenService } from '../../../services/token.service.js';
+import logger from '../../../utils/logger.js';
 import type { AccessTokenIssuePayload } from '../../../services/token.service.js';
 import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from '../../../config/jwt-claims.js';
 
@@ -533,6 +534,52 @@ describe('TokenService', () => {
           (invalidService as unknown as { keysInitialized: Promise<void> }).keysInitialized
         ).rejects.toThrow();
       } finally {
+        process.env.JWT_PUBLIC_KEY = originalPublicKey;
+        process.env.JWT_PRIVATE_KEY = originalPrivateKey;
+      }
+    });
+
+    it('JSON として読めてもオブジェクトでない鍵は変数名だけの文で拒む', async () => {
+      const originalPublicKey = process.env.JWT_PUBLIC_KEY;
+      process.env.JWT_PUBLIC_KEY = Buffer.from('null').toString('base64');
+
+      try {
+        const invalidService = new TokenService();
+        await expect(
+          (invalidService as unknown as { keysInitialized: Promise<void> }).keysInitialized
+        ).rejects.toThrow('JWT_PUBLIC_KEY is not a valid Base64-encoded JWK');
+      } finally {
+        process.env.JWT_PUBLIC_KEY = originalPublicKey;
+      }
+    });
+
+    it('壊れた鍵の JSON の断片をログにも例外の文にも出さない', async () => {
+      const originalPublicKey = process.env.JWT_PUBLIC_KEY;
+      const originalPrivateKey = process.env.JWT_PRIVATE_KEY;
+      // 値の引用符が欠けた秘密鍵の JWK。JSON.parse の例外の文は
+      // `Unexpected token 'S', "{"d":SECRET_KEY"... is not valid JSON` のように入力の一部を引用する
+      const secretFragment = 'SECRET_KEY';
+      process.env.JWT_PRIVATE_KEY = Buffer.from(`{"d":${secretFragment}_MATERIAL}`).toString(
+        'base64'
+      );
+      const errorSpy = vi.spyOn(logger, 'error');
+
+      try {
+        const invalidService = new TokenService();
+        const rejection = await (
+          invalidService as unknown as { keysInitialized: Promise<void> }
+        ).keysInitialized.then(
+          () => null,
+          (err: unknown) => err
+        );
+
+        expect(rejection).toBeInstanceOf(Error);
+        expect((rejection as Error).message).toContain('JWT_PRIVATE_KEY');
+        expect((rejection as Error).message).not.toContain(secretFragment);
+        expect(errorSpy).toHaveBeenCalled();
+        expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(secretFragment);
+      } finally {
+        errorSpy.mockRestore();
         process.env.JWT_PUBLIC_KEY = originalPublicKey;
         process.env.JWT_PRIVATE_KEY = originalPrivateKey;
       }

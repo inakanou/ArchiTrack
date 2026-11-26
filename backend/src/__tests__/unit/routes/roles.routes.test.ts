@@ -556,7 +556,8 @@ describe('Role Routes', () => {
       expect(mockRolePermissionService.removePermissionFromRole).toHaveBeenCalledWith(
         roleId,
         permissionId,
-        'admin-user-id'
+        'admin-user-id',
+        { ipAddress: expect.any(String), userAgent: undefined }
       );
     });
 

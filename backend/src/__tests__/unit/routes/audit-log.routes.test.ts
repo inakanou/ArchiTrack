@@ -121,6 +121,51 @@ describe('Audit Log Routes', () => {
       });
     });
 
+    /**
+     * @requirement user-authentication/REQ-40.13
+     */
+    it('一覧の各記録に付帯情報の送信元 IP アドレスを ipAddress として載せる（古い記録の ip を含む）', async () => {
+      const base = {
+        actorId: 'admin-user-id',
+        targetType: 'User',
+        targetId: 'user-1',
+        before: null,
+        after: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+      };
+      (mockAuditLogService.getLogs as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { ...base, id: 'current', action: 'LOGIN_FAILED', metadata: { ipAddress: '192.0.2.10' } },
+        { ...base, id: 'legacy', action: 'ROLE_CREATED', metadata: { ip: '192.0.2.20' } },
+        {
+          ...base,
+          id: 'both',
+          action: 'LOGIN_FAILED',
+          metadata: { ipAddress: '192.0.2.30', ip: 'x' },
+        },
+        { ...base, id: 'non-string', action: 'LOGIN_FAILED', metadata: { ipAddress: 123 } },
+        { ...base, id: 'none', action: 'ROLE_CREATED', metadata: null },
+      ]);
+
+      const response = await request(app).get('/api/v1/audit-logs');
+
+      expect(response.status).toBe(200);
+      const ipById = Object.fromEntries(
+        (response.body as { id: string; ipAddress: unknown }[]).map((log) => [
+          log.id,
+          log.ipAddress,
+        ])
+      );
+      expect(ipById).toEqual({
+        current: '192.0.2.10',
+        legacy: '192.0.2.20',
+        both: '192.0.2.30',
+        'non-string': null,
+        none: null,
+      });
+      // 付帯情報そのものは従来どおり返す
+      expect(response.body[0].metadata).toEqual({ ipAddress: '192.0.2.10' });
+    });
+
     it('should filter audit logs by actorId', async () => {
       const mockLogs = [
         {

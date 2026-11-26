@@ -221,6 +221,11 @@ function createTestApp() {
   return app;
 }
 
+/**
+ * @requirement execution-budget-management/REQ-19.9
+ * 取得 200・作成 201・削除 204・入力の誤り 400・不在 404・発注済みの編集と削除や不正な遷移の阻止 422 を、
+ * 本番のルーター（order.routes.ts）の応答の状態コードとして確かめる。
+ */
 describe('発注ルート', () => {
   let app: express.Express;
 

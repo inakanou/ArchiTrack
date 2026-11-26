@@ -170,3 +170,84 @@
 - [express-rate-limit: Troubleshooting Proxy Issues](https://github.com/express-rate-limit/express-rate-limit/wiki/Troubleshooting-Proxy-Issues)
 - [Bull Reference](https://github.com/OptimalBits/bull/blob/develop/REFERENCE.md)
 - [nginx ngx_http_headers_module](https://nginx.org/en/docs/http/ngx_http_headers_module.html)
+
+---
+
+# Research & Design Decisions: 要件46〜51 外部アプリの認可（2026-11-22）
+
+## Summary
+
+- Discovery: full（既存の認証の調査と、OAuth・MCP・Claude コネクタの一次情報の調査）
+- 確認の限界: ライブラリの挙動は oidc-provider 9.15.1 の文書とコードの読解によるもので、実機では動かしていない
+
+## Research Log
+
+### oidc-provider
+
+- 9.15.1（2026-11-20）、MIT、ESM。保守は活発だが単独保守者である。GitHub Advisory DB と npm の勧告に該当なし（2026-11-22）
+- `express.json()` より前に載せる。開発用の画面は既定で有効なので必ず無効にする
+- PKCE の必須化、リフレッシュの回転、未使用の期限はいずれも既定では要件に足りず、明示の設定が要る
+- 不透明なトークンの値は `jti` で、そのままでは保存される。アダプターで HMAC 化する
+- 認可コードとリフレッシュトークンの再利用検知は、期限切れの判定や PKCE の検証より後にある。期限切れ後や検証値の誤りでは Grant が失効しないため、アダプターの `find` で先に検知する
+- 出典: https://github.com/panva/node-oidc-provider/blob/v9.15.1/docs/README.md 、https://github.com/panva/node-oidc-provider/blob/v9.15.1/example/my_adapter.js
+
+### MCP Authorization（2026-07-28 版）
+
+- MCP サーバーは RFC 9728 が必須。クライアントは RFC 8707 の `resource` を送り、サーバーは自分宛てのトークンだけを受理する
+- 登録方式の優先は事前登録 → CIMD → DCR。DCR は非推奨になった
+- 出典: https://modelcontextprotocol.io/specification/2026-07-28/changelog 、https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery
+
+### Claude のカスタムコネクタ
+
+- 登録方式は CIMD、DCR、利用者が入力する client ID と secret。戻り先は `https://claude.ai/api/mcp/auth_callback`
+- refresh は 401 時と期限の最大 5 分前に行い、失効時は `invalid_grant` を期待する
+- 未確認: 同時 refresh の直列化、応答を失ったときの再試行、secret の送信方式（basic か post か）
+- 出典: https://claude.com/docs/connectors/building/authentication 、https://claude.com/docs/connectors/custom/remote-mcp
+
+## Design Decisions
+
+### Decision: クライアントは事前登録の confidential client に限る
+
+- 採用理由: 46.4〜46.6 を最も確実に満たす
+- 不採用: CIMD の URL 許可（ライブラリで実験的機能、URL が固定の契約か未確認）、DCR を戻り先で絞る（自己申告で仕様上も非推奨）
+- 影響: Claude へ接続を追加するときに client ID と secret の入力が要る
+
+### Decision: アクセストークンは不透明な値とし、接続と保存データを PostgreSQL に置く
+
+- 採用理由: 取り消しが次の要求から効き、既存の操作と同じトランザクションで失効できる
+- 不採用: JWT（失効が期限まで効かない）、Redis（既存のトランザクションに入らない）
+
+### Decision: 同意は SPA の画面で行い、応答の URL へ全ページ遷移する
+
+- 採用理由: ログインの Cookie は `/oauth` に届かず、CSP の `form-action` がフォーム送信後の外部への遷移を止めうる
+
+### Decision: 外部アプリには `read write` を要求させる
+
+- 採用理由: 要求されていない範囲は付与できないため、同意画面で書き込みを選ぶには要求に含める必要がある。利用者が外せば `read` だけの接続になる
+
+## Synthesis
+
+- Generalization: 失効の入口を `revokeAllForUser` などに集約し、契機は理由の値の違いだけにした
+- Build vs Adopt: 認可サーバーは採用。保存アダプターは公式の実装が無いため作る
+- Simplification: 許可するアプリの管理画面は作らず環境変数で持つ。接続の終了後の行は持たず、経緯は監査ログに残す
+
+## Risks & Mitigations
+
+- 毎回の同意の強制が未検証 — 実装の最初のタスクで確かめる
+- 猶予なしの回転で接続が切れる — 実機で頻度を確かめ、問題があれば要件の見直しを利用者に諮る
+- 単独保守のライブラリ — 版を固定し、再利用の統合テストで更新時に確かめる
+
+### 2026-11-22 の設計の修正（タスク計画の独立点検の RETURN_TO_DESIGN）
+
+- 手続きの Cookie の Path は同意の URL のパスになる（`lib/actions/authorization/interactions.js`）。同意の URL を backend の `/oauth/interaction/:uid` にして SPA へ転送し、API をその下に置く
+- 既定の `issueRefreshToken` は `offline_access` を要する（`lib/helpers/defaults.js`）。許可したアプリには常に発行する設定にする
+- 再開の経路 `/oauth/authorize/:uid` を担当の経路に加えた（`lib/helpers/initialize_app.js`）
+- 保存アダプターは要求の文脈を持たない。送信元は要求の文脈に置き、再利用の処理は組み立て時に注入する
+- トークンの失効の窓口は要件に無く、接続との状態の食い違いを生むため無効にした
+- いずれもソースの読解であり、実行しての確認は実装の最初のタスクで行う
+
+### 2026-11-22 の Claude 実機の観測（タスク70.2）
+
+- client secret は `client_secret_post`、全要求に `resource` が付き、範囲は `offline_access read write` を要求する
+- 更新の応答を 1 回切断すると 12 秒後に同じリフレッシュトークンで再試行した。利用者の判断で要件48.11 の 30 秒の猶予を加えた
+- 猶予は oidc-provider 9.15.1 の上でアダプターの `find`・`consume` により実現できた（ローカルの検証 24 項目。猶予を外す対照で失敗）。Grant ごとの直列化が要ることは検証で示せておらず、PostgreSQL の統合テストで確かめる

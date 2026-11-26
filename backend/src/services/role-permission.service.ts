@@ -3,6 +3,8 @@
  *
  * Requirements:
  * - 19.1-19.8: ロールへの権限割り当て
+ * - user-authentication 50.4・51.7: ロールの権限の解除（一括を含む）で権限「外部アプリの接続」を失った保有者の
+ *   接続を、同じトランザクションの中で DB の現在の値から判定して失効させ、送信元 IP を監査に残す（タスク76.3）
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -17,7 +19,14 @@ import type {
 } from '../types/role-permission.types.js';
 import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
+import type { RequestContext } from '../types/auth.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
+import { AuditLogService } from './audit-log.service.js';
+import {
+  ExternalAppConnectionService,
+  coversExternalAppConnect,
+  type PermissionLossRevoker,
+} from './external-app-connection.service.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
@@ -43,6 +52,14 @@ class RolePermissionRollback extends Error {
 }
 
 /**
+ * 権限の解除のトランザクションの上限（ミリ秒）。外す権限が「外部アプリの接続」を包含すると、ロールの全ての
+ * 保有者を判定して権限を失った保有者の全接続を同じトランザクションで終了する（タスク76.3）。保有者が多い
+ * ロール（全利用者が持つ一般のロールなど）では既定の 5 秒に届きうるため明示する（約 2,700 接続の終了で
+ * 既定に届いた。タスク72.3 の記録）。取引を分けると、権限を外した後に接続が残る時間ができるため分けない
+ */
+export const ROLE_PERMISSION_REMOVAL_TRANSACTION_TIMEOUT_MS = 60_000;
+
+/**
  * ロール・権限紐付け管理サービスの実装
  *
  * 変更前の検証（ロール・権限の存在、重複、紐付けの存在、システム管理者ロールの保護）、
@@ -51,6 +68,8 @@ class RolePermissionRollback extends Error {
  * 権限キャッシュの無効化はコミット後に行う。
  */
 export class RolePermissionService implements IRolePermissionService {
+  private readonly permissionLossRevoker: PermissionLossRevoker;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
@@ -60,8 +79,20 @@ export class RolePermissionService implements IRolePermissionService {
      * ロールの変更（38.11）、admin ロールを持たない実行者による全権限（*:*）の追加（38.2）と保有しない
      * 権限の追加（38.8）を拒否する。API の経路（roles.routes.ts）は必ず渡す
      */
-    private readonly privilegeCeiling?: PrivilegeCeilingPort
-  ) {}
+    private readonly privilegeCeiling?: PrivilegeCeilingPort,
+    /**
+     * 権限の喪失による接続の失効（権限の解除で呼ぶ。user-authentication タスク76.3）。省略時は接続の管理を
+     * 監査ログとともに作る（認可サーバーを載せない環境でも失効させる）
+     */
+    permissionLossRevoker?: PermissionLossRevoker
+  ) {
+    this.permissionLossRevoker =
+      permissionLossRevoker ??
+      new ExternalAppConnectionService({
+        prisma,
+        auditLogService: auditLogService ?? new AuditLogService({ prisma }),
+      });
+  }
 
   /**
    * ロールに権限を追加
@@ -94,14 +125,16 @@ export class RolePermissionService implements IRolePermissionService {
    * @param roleId - ロールID
    * @param permissionId - 権限ID
    * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
+   * @param source - 要求の送信元（権限の喪失による接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async removePermissionFromRole(
     roleId: string,
     permissionId: string,
-    actorId?: string
+    actorId?: string,
+    source: RequestContext = {}
   ): Promise<Result<void, RolePermissionError>> {
-    return this.removePermissions(roleId, [permissionId], actorId);
+    return this.removePermissions(roleId, [permissionId], actorId, source);
   }
 
   /**
@@ -193,14 +226,16 @@ export class RolePermissionService implements IRolePermissionService {
    * @param roleId - ロールID
    * @param permissionIds - 権限IDの配列
    * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
+   * @param source - 要求の送信元（権限の喪失による接続の終了の監査に残す。要件51.7）
    * @returns 成功またはエラー
    */
   async removePermissionsFromRole(
     roleId: string,
     permissionIds: string[],
-    actorId?: string
+    actorId?: string,
+    source: RequestContext = {}
   ): Promise<Result<void, RolePermissionError>> {
-    const result = await this.removePermissions(roleId, permissionIds, actorId);
+    const result = await this.removePermissions(roleId, permissionIds, actorId, source);
     if (result.ok) {
       logger.info({ roleId, count: permissionIds.length }, 'Permissions removed from role in bulk');
     }
@@ -245,19 +280,52 @@ export class RolePermissionService implements IRolePermissionService {
 
   /**
    * 権限の削除（1件・一括の共通処理）。全件を一つのトランザクションで行う
+   *
+   * 権限の喪失（要件50.4・51.7。タスク76.3）: 外した権限のどれかが「外部アプリの接続」を包含していれば
+   * （`*:*`・`external_app:*`・`*:connect` を含む）、全件の削除の後に同じトランザクションで、ロールの保有者を
+   * `revokeForUsersWithoutPermission` へ渡す。判定は利用者のロックの後の DB の現在の値で行い、別のロールや
+   * ワイルドカードで権限が残る保有者の接続は残す。包含しない権限だけを外したときは誰も権限を失わないので呼ばない。
+   * このサービスは Grant と接続の行をロックしないので、判定は Grant の行のロックより先になる。
+   * ロックの順序は「ロールの行（上限の判定の FOR SHARE）→ 権限の紐付けの行 → users の行（ID の昇順）→
+   * 失効の取引ロック → Grant の行 → 接続の行」で、利用者の削除・無効化（admin ロールの行 → users の行）と揃う
    */
   private async removePermissions(
     roleId: string,
     permissionIds: string[],
-    actorId?: string
+    actorId?: string,
+    source: RequestContext = {}
   ): Promise<Result<void, RolePermissionError>> {
     try {
-      const changed = await this.prisma.$transaction(async (tx) => {
-        for (const permissionId of permissionIds) {
-          await this.removePermissionInTransaction(tx, roleId, permissionId, actorId);
+      const changed = await this.prisma.$transaction(
+        async (tx) => {
+          let removesConnect = false;
+          for (const permissionId of permissionIds) {
+            const removed = await this.removePermissionInTransaction(
+              tx,
+              roleId,
+              permissionId,
+              actorId
+            );
+            removesConnect ||= coversExternalAppConnect(removed);
+          }
+          if (removesConnect) {
+            const holders = await tx.userRole.findMany({
+              where: { roleId },
+              select: { userId: true },
+            });
+            await this.permissionLossRevoker.revokeForUsersWithoutPermission(
+              holders.map((holder) => holder.userId),
+              { userId: actorId ?? null, source },
+              tx
+            );
+          }
+          return permissionIds.length;
+        },
+        {
+          ...connectBudgetTransactionOptions(),
+          timeout: ROLE_PERMISSION_REMOVAL_TRANSACTION_TIMEOUT_MS,
         }
-        return permissionIds.length;
-      }, connectBudgetTransactionOptions());
+      );
 
       await this.afterCommit(roleId, changed);
       return Ok(undefined);
@@ -425,13 +493,15 @@ export class RolePermissionService implements IRolePermissionService {
 
   /**
    * トランザクション内で権限を1件削除し、監査ログを同じトランザクションで記録する
+   *
+   * @returns 外した権限（権限の喪失の判定に使う）
    */
   private async removePermissionInTransaction(
     tx: Prisma.TransactionClient,
     roleId: string,
     permissionId: string,
     actorId?: string
-  ): Promise<void> {
+  ): Promise<{ resource: string; action: string }> {
     // ロールの存在チェック (optimized: only fetch necessary fields)
     const role = await tx.role.findUnique({
       where: { id: roleId },
@@ -509,6 +579,7 @@ export class RolePermissionService implements IRolePermissionService {
       },
       'Permission removed from role successfully'
     );
+    return permission;
   }
 
   /**

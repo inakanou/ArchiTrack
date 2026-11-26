@@ -10,15 +10,20 @@ import type { AuditLog, AuditLogAction } from '../types/audit-log.types';
 import {
   CLAUDE_VISION_AUDIT_ACTIONS,
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
+  EXTERNAL_APP_AUDIT_ACTIONS,
+  EXTERNAL_APP_AUDIT_ACTION_LABELS,
   INVITATION_AUDIT_ACTIONS,
   INVITATION_AUDIT_ACTION_LABELS,
   PROJECT_PURGE_AUDIT_ACTIONS,
   PROJECT_PURGE_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTIONS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
+  getAuditLogDetailItems,
   getAuditLogTargetLabel,
 } from '../utils/audit-log-actions';
 
@@ -154,8 +159,10 @@ export function AuditLogs() {
       ...INVITATION_AUDIT_ACTION_LABELS,
       ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+      ...TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
       ...CLAUDE_VISION_AUDIT_ACTION_LABELS,
       ...PROJECT_PURGE_AUDIT_ACTION_LABELS,
+      ...EXTERNAL_APP_AUDIT_ACTION_LABELS,
     };
     return labels[action] || action;
   };
@@ -267,6 +274,11 @@ export function AuditLogs() {
                 {SECURITY_REMEDIATION_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
+            {TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
             {CLAUDE_VISION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {CLAUDE_VISION_AUDIT_ACTION_LABELS[action]}
@@ -275,6 +287,11 @@ export function AuditLogs() {
             {PROJECT_PURGE_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {PROJECT_PURGE_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
+            {EXTERNAL_APP_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {EXTERNAL_APP_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
           </select>
@@ -399,6 +416,12 @@ export function AuditLogs() {
                     </td>
                     <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
                       {log.ipAddress && <div>IP: {log.ipAddress}</div>}
+                      {/* 表示してよい付帯情報だけを出す（要件40.13） */}
+                      {getAuditLogDetailItems(log).map((item) => (
+                        <div key={item.label} style={{ wordBreak: 'break-all' }}>
+                          {`${item.label}: ${item.value}`}
+                        </div>
+                      ))}
                       {log.before && <div>変更前: {JSON.stringify(log.before)}</div>}
                       {log.after && <div>変更後: {JSON.stringify(log.after)}</div>}
                     </td>

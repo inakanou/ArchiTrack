@@ -426,6 +426,9 @@ describe('DELETE /api/site-surveys/images/:imageId/annotated-thumbnail (Task 115
     expect(deleteIndex).toBeGreaterThan(updateIndex);
   });
 
+  /**
+   * @requirement site-survey/REQ-23.8
+   */
   it('既に合成済みサムネイルが無い場合も成功し何も変更しない (Req 23.8)', async () => {
     mockPrisma.surveyImage.findUnique.mockResolvedValue({
       id: IMAGE_ID,
@@ -485,6 +488,9 @@ describe('DELETE /api/site-surveys/images/:imageId/annotated-thumbnail (Task 115
  * Requirements:
  * - 23.8: 画像変更を伴わない保存操作でもサムネイル再生成処理が冪等に動作し、
  *   既存サムネイルを破損させない
+ */
+/**
+ * @requirement site-survey/REQ-23.8
  */
 describe('変更を伴わない保存の繰り返し (Task 115.4, Req 23.8)', () => {
   let app: Application;

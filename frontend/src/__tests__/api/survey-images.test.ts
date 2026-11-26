@@ -448,6 +448,66 @@ describe('Survey Images API Client', () => {
       expect(mockFetch).toHaveBeenCalledTimes(7);
     });
 
+    /**
+     * 上の件は送信の総数しか見ておらず、一度に全件を送っても通る。ここでは本番の呼び出し
+     * （SiteSurveyDetailPage の handleImageUpload は batchSize を渡さない）と同じ既定値で、
+     * 送信中の画像が5件を超えないこと・先の5件が全て終わるまで次を送らないこと・
+     * 選んだ順に送ることを、応答を手で返して確かめる。
+     * @requirement site-survey/REQ-4.3
+     */
+    it('既定の設定で5件を超えて選ぶと、5件ずつ選んだ順に送り、先の5件が終わるまで次を送らないこと', async () => {
+      const files = Array.from(
+        { length: 12 },
+        (_, i) => new File([`content${i}`], `photo${i}.jpg`, { type: 'image/jpeg' })
+      );
+      const respond: Array<() => void> = [];
+      mockFetch.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            const id = `image-${respond.length}`;
+            respond.push(() =>
+              resolve({
+                ok: true,
+                status: 201,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: async () => ({ ...mockImageInfo, id }),
+              })
+            );
+          })
+      );
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const sentFileNames = () =>
+        mockFetch.mock.calls.map(
+          (call) => ((call[1] as RequestInit).body as FormData).get('images') as File
+        );
+
+      const upload = uploadSurveyImages('survey-1', files);
+
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(5));
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(5);
+
+      // 先の5件のうち4件が終わっても、6件目はまだ送らない
+      respond.slice(0, 4).forEach((done) => done());
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(5);
+
+      // 5件目が終わると次の5件を送る
+      respond[4]!();
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(10));
+      await settle();
+      expect(mockFetch).toHaveBeenCalledTimes(10);
+
+      respond.slice(5, 10).forEach((done) => done());
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(12));
+      respond.slice(10).forEach((done) => done());
+
+      const result = await upload;
+      expect(result.results).toHaveLength(12);
+      expect(result.errors).toHaveLength(0);
+      expect(sentFileNames().map((file) => file.name)).toEqual(files.map((file) => file.name));
+    });
+
     it('startDisplayOrderを指定して表示順序をカスタマイズできること', async () => {
       // Arrange
       const files = [

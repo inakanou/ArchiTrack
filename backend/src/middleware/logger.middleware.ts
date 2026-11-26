@@ -5,6 +5,7 @@ import type { Request } from 'express';
 import logger from '../utils/logger.js';
 import { getClientIp } from './client-ip.js';
 import { redactUrlQuery } from '../utils/url-query-redaction.js';
+import { serializeLogError } from '../utils/log-error-serializer.js';
 
 export { redactUrlQuery };
 
@@ -82,6 +83,8 @@ export const httpLogger = pinoHttp({
 
   // リクエスト/レスポンスの詳細をカスタマイズ
   serializers: {
+    // pino-http は err のシリアライザーを自身の既定で上書きするため、明示する（要件48.8）
+    err: serializeLogError,
     req: (req: IncomingMessage & { id?: string; raw?: Pick<Request, 'ip'> }) => ({
       id: req.id,
       // 利用者・中継が送った識別子は要求識別子と別の項目に記録する（要件42.5）

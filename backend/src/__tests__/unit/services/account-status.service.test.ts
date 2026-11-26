@@ -48,8 +48,13 @@ const tx = {
   auditLog: {
     create: vi.fn(),
   },
+  // 外部アプリの接続の失効（タスク76.2）が読む接続（既定は接続なし）
+  externalAppConnection: {
+    findMany: vi.fn(async () => []),
+  },
   $executeRaw: vi.fn(),
-  $queryRaw: vi.fn(),
+  // 失効が読む users の行のロックの結果（既定は空。最後の管理者と上限の判定のロックは結果を読まない）
+  $queryRaw: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(async () => []),
 };
 
 const prisma = {

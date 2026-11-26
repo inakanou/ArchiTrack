@@ -67,7 +67,7 @@ const production = (extra: NodeJS.ProcessEnv = {}): RuntimeMode =>
 /** 全ての操作が失敗するキャッシュ基盤の接続 */
 function failingRedis(): Redis {
   const fail = vi.fn().mockRejectedValue(new Error('Redis connection lost'));
-  return { incr: fail, pexpire: fail, pttl: fail, decr: fail, del: fail } as unknown as Redis;
+  return { eval: fail, decr: fail, del: fail } as unknown as Redis;
 }
 
 /**
@@ -251,7 +251,7 @@ describe('認証系の専用の制限（RateLimitPolicy）', () => {
           const statuses = await exhaust(app, limitCase);
           expect(statuses).toEqual(Array(limitCase.limit).fill(200));
           expect((await send(app, limitCase.routes[1]!)).status).toBe(429);
-          expect(redis.incr).toHaveBeenCalled();
+          expect(redis.eval).toHaveBeenCalled();
         } finally {
           warn.mockRestore();
         }
@@ -261,13 +261,11 @@ describe('認証系の専用の制限（RateLimitPolicy）', () => {
     it('途中で Redis が失われても制限を続ける', async () => {
       const healthy = new Map<string, number>();
       const redis = {
-        incr: vi.fn(async (key: string) => {
+        eval: vi.fn(async (_script: string, _keyCount: number, key: string) => {
           const next = (healthy.get(key) ?? 0) + 1;
           healthy.set(key, next);
-          return next;
+          return [next, 60_000];
         }),
-        pexpire: vi.fn().mockResolvedValue(1),
-        pttl: vi.fn().mockResolvedValue(60_000),
       } as unknown as Redis;
       let available = true;
       const app = buildApp({

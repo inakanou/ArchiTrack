@@ -2,6 +2,32 @@ import { MemoryStore, type Store, type IncrementResponse, type Options } from 'e
 import type { default as RedisType } from 'ioredis';
 
 /**
+ * 加算と期限の設定を原子的に行う。期限の無いキー（新規、または過去に設定を失敗して残ったもの）に
+ * だけ窓の長さの期限を付けるので、窓は後の加算で延びず、期限なしのキーで恒久的に締め出されない。
+ * 戻り値は `[加算後の回数, 残りのミリ秒]`
+ */
+const INCREMENT_SCRIPT = `
+local hits = redis.call('INCR', KEYS[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl == -1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {hits, ttl}
+`;
+
+/** スクリプトの応答を読む。想定外の形は例外にして、呼び出し元でメモリの記録へ退避する */
+function parseIncrementReply(reply: unknown): [number, number] {
+  if (Array.isArray(reply) && reply.length === 2) {
+    const [hits, ttl] = reply as unknown[];
+    if (typeof hits === 'number' && typeof ttl === 'number') {
+      return [hits, ttl];
+    }
+  }
+  throw new Error('Unexpected reply from the rate limit script');
+}
+
+/**
  * カスタムRedis Rate Limitストア
  * express-rate-limit用のioredis互換ストア実装
  *
@@ -56,16 +82,9 @@ export class RedisRateLimitStore implements Store {
     const redisKey = `${this.prefix}${key}`;
 
     try {
-      // カウントをインクリメント
-      const totalHits = await client.incr(redisKey);
-
-      // 初回アクセス時にTTLを設定
-      if (totalHits === 1) {
-        await client.pexpire(redisKey, this.windowMs);
-      }
-
-      // TTLを取得してresetTimeを計算
-      const ttl = await client.pttl(redisKey);
+      const [totalHits, ttl] = parseIncrementReply(
+        await client.eval(INCREMENT_SCRIPT, 1, redisKey, this.windowMs)
+      );
       const resetTime = ttl > 0 ? new Date(Date.now() + ttl) : undefined;
 
       return {

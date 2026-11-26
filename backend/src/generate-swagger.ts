@@ -58,6 +58,30 @@ const options = {
             },
           },
         },
+        // 外部アプリの接続の一覧の一行（user-authentication design.md の ExternalAppConnectionView、タスク77.1）
+        ExternalAppConnection: {
+          type: 'object',
+          description:
+            'External app connection. Never includes the grant ID, token values or client secrets',
+          required: ['id', 'appName', 'scopes', 'consentedAt', 'lastUsedAt', 'expiresAt'],
+          properties: {
+            id: { type: 'string', format: 'uuid', description: 'Connection ID' },
+            appName: {
+              type: 'string',
+              description:
+                'Display name of the app (the client ID when the app is no longer allowed)',
+            },
+            scopes: { type: 'array', items: { type: 'string', enum: ['read', 'write'] } },
+            consentedAt: { type: 'string', format: 'date-time' },
+            lastUsedAt: { type: 'string', format: 'date-time', nullable: true },
+            expiresAt: {
+              type: 'string',
+              format: 'date-time',
+              description:
+                'When the connection actually stops working: the earlier of consent + 90 days and last use (or consent) + 30 days',
+            },
+          },
+        },
         // Project Management Schemas
         UserRef: {
           type: 'object',

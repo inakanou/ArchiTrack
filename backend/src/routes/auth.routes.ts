@@ -24,8 +24,7 @@ import { csrfProtection } from '../middleware/csrf.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
-import { captureException } from '../utils/sentry.js';
-import { sentryRequestContext } from '../utils/sentry-request-context.js';
+import { sendAuthDatabaseError } from './auth-database-error.js';
 import {
   PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE,
   SECURITY_CONFIG,
@@ -46,32 +45,6 @@ import { hashPasswordResetToken } from '../utils/password-reset-token.js';
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
  */
 const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
-
-/** 認証の DB 障害の汎用の応答の本文（要件42.8） */
-const AUTH_DATABASE_ERROR_BODY = {
-  error: 'Internal server error',
-  code: 'INTERNAL_ERROR',
-} as const;
-
-/**
- * 認証の処理中の DB 障害を記録し、汎用の本文の 500 を返す（要件42.4、42.8）
- *
- * 障害の文言はエラーログとエラー監視にだけ残す。エラー監視の文脈は経路・メソッド・要求識別子・
- * 利用者 ID に限り、要求本文（パスワード・コード・資格）は付けない。
- */
-function sendAuthDatabaseError(
-  req: Request,
-  res: Response,
-  message: string,
-  logMessage: string
-): void {
-  logger.error({ error: message }, logMessage);
-  captureException(new Error(message), {
-    ...sentryRequestContext(req),
-    errorType: 'auth_database_error',
-  });
-  res.status(500).json(AUTH_DATABASE_ERROR_BODY);
-}
 
 /**
  * 要求の送信元（`getClientIp` の送信元 IP と User-Agent）を返す（監査の記録とセッションの端末情報に使う）
@@ -941,7 +914,9 @@ router.post(
  * /api/v1/auth/logout-all:
  *   post:
  *     summary: Logout from all devices
- *     description: Logout the current user from all devices
+ *     description: >-
+ *       Logout the current user from all devices. All refresh tokens, issued access tokens
+ *       (including the one used for this request) and external app connections are revoked.
  *     tags:
  *       - Authentication
  *     security:
@@ -972,8 +947,14 @@ router.post(
       const result = await authService.logoutAll(req.user.userId, requestContext(req));
 
       if (!result.ok) {
-        const error = result.error;
-        res.status(400).json({ error: 'Logout failed', code: error.type });
+        // 失効（リフレッシュトークン・アクセストークンの世代・接続）の DB 障害は、DELETE /sessions と同じ
+        // 汎用の 500 で返す（要件42.8。タスク76.1）
+        sendAuthDatabaseError(
+          req,
+          res,
+          result.error.type === 'DATABASE_ERROR' ? result.error.message : result.error.type,
+          'Database error during logout-all'
+        );
         return;
       }
 
@@ -1864,7 +1845,8 @@ router.post(
     try {
       const { token, newPassword } = req.body;
 
-      const result = await passwordService.resetPassword(token, newPassword);
+      // 送信元は接続の失効の監査に残す（要件50.1・51.7）
+      const result = await passwordService.resetPassword(token, newPassword, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -1938,7 +1920,8 @@ router.post(
  *     responses:
  *       200:
  *         description: >-
- *           Password changed successfully. All refresh tokens are revoked and the initial password
+ *           Password changed successfully. All refresh tokens, issued access tokens (including the one
+ *           used for this request) and external app connections are revoked, and the initial password
  *           change requirement (mustChangePassword) is cleared.
  *         content:
  *           application/json:
@@ -1978,10 +1961,12 @@ router.post(
       }
 
       // パスワード変更サービス呼び出し
+      // 送信元は接続の失効の監査に残す（要件50.1・51.7）
       const result = await passwordService.changePassword(
         req.user.userId,
         currentPassword,
-        newPassword
+        newPassword,
+        requestContext(req)
       );
 
       if (!result.ok) {

@@ -299,6 +299,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const logout = useCallback(async (): Promise<void> => {
     setIsLoading(true);
 
+    // 明示のログアウトは操作中のセッション切れ（再認証のモーダル）として扱わない。パスワードの変更と
+    // 全デバイスのログアウトは発行済みのアクセストークンも失効させるため、その後のログアウトの API は
+    // 401 になる（user-authentication タスク76.1）。その 401 で再認証を求めずにログイン画面へ移す
+    apiClient.setSessionExpiredCallback(null);
+
     try {
       // ログアウトAPIを呼び出し（本文なし・Cookie と X-CSRF-Token。要件33.4, 33.12）
       // リフレッシュトークンの Cookie は応答で backend が消す（HttpOnly のため画面からは消せない）
@@ -321,6 +326,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       // 要件16.14: 明示的なログアウトではsessionExpiredをfalseに設定
       setSessionExpired(false);
+      setSessionExpiredDuringOperation(false);
 
       setIsLoading(false);
     }

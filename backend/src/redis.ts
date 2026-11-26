@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import logger from './utils/logger.js';
+import { parseRedisTimeouts } from './config/redis-timeouts.js';
 
 /**
  * Redis キーのTTL定数（秒単位）
@@ -25,7 +26,13 @@ function createRedisClient(): Redis | null {
     return null;
   }
 
+  // 接続を保ったまま基盤が応答しなくなっても待ち続けない（要件35.8）。期限切れは要求の失敗として返り、
+  // 各用途の既存の失敗時の扱い（回数制限はメモリへ退避、キャッシュは原本を読む、原本の無い手続きは拒否）に乗る。
+  // maxRetriesPerRequest は接続が切れて張り直す間の再試行の上限で、接続を保ったままの無応答には効かない
+  const { commandTimeout, connectTimeout } = parseRedisTimeouts();
   const client = new Redis(process.env.REDIS_URL, {
+    commandTimeout,
+    connectTimeout,
     maxRetriesPerRequest: 3,
     retryStrategy(times: number): number {
       const delay = Math.min(times * 50, 2000);

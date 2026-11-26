@@ -1085,7 +1085,15 @@ backend/
 │   │   ├── failed-email-job-cleanup.job.ts # メールキューの失敗のジョブの掃除
 │   │   ├── inactive-user-deactivation.job.ts # 90 日の自動無効化
 │   │   ├── soft-deleted-project-purge.job.ts # 論理削除から 90 日を過ぎたプロジェクトの完全削除
+│   │   ├── external-app-maintenance.job.ts # 外部アプリの接続の期限切れの終了・許可の一覧の照合・保存データの掃除（毎時 20 分）
 │   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
+│   ├── oauth/             # 外部アプリの認可サーバー（oidc-provider。user-authentication 要件46〜51）
+│   │   ├── provider.ts    # 認可サーバーの設定と Express への搭載。外部アプリの部品を組み立てる根（mountExternalAppOAuth）
+│   │   ├── client-registry.ts # 許可するアプリと OAUTH_*・EXTERNAL_APP_RATE_LIMIT_* の読み込みと検証（config/env.ts の起動時の検証が呼ぶ）
+│   │   ├── store-adapter.ts # 保存アダプター（値の HMAC 化と再利用の検知・更新の猶予の通知）
+│   │   ├── rate-limit.ts  # 認可の窓口の送信元 IP ごとの回数制限
+│   │   ├── request-context.ts # 認可の窓口の要求の送信元を保存アダプターの通知へ渡す文脈
+│   │   └── oauth.types.ts # 操作の範囲・主体・エラー・出来事の型
 │   ├── scripts/           # サーバー上で実行する運用スクリプト
 │   │   ├── find-cross-project-estimate-requests.ts # 別のプロジェクトの内訳書を参照する見積依頼を確かめる（npm run estimate-request:find-cross-project。読むだけ）
 │   │   ├── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）

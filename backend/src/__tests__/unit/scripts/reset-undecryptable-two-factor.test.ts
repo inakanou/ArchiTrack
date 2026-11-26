@@ -334,6 +334,9 @@ describe('createDefaultContext', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       $executeRaw: vi.fn().mockResolvedValue(1),
+      // 外部アプリの接続の失効（タスク76.5）の users の行のロックと接続の読み出し（接続の無い利用者）
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
+      externalAppConnection: { findMany: vi.fn().mockResolvedValue([]) },
       refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
       twoFactorBackupCode: { deleteMany: vi.fn().mockResolvedValue({ count: 10 }) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },

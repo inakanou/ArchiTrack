@@ -945,6 +945,7 @@ describe('OrderService', () => {
     // 8.3, 8.4, 8.5, 18.1, 18.3: 案分計算
     // ========================================
 
+    /** @requirement execution-budget-management/REQ-8.3 */
     it('確定発注金額をチェック済み項目の実行金額比率で案分する', async () => {
       // Arrange
       // 項目1: executionAmount=100000, 項目2: executionAmount=200000
@@ -1027,6 +1028,7 @@ describe('OrderService', () => {
       expect(total).toBe(270000);
     });
 
+    /** @requirement execution-budget-management/REQ-8.4 */
     it('案分端数処理: 1円未満の端数を最も金額の大きい項目に加算する', async () => {
       // Arrange
       // 項目1: executionAmount=100000, 項目2: executionAmount=200000
@@ -1089,6 +1091,7 @@ describe('OrderService', () => {
       });
     });
 
+    /** @requirement execution-budget-management/REQ-18.3 */
     it('案分合計が確定発注金額と一致することを保証する（3項目の端数テスト）', async () => {
       // Arrange
       // 3項目: 10000, 20000, 30000 = 合計60000

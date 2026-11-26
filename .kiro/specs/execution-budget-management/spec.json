@@ -1,7 +1,7 @@
 {
   "feature_name": "execution-budget-management",
   "created_at": "2026-03-17T00:00:00.000Z",
-  "updated_at": "2026-10-31T03:00:00.000Z",
+  "updated_at": "2026-11-25T00:00:00.000Z",
   "language": "ja",
   "phase": "implementation-complete",
   "approvals": {
@@ -16,6 +16,17 @@
     "tasks": {
       "generated": true,
       "approved": true
+    }
+  },
+  "metadata": {
+    "requirement_update_2026_11_25": {
+      "updated_at": "2026-11-25T00:00:00Z",
+      "description": "原価（支出実績）と月次締めの API の受入基準を、design.md の CostService と MonthlyCloseService の API Contract（原価は PATCH items/:itemId/cost、月次締めは POST と GET monthly-close）へ揃えた（user-authentication のタスク79.4 の要件の被覆の監査で判明）",
+      "revised_criteria": [
+        "19.5（CRUD 操作から、項目ごとの今月の支出を更新する PATCH の API へ。改訂の記録は requirements.md の要件19）",
+        "19.6（CRUD 操作から、月次締めの実行の POST と履歴の取得の GET へ。同上）"
+      ],
+      "decision": "利用者の判断 2026-11-25（19.5・19.6 を design の API の表に合わせて改める）。実装は変えない"
     }
   },
   "ready_for_implementation": true

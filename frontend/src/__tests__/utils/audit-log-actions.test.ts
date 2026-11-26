@@ -8,6 +8,9 @@ import {
   CLAUDE_VISION_AUDIT_ACTION_LABELS,
   PROJECT_PURGE_AUDIT_ACTIONS,
   PROJECT_PURGE_AUDIT_ACTION_LABELS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS,
+  TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS,
+  getAuditLogDetailItems,
   getAuditLogTargetLabel,
 } from '../../utils/audit-log-actions';
 
@@ -161,5 +164,62 @@ describe('getAuditLogTargetLabel', () => {
     it('対象の名前も ID も無ければ「-」を返す', () => {
       expect(getAuditLogTargetLabel({})).toBe('-');
     });
+  });
+});
+
+describe('監査ログの詳細の欄に出す付帯情報（要件40.13）', () => {
+  /**
+   * @requirement user-authentication/REQ-40.13
+   */
+  it('ユーザーエージェント・結果・理由・外部アプリ・範囲だけを決まった順で出し、メールアドレス等は出さない', () => {
+    expect(
+      getAuditLogDetailItems({
+        metadata: {
+          email: 'secret@example.com',
+          scopes: ['read', 'write'],
+          clientId: 'claude-connector',
+          reason: 'USER_REVOKED',
+          result: 'success',
+          userAgent: 'Mozilla/5.0',
+          ipAddress: '192.0.2.1',
+          occurredAt: '2026-11-25T00:00:00.000Z',
+          reuseKind: 'refresh',
+        },
+      })
+    ).toEqual([
+      { label: 'ユーザーエージェント', value: 'Mozilla/5.0' },
+      { label: '結果', value: 'success' },
+      { label: '理由', value: 'USER_REVOKED' },
+      { label: '外部アプリ', value: 'claude-connector' },
+      { label: '範囲', value: 'read write' },
+    ]);
+  });
+
+  it('文字列か文字列の配列でない値・空の値と、付帯情報の無い記録は出さない', () => {
+    expect(
+      getAuditLogDetailItems({
+        metadata: {
+          userAgent: '',
+          result: { nested: true },
+          reason: null,
+          clientId: 42,
+          scopes: [],
+        },
+      })
+    ).toEqual([]);
+    expect(getAuditLogDetailItems({ metadata: { scopes: ['read', 1] } })).toEqual([]);
+    expect(getAuditLogDetailItems({})).toEqual([]);
+  });
+});
+
+describe('2FA のバックアップコードの使用の種別', () => {
+  /**
+   * @requirement user-authentication/REQ-40.3: 2FA検証（バックアップコード）の成功を記録し監査ログ画面で種別の名前で表示できる
+   */
+  it('backend が記録する種別と表示名を持つ', () => {
+    expect(TWO_FACTOR_BACKUP_CODE_AUDIT_ACTIONS).toEqual(['TWO_FACTOR_BACKUP_CODE_USED']);
+    expect(TWO_FACTOR_BACKUP_CODE_AUDIT_ACTION_LABELS.TWO_FACTOR_BACKUP_CODE_USED).toBe(
+      '2FAバックアップコード使用'
+    );
   });
 });

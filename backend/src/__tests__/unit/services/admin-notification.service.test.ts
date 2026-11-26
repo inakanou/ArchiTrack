@@ -228,4 +228,24 @@ describe('AdminNotificationService', () => {
       'Failed to report admin notification failure'
     );
   });
+
+  /**
+   * @requirement user-authentication/REQ-51.9: 再利用の検知を全てのシステム管理者へ通知する
+   */
+  it('外部アプリのトークンの再利用の種別を、メールとエラー監視へ送る', async () => {
+    const reuse: AdminNotification = {
+      kind: 'EXTERNAL_APP_TOKEN_REUSE',
+      subject: '【重要】セキュリティ上の異常の検知: 外部アプリのトークンの再利用',
+      lines: ['検知の種類: 外部アプリのトークンの再利用'],
+    };
+
+    await service.notifyAllAdmins(reuse);
+
+    expect(sendAdminNotificationEmail).toHaveBeenCalledTimes(2);
+    expect(captureMessage).toHaveBeenCalledWith(
+      'Admin notification: EXTERNAL_APP_TOKEN_REUSE',
+      'warning',
+      { kind: 'EXTERNAL_APP_TOKEN_REUSE', subject: reuse.subject, lines: reuse.lines }
+    );
+  });
 });

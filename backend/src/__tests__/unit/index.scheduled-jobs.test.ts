@@ -54,6 +54,10 @@ vi.mock('../../jobs/scheduled-job-runner.js', () => ({
   createScheduledJobDefinitions: createScheduledJobDefinitionsMock,
   createScheduledJobsQueue: createScheduledJobsQueueMock,
 }));
+const reconcileMock = vi.fn();
+vi.mock('../../jobs/external-app-maintenance.job.js', () => ({
+  reconcileExternalAppClientsAtStartup: reconcileMock,
+}));
 
 describe('起動の入口の定期処理', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -67,6 +71,7 @@ describe('起動の入口の定期処理', () => {
     vi.clearAllMocks();
     startMock.mockResolvedValue(true);
     stopMock.mockResolvedValue(undefined);
+    reconcileMock.mockResolvedValue(0);
     disconnectPrismaMock.mockResolvedValue(undefined);
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     signalListeners = new Map();
@@ -130,6 +135,34 @@ describe('起動の入口の定期処理', () => {
     const sent = captureExceptionMock.mock.calls[0]?.[0] as Error;
     expect(sent).toBeInstanceOf(Error);
     expect(sent.message).toBe('boom');
+  });
+
+  /**
+   * @requirement user-authentication/REQ-50.6（タスク76.4: 起動時の許可の一覧の照合）
+   */
+  it('設定の検証の後、待ち受けを始めたら許可の一覧を照合する', async () => {
+    await import('../../index.js');
+
+    await vi.waitFor(() => expect(reconcileMock).toHaveBeenCalledTimes(1));
+    expect(reconcileMock).toHaveBeenCalledWith(prismaClient);
+    expect(listenMock.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      reconcileMock.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it('起動時の照合に失敗しても起動を止めず、エラーログと Sentry へ送る', async () => {
+    const error = new Error('reconcile failed');
+    reconcileMock.mockRejectedValue(error);
+
+    await import('../../index.js');
+
+    await vi.waitFor(() =>
+      expect(captureExceptionMock).toHaveBeenCalledWith(error, {
+        component: 'ExternalAppClientReconciliation',
+      })
+    );
+    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('graceful shutdown で、DB の切断より前に定期処理の実行基盤を止める', async () => {

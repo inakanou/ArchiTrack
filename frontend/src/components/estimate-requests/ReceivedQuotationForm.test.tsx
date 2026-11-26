@@ -483,6 +483,9 @@ describe('ReceivedQuotationForm', () => {
   });
 
   describe('バリデーション (11.22, 11.23, 11.24)', () => {
+    /**
+     * @requirement estimate-request/REQ-11.23
+     */
     it('受領見積書名が未入力の場合エラーが表示される', async () => {
       render(
         <ReceivedQuotationForm
@@ -503,6 +506,9 @@ describe('ReceivedQuotationForm', () => {
       expect(mockOnSubmit).not.toHaveBeenCalled();
     });
 
+    /**
+     * @requirement estimate-request/REQ-11.23
+     */
     it('提出日が未入力の場合エラーが表示される', async () => {
       render(
         <ReceivedQuotationForm

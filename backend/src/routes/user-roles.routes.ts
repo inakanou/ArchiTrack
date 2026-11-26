@@ -319,8 +319,15 @@ router.delete(
     try {
       const { id: userId, roleId } = req.params as { id: string; roleId: string };
 
-      // 監査ログ（USER_ROLE_REVOKED）は紐付けの削除と同じトランザクションで記録される（タスク36.4）
-      const result = await userRoleService.removeRoleFromUser(userId, roleId, req.user?.userId);
+      // 監査ログ（USER_ROLE_REVOKED）は紐付けの削除と同じトランザクションで記録される（タスク36.4）。
+      // 送信元は権限の喪失による外部アプリの接続の終了の監査に残す（user-authentication 要件50.4・51.7）
+      const result = await userRoleService.removeRoleFromUser(
+        userId,
+        roleId,
+        req.user?.userId,
+        undefined,
+        { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] }
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -378,7 +385,7 @@ router.delete(
  * /api/v1/users/{id}:
  *   delete:
  *     summary: ユーザー削除
- *     description: ユーザーと関連データを削除（自分自身と最後の管理者、実行者の上限を超えるロールを持つユーザーは削除不可）
+ *     description: ユーザーと関連データを削除し、外部アプリの全ての接続を失効させる（自分自身と最後の管理者、実行者の上限を超えるロールを持つユーザーは削除不可）
  *     tags:
  *       - Users
  *     security:
@@ -421,8 +428,12 @@ router.delete(
       }
 
       // 最後の管理者の確認と削除を一つのトランザクションで行う（並行する削除とも直列化される）
-      // データベースの例外は deleteUser が投げ、下の catch からエラーハンドラーへ渡る
-      const result = await userRoleService.deleteUser(userId, actorId);
+      // データベースの例外は deleteUser が投げ、下の catch からエラーハンドラーへ渡る。
+      // 送信元は外部アプリの接続の失効の監査に残す（user-authentication 要件50.3・51.7）
+      const result = await userRoleService.deleteUser(userId, actorId, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
       if (!result.ok) {
         if (result.error.type === 'USER_NOT_FOUND') {
           res.status(404).json({

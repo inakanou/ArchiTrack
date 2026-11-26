@@ -154,6 +154,46 @@ describe('AuditLogs Component', () => {
       expect(screen.getByText(/変更後: .*twoFactorEnabled.*true/)).toBeInTheDocument();
     });
 
+    /**
+     * @requirement user-authentication/REQ-40.13
+     */
+    it('詳細の欄に表示してよい付帯情報だけを出し、メールアドレスは出さない（要件40.13）', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'log-consent',
+          actorId: 'user-1',
+          actorEmail: 'admin@example.com',
+          action: 'CONSENT_GRANTED',
+          targetType: 'ExternalAppConnection',
+          targetId: 'connection-1',
+          ipAddress: '192.0.2.7',
+          metadata: {
+            clientId: 'claude-connector',
+            scopes: ['read', 'write'],
+            reason: 'USER_CONSENTED',
+            userAgent: 'Mozilla/5.0 (X11)',
+            ipAddress: '192.0.2.7',
+            email: 'hidden-detail@example.com',
+          },
+          createdAt: '2026-11-25T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const row = (await screen.findByText('connection-1')).closest('tr')!;
+      const detail = within(row).getAllByRole('cell')[4]!;
+      expect(within(detail).getByText('IP: 192.0.2.7')).toBeInTheDocument();
+      expect(
+        within(detail).getByText('ユーザーエージェント: Mozilla/5.0 (X11)')
+      ).toBeInTheDocument();
+      expect(within(detail).getByText('理由: USER_CONSENTED')).toBeInTheDocument();
+      expect(within(detail).getByText('外部アプリ: claude-connector')).toBeInTheDocument();
+      expect(within(detail).getByText('範囲: read write')).toBeInTheDocument();
+      expect(detail.textContent).not.toContain('hidden-detail@example.com');
+    });
+
     it('ログがない場合は空状態を表示する', async () => {
       const { apiClient } = await import('../../api/client');
       vi.mocked(apiClient.get).mockResolvedValue([]);
@@ -843,6 +883,46 @@ describe('AuditLogs Component', () => {
 
       await waitFor(() => {
         expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=USER_DELETED'));
+      });
+    });
+  });
+
+  describe('2FA のバックアップコードの使用の監査の種別（要件40.3）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.3
+     */
+    it('バックアップコードの使用の記録を表示名で表示し、絞り込みで選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'backup-1',
+          actorId: 'user-1',
+          actorEmail: 'user@example.com',
+          action: 'TWO_FACTOR_BACKUP_CODE_USED',
+          targetType: 'User',
+          targetId: 'user-backup-target',
+          createdAt: '2026-11-25T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('user-backup-target').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^2FAバックアップコード使用$/);
+      expect(within(table).queryByText('TWO_FACTOR_BACKUP_CODE_USED')).not.toBeInTheDocument();
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', {
+        name: '2FAバックアップコード使用',
+      });
+      expect(option).toHaveValue('TWO_FACTOR_BACKUP_CODE_USED');
+      await user.selectOptions(actionFilter, '2FAバックアップコード使用');
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(
+          expect.stringContaining('action=TWO_FACTOR_BACKUP_CODE_USED')
+        );
       });
     });
   });

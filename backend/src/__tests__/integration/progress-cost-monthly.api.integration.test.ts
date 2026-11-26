@@ -14,8 +14,8 @@
  * - 14.3: 締め処理を実行し、締め日時と対象月を履歴として記録
  * - 17.6: 権限のないユーザーが操作を試行した場合は403エラー
  * - 19.4: 出来高データのCRUD APIを提供
- * - 19.5: 原価データのCRUD APIを提供
- * - 19.6: 月次締めデータのCRUD APIを提供
+ * - 19.5: 原価（支出実績）データの入力の API（PATCH items/:itemId/cost）を提供
+ * - 19.6: 月次締めの実行（POST）と履歴の取得（GET）の API を提供
  *
  * @module __tests__/integration/progress-cost-monthly.api.integration.test
  */
@@ -37,6 +37,9 @@ import { createTestUser } from './test-user-factory.js';
 
 /**
  * 出来高・原価・月次締め API統合テスト
+ *
+ * @requirement execution-budget-management/REQ-19.4
+ * 出来高の作成と同じ施工日への上書き（POST）・履歴の取得（GET）・削除（DELETE）を、実際の app の REST の経路で確かめる。
  */
 describe('Progress / Cost / Monthly Close API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -457,6 +460,10 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
   // =================================================================
   // 原価入力 PATCH /api/projects/:projectId/execution-budget/items/:itemId/cost
   // =================================================================
+  /**
+   * @requirement execution-budget-management/REQ-19.5
+   * 原価（支出実績）の入力の API（PATCH items/:itemId/cost）を、実際の app と DB で確かめる。
+   */
   describe('PATCH /api/projects/:projectId/execution-budget/items/:itemId/cost', () => {
     it('今月の支出を入力し、累計支出が自動計算されること', async () => {
       const itemId = testBudgetItemIds[0];
@@ -479,6 +486,41 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
       expect(response.body).toHaveProperty('currentMonthExpense');
       expect(response.body).toHaveProperty('totalExpense');
       expect(response.body).toHaveProperty('remainingBudget');
+
+      // 入力した今月の支出が DB の項目に保存されていること
+      const saved = await prisma.executionBudgetItem.findUniqueOrThrow({ where: { id: itemId } });
+      expect(saved.currentMonthExpense.toString()).toBe('15000');
+    });
+
+    /**
+     * @requirement execution-budget-management/REQ-4.5
+     * 他の利用者の更新で版が進んだ後の古い版での更新は 409 になり、画面の更新（最新データの再取得）を促す
+     * 文言が応答の detail に入る。画面はこの文言をそのまま表示する（frontend の ExecutionBudgetPage.test.tsx）。
+     */
+    it('他の利用者が先に更新していた場合は409と再取得を促すメッセージを返すこと', async () => {
+      const itemId = testBudgetItemIds[0];
+      const before = await prisma.executionBudget.findUniqueOrThrow({
+        where: { id: testBudgetId },
+      });
+
+      // 他の利用者の更新（版が1つ進む）
+      const first = await request(app)
+        .patch(`/api/projects/${testProjectId}/execution-budget/items/${itemId}/cost`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentMonthExpense: '1000', version: before.version });
+      expect(first.status).toBe(200);
+
+      // 古い版のままの更新
+      const response = await request(app)
+        .patch(`/api/projects/${testProjectId}/execution-budget/items/${itemId}/cost`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentMonthExpense: '2000', version: before.version });
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('EXECUTION_BUDGET_CONFLICT');
+      expect(response.body.detail).toBe(
+        '他のユーザーによって更新されました。画面を更新してください'
+      );
     });
 
     it('認証なしの場合は401エラーを返すこと', async () => {
@@ -498,6 +540,10 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
   // =================================================================
   // 月次締め POST /api/projects/:projectId/execution-budget/monthly-close
   // =================================================================
+  /**
+   * @requirement execution-budget-management/REQ-19.6
+   * 月次締めの実行の API（POST monthly-close）を、実際の app と DB で確かめる。
+   */
   describe('POST /api/projects/:projectId/execution-budget/monthly-close', () => {
     beforeEach(async () => {
       // 月次締め履歴を削除
@@ -515,6 +561,12 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('id');
       expect(response.body).toHaveProperty('targetMonth', '2026-02');
+
+      // 締めの履歴が DB に記録されていること
+      const histories = await prisma.monthlyCloseHistory.findMany({
+        where: { executionBudgetId: testBudgetId, targetMonth: '2026-02' },
+      });
+      expect(histories).toHaveLength(1);
     });
 
     it('同一月の重複締めは409エラーを返すこと', async () => {
@@ -537,6 +589,10 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
   // =================================================================
   // 月次締め履歴一覧 GET /api/projects/:projectId/execution-budget/monthly-close
   // =================================================================
+  /**
+   * @requirement execution-budget-management/REQ-19.6
+   * 月次締めの履歴の取得の API（GET monthly-close）を、実際の app と DB で確かめる。
+   */
   describe('GET /api/projects/:projectId/execution-budget/monthly-close', () => {
     it('月次締め履歴一覧を取得できること', async () => {
       // 月次締めを実行
@@ -556,6 +612,9 @@ describe('Progress / Cost / Monthly Close API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(Array.isArray(response.body)).toBe(true);
       expect(response.body.length).toBeGreaterThanOrEqual(1);
+      expect(
+        response.body.map((history: { targetMonth: string }) => history.targetMonth)
+      ).toContain('2026-01');
     });
   });
 

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import logger from '../utils/logger.js';
 import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
 import { securityAlertEnvSchema } from './security-alert.js';
+import { redisCommandTimeoutSchema, redisConnectTimeoutSchema } from './redis-timeouts.js';
+import { ExternalAppConfigError, parseExternalAppOAuthConfig } from '../oauth/client-registry.js';
 
 /**
  * 環境変数検証用の定数
@@ -203,6 +205,9 @@ const envSchema = z
 
     // Redis
     REDIS_URL: z.string().url().optional(),
+    // コマンドと接続の確立の期限（ミリ秒。要件35.8）
+    REDIS_COMMAND_TIMEOUT_MS: redisCommandTimeoutSchema,
+    REDIS_CONNECT_TIMEOUT_MS: redisConnectTimeoutSchema,
 
     // 信頼する中継の段数（送信元 IP の識別。要件35.1、35.2）
     TRUST_PROXY_HOPS: trustProxyHopsSchema,
@@ -336,7 +341,10 @@ export function validateEnv(): Env {
   }
 
   try {
-    validatedEnv = envSchema.parse(process.env);
+    const parsedEnv = envSchema.parse(process.env);
+    // 外部アプリの設定（要件46.4）。鍵を含むためスキーマに載せず、不正なら検証済みにしない
+    parseExternalAppOAuthConfig(process.env);
+    validatedEnv = parsedEnv;
     logger.info(
       {
         env: validatedEnv.NODE_ENV,
@@ -355,6 +363,12 @@ export function validateEnv(): Env {
 
     return validatedEnv;
   } catch (error) {
+    if (error instanceof ExternalAppConfigError) {
+      logger.error({ errors: error.issues }, 'External app OAuth configuration is invalid');
+      console.error('\n❌ External app OAuth configuration is invalid:\n');
+      error.issues.forEach((issue) => console.error(`  ❌ ${issue}`));
+      console.error('\n   Fix: Correct the OAUTH_* values, or unset OAUTH_ALLOWED_CLIENTS\n');
+    }
     if (error instanceof z.ZodError) {
       logger.error({ errors: error.issues }, 'Environment validation failed');
       console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

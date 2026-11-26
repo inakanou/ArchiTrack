@@ -19,7 +19,7 @@ import type { AuditLogFilter } from '../types/audit-log.types.js';
 import type { RequestContext } from '../types/auth.types.js';
 import { ExportAuditService, type ExportRecordInput } from '../services/export-audit.service.js';
 import { getSharedProjectScopeService } from '../services/project-scope.service.js';
-import { exportRecordSchema } from '../schemas/export-audit.schema.js';
+import { exportRecordSchema, type ExportRecordRequest } from '../schemas/export-audit.schema.js';
 import {
   archiveRestoreSchema,
   type ArchiveRestoreRequest,
@@ -38,6 +38,24 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 const prisma = getPrismaClient();
+
+/**
+ * 一覧の記録に、付帯情報の送信元 IP アドレスを `ipAddress` として載せる（要件40.13）
+ *
+ * IP は記録の列でなく付帯情報にだけある。現在の経路は `metadata.ipAddress`、古い経路は `metadata.ip` に
+ * 書いたため、前者を優先して後者へ落とす。文字列でなければ null。監査ログは改変できないため、
+ * 既に書かれた記録には読み出しの時点で適用する。付帯情報そのものは従来どおり返す。
+ */
+function withAuditLogIpAddress<T extends { metadata: unknown }>(
+  log: T
+): T & { ipAddress: string | null } {
+  const metadata =
+    typeof log.metadata === 'object' && log.metadata !== null && !Array.isArray(log.metadata)
+      ? (log.metadata as Record<string, unknown>)
+      : {};
+  const candidate = metadata.ipAddress ?? metadata.ip;
+  return { ...log, ipAddress: typeof candidate === 'string' ? candidate : null };
+}
 const auditLogService = new AuditLogService({ prisma });
 const exportAuditService = new ExportAuditService({
   auditLogService,
@@ -209,7 +227,7 @@ router.get(
         'Audit logs retrieved'
       );
 
-      res.json(logs);
+      res.json(logs.map(withAuditLogIpAddress));
     } catch (error) {
       next(error);
     }
@@ -418,7 +436,10 @@ router.post(
   validate(exportRecordSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const input = req.validatedBody as ExportRecordInput;
+      // 本文から渡すのは検証した 4 つの欄だけにする。外部アプリの欄（externalClientId）は
+      // サーバー側のコードだけが渡し、本文に入れた要求は strict な検証で 400 になる（要件51.8）
+      const { kind, projectId, targetIds, itemCount } = req.validatedBody as ExportRecordRequest;
+      const input: ExportRecordInput = { kind, projectId, targetIds, itemCount };
       const result = await exportAuditService.record(req.user!.userId, input, requestContext(req));
       if (!result.ok) {
         next(

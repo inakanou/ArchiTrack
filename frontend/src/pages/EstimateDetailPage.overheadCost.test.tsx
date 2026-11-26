@@ -230,7 +230,12 @@ describe('EstimateDetailPage 諸経費行・値引き行の追加（実物のコ
    * 費目を1種類だけで固定すると「費目に関わらず共通仮設費を作る」実装でも
    * 通ってしまうため、3費目すべてを回して名称の対応を固定する。
    *
+   * 計算を押さずに手入力した金額（250000）が、追加した行の単価としてそのまま入ることも
+   * 3費目それぞれで確かめる（8.2, 9.2 の手入力での単価の設定）。
+   *
    * @requirement estimate-creation/REQ-8.1
+   * @requirement estimate-creation/REQ-8.2
+   * @requirement estimate-creation/REQ-9.2
    */
   it.each([
     ['共通仮設費', '共通仮設費'],
@@ -439,6 +444,65 @@ describe('EstimateDetailPage 諸経費行・値引き行の追加（実物のコ
     });
     expect(lineInput(addedKeys()[0]!, 'ESTIMATE', '単価').value).toBe('95000');
   });
+
+  /**
+   * 自動計算の結果を手入力で上書きして追加すると、計算結果ではなく上書きした金額が
+   * 単価として明細に入る。上の 8.3 の検証は計算結果のまま追加するため、上書きの経路を
+   * 通らない。現場管理費と一般管理費のそれぞれで、費目ごとの計算パラメータから通す。
+   *
+   * @requirement estimate-creation/REQ-8.5
+   * @requirement estimate-creation/REQ-9.5
+   */
+  it.each([
+    ['現場管理費', 'SITE_MANAGEMENT', '純工事費'],
+    ['一般管理費', 'GENERAL_ADMIN', '工事原価'],
+  ])(
+    '%s の自動計算結果を手入力で上書きすると上書きした金額が単価になること (8.5, 9.5)',
+    async (option, costType, paramLabel) => {
+      vi.mocked(estimatesApi.calculateOverhead).mockResolvedValue({
+        costType,
+        rate: '9.5',
+        amount: '95000',
+        formula: 'Kr = ...',
+      } as unknown as Awaited<ReturnType<typeof estimatesApi.calculateOverhead>>);
+      const user = userEvent.setup();
+      renderPage();
+      await waitForItems();
+
+      const dialog = await openOverheadDialog();
+      await user.selectOptions(within(dialog).getByLabelText('諸経費種別'), [option]);
+      fireEvent.change(within(dialog).getByLabelText('直接工事費'), {
+        target: { value: '1000000' },
+      });
+      fireEvent.change(within(dialog).getByLabelText(paramLabel), {
+        target: { value: '900000' },
+      });
+      await user.click(within(dialog).getByRole('button', { name: '計算' }));
+
+      const amountInput = within(dialog).getByLabelText('計算金額') as HTMLInputElement;
+      await waitFor(() => {
+        expect(amountInput.value).toBe('95000');
+      });
+      expect(estimatesApi.calculateOverhead).toHaveBeenCalledWith(
+        'est-001',
+        expect.objectContaining({ costType })
+      );
+
+      // 計算結果を手入力で上書きする
+      await user.clear(amountInput);
+      await user.type(amountInput, '88000');
+      expect(amountInput.value).toBe('88000');
+
+      await user.click(within(dialog).getByRole('button', { name: '項目追加' }));
+      await waitFor(() => {
+        expect(addedKeys()).toHaveLength(1);
+      });
+      const key = addedKeys()[0]!;
+      expect(lineInput(key, 'ESTIMATE', '名称').value).toBe(option);
+      expect(lineInput(key, 'ESTIMATE', '単価').value).toBe('88000');
+      expect(lineAmountText(key, 'ESTIMATE')).toBe('88,000');
+    }
+  );
 
   // ==========================================================================
   // 値引き行の追加（41.1, 41.2, 41.11）

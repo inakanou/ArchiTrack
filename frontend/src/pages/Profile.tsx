@@ -510,6 +510,21 @@ export function Profile() {
           >
             セッション管理
           </a>
+
+          {/* 連携中のアプリへのリンク - user-authentication 要件49.1（タスク78.2） */}
+          <a
+            href="/connected-apps"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              color: '#2563eb',
+              textDecoration: 'underline',
+              fontWeight: 500,
+            }}
+          >
+            連携中のアプリ
+          </a>
         </div>
       </section>
 

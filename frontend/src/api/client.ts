@@ -210,6 +210,19 @@ export function getApiErrorCode(error: unknown): string | null {
 }
 
 /**
+ * CSRF トークンの不一致・欠落による 403 か（取り直して一度だけ送り直す対象）
+ */
+function isCsrfTokenError(error: unknown): boolean {
+  const code = getApiErrorCode(error);
+  return (
+    error instanceof ApiError &&
+    error.statusCode === 403 &&
+    code !== null &&
+    CSRF_TOKEN_ERROR_CODES.includes(code)
+  );
+}
+
+/**
  * サーバーが終局的な失敗として宣言したエラーかどうかを判定
  */
 function isNonRetryableErrorBody(body: unknown): boolean {
@@ -775,16 +788,49 @@ class ApiClient {
     try {
       return await send();
     } catch (error) {
-      const code = getApiErrorCode(error);
-      if (
-        error instanceof ApiError &&
-        error.statusCode === 403 &&
-        code !== null &&
-        CSRF_TOKEN_ERROR_CODES.includes(code)
-      ) {
+      if (isCsrfTokenError(error)) {
         return send();
       }
       throw error;
+    }
+  }
+
+  /**
+   * 状態を変える要求を CSRF トークン付きで送る（user-authentication 要件47.11、タスク78.1）
+   *
+   * 既存の CSRF の検証（`X-CSRF-Token` と Cookie `csrf-token` の一致・送信元のオリジン）を掛けた経路
+   * （同意の API・接続の取り消し）に使う。メモリの CSRF トークンが無ければ先に取得する。
+   * 不一致・欠落（403 `CSRF_TOKEN_INVALID`・`CSRF_TOKEN_MISSING`）のときだけ一度取り直して一度だけ送り直す。
+   * オリジンの不一致など他の 403 は送り直さない。
+   *
+   * 5xx・通信の失敗では自動で送り直さない（同意・拒否・取り消しを二重に送らないため）。
+   * アクセストークンの期限切れ（401）は他の要求と同じく更新してから送り直し、そのときは送信の時点の
+   * CSRF トークンを使う（更新は CSRF トークンを取り直す）。
+   *
+   * @param method HTTP メソッド
+   * @param path リクエストパス
+   * @param body 本文（省略時は本文なし）
+   * @returns 応答本文
+   */
+  async sendWithCsrf<T>(
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const send = (): Promise<T> =>
+      this.request<T>(path, { method, body, disableRetry: true }, { withCsrfToken: true });
+
+    if (this.csrfToken === null) {
+      await this.fetchCsrfToken();
+    }
+    try {
+      return await send();
+    } catch (error) {
+      if (!isCsrfTokenError(error)) {
+        throw error;
+      }
+      await this.fetchCsrfToken();
+      return send();
     }
   }
 

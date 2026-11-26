@@ -376,16 +376,38 @@ function TreeRow({
   const hasChildren = item.children && item.children.length > 0;
   const isExpanded = expandedState[item.id] !== false; // デフォルトで展開
   const isParent = hasChildren;
-  const remaining = calculateRemainingBudget(
-    item.executionAmount,
-    item.previousMonthExpense,
-    item.currentMonthExpense
+  // REQ-3.7: 親項目の金額列は自身の値ではなく子項目の合計（バックエンドで計算）を表示する
+  const estimateAmount = isParent
+    ? (item.calculatedEstimateAmount ?? item.estimateAmount)
+    : item.estimateAmount;
+  const executionAmount = isParent
+    ? (item.calculatedExecutionAmount ?? item.executionAmount)
+    : item.executionAmount;
+  const amendmentAmount = isParent
+    ? (item.calculatedAmendmentAmount ?? item.amendmentAmount)
+    : item.amendmentAmount;
+  const orderAmount = isParent
+    ? (item.calculatedOrderAmount ?? item.orderAmount)
+    : item.orderAmount;
+  const progressAmount = isParent
+    ? (item.calculatedProgressAmount ?? item.progressAmount)
+    : item.progressAmount;
+  // REQ-3.5: 親項目の先月までの支出と今月の支出も子項目の合計を表示する（累計支出と食い違わせない）
+  const previousMonthExpense = isParent
+    ? (item.calculatedPreviousMonthExpense ?? item.previousMonthExpense)
+    : item.previousMonthExpense;
+  const currentMonthExpense = isParent
+    ? (item.calculatedCurrentMonthExpense ?? item.currentMonthExpense)
+    : item.currentMonthExpense;
+  const ownTotalExpense = String(
+    parseInt(item.previousMonthExpense || '0', 10) + parseInt(item.currentMonthExpense || '0', 10)
   );
-  const overBudget = isOverBudget(
-    item.executionAmount,
-    item.previousMonthExpense,
-    item.currentMonthExpense
-  );
+  const totalExpense = isParent
+    ? (item.calculatedTotalExpense ?? ownTotalExpense)
+    : ownTotalExpense;
+  // 残予算 = 実行金額 − 累計支出（親項目は子の合計どうしで求める）
+  const remaining = calculateRemainingBudget(executionAmount, totalExpense, '0');
+  const overBudget = isOverBudget(executionAmount, totalExpense, '0');
 
   return (
     <>
@@ -412,26 +434,26 @@ function TreeRow({
         {/* 見積単価 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.estimateUnitPrice)}</td>
         {/* 見積金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.estimateAmount)}</td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(estimateAmount)}</td>
         {/* 実行単価 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionUnitPrice)}</td>
         {/* 実行金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.executionAmount)}</td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(executionAmount)}</td>
         {/* 変更金額 (REQ-15.7) */}
         <td
           data-testid={`amendment-amount-${item.id}`}
           style={{
             ...styles.td,
             ...styles.tdRight,
-            ...(isNegative(item.amendmentAmount) ? styles.tdNegative : {}),
+            ...(isNegative(amendmentAmount) ? styles.tdNegative : {}),
           }}
         >
-          {formatAmount(item.amendmentAmount)}
+          {formatAmount(amendmentAmount)}
         </td>
         {/* 発注予定取引先 */}
         <td style={styles.td}>{item.plannedVendorName || ''}</td>
         {/* 発注金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.orderAmount)}</td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(orderAmount)}</td>
         {/* 発注ステータス */}
         <td style={styles.td}>
           {item.orderStatus === 'ORDERED' && (
@@ -442,14 +464,12 @@ function TreeRow({
           )}
         </td>
         {/* 先月までの支出 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(item.previousMonthExpense)}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(previousMonthExpense)}</td>
         {/* 今月の支出 (REQ-13.2: 入力可能) */}
         <td style={{ ...styles.td, ...styles.tdRight }}>
           {hasChildren ? (
-            // 親項目は子の合計を表示するのみ
-            formatAmount(item.currentMonthExpense)
+            // 親項目は子の合計を表示するのみ（入力は子を持たない項目で行う）
+            formatAmount(currentMonthExpense)
           ) : (
             <CurrentMonthExpenseInput
               itemId={item.id}
@@ -461,14 +481,7 @@ function TreeRow({
           )}
         </td>
         {/* 累計支出 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>
-          {formatAmount(
-            String(
-              parseInt(item.previousMonthExpense || '0', 10) +
-                parseInt(item.currentMonthExpense || '0', 10)
-            )
-          )}
-        </td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(totalExpense)}</td>
         {/* 残予算 */}
         <td
           style={{
@@ -480,7 +493,7 @@ function TreeRow({
           {formatAmount(remaining)}
         </td>
         {/* 出来高金額 */}
-        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(item.progressAmount)}</td>
+        <td style={{ ...styles.td, ...styles.tdRight }}>{formatAmount(progressAmount)}</td>
         {/* 出来高率 */}
         <td style={{ ...styles.td, ...styles.tdRight }}>{formatRate(item.progressRate)}</td>
         {/* 備考 */}

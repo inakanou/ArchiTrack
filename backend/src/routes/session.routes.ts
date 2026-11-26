@@ -7,18 +7,29 @@
  * エンドポイント:
  * - GET /api/v1/auth/sessions - セッション一覧取得
  * - DELETE /api/v1/auth/sessions/:sessionId - 個別セッション削除
- * - DELETE /api/v1/auth/sessions - 全セッション削除
+ * - DELETE /api/v1/auth/sessions - 全セッション削除（全デバイスのログアウトと同じ失効と監査。タスク76.1）
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
 import getPrismaClient from '../db.js';
 import { SessionService } from '../services/session.service.js';
+import { AuthService } from '../services/auth.service.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
+import { sendAuthDatabaseError } from './auth-database-error.js';
 
 const router = Router();
 const prisma = getPrismaClient();
 const sessionService = new SessionService(prisma);
+const authService = new AuthService(
+  prisma,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  sessionService
+);
 
 /**
  * @swagger
@@ -152,7 +163,10 @@ router.delete(
  * /api/v1/auth/sessions:
  *   delete:
  *     summary: Delete all sessions
- *     description: Delete all sessions for the authenticated user (logout from all devices)
+ *     description: >-
+ *       Delete all sessions for the authenticated user (logout from all devices). Same as
+ *       POST /api/v1/auth/logout-all: issued access tokens and external app connections are
+ *       revoked, and the logout is audited with the request source.
  *     tags:
  *       - Sessions
  *     security:
@@ -180,7 +194,23 @@ router.delete(
         return;
       }
 
-      await sessionService.revokeAllForUser(req.user.userId);
+      // 全デバイスのログアウトと同じ失効（リフレッシュトークン・アクセストークンの世代・外部アプリの接続）と
+      // 監査を通す（要件50.2・51.7）
+      const result = await authService.logoutAll(req.user.userId, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+
+      if (!result.ok) {
+        // POST /api/v1/auth/logout-all と同じ汎用の 500 で返す（要件42.8）
+        sendAuthDatabaseError(
+          req,
+          res,
+          result.error.type === 'DATABASE_ERROR' ? result.error.message : result.error.type,
+          'Database error during logout-all'
+        );
+        return;
+      }
 
       logger.info({ userId: req.user.userId }, 'All sessions deleted successfully');
 

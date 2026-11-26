@@ -59,6 +59,7 @@ const mockUser: User = {
   invitedById: null,
   accessTokenGeneration: 0,
   reactivatedAt: null,
+  externalAppRevocationGeneration: 0,
 };
 
 const mockRole: Role = {
@@ -152,8 +153,12 @@ describe('UserRoleService', () => {
         count: vi.fn(),
         deleteMany: vi.fn(),
       },
+      // 外したロールの権限（権限の喪失の判定に使う。タスク76.3。既定は権限なし）
+      rolePermission: { findMany: vi.fn().mockResolvedValue([]) },
       // 最後の管理者の判定の前に取る admin ロールの行のロック（SELECT ... FOR NO KEY UPDATE）
       $queryRaw: vi.fn().mockResolvedValue([]),
+      // 利用者の削除で失効させる外部アプリの接続（タスク76.2。既定は接続なし）
+      externalAppConnection: { findMany: vi.fn().mockResolvedValue([]) },
       // 利用者の削除の前に取るリフレッシュトークンの取引ロック（pg_advisory_xact_lock）
       $executeRaw: vi.fn().mockResolvedValue(1),
       $transaction: vi.fn((callback) => callback(prismaMock)),

@@ -232,6 +232,9 @@ describe('claude-vision.routes', () => {
       ],
     };
 
+    /**
+     * @requirement estimate-request/REQ-21.6
+     */
     it('should return 200 with extraction result on success', async () => {
       mockIsEnabled.mockReturnValue(true);
       mockExtractLineItems.mockResolvedValueOnce({
@@ -308,6 +311,9 @@ describe('claude-vision.routes', () => {
       expect(res.body.errorType).toBe('rate_limit');
     });
 
+    /**
+     * @requirement estimate-request/REQ-23.4
+     */
     it('should return 422 for parse errors', async () => {
       mockIsEnabled.mockReturnValue(true);
       mockExtractLineItems.mockRejectedValueOnce(ClaudeVisionError.parseError());
