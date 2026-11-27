@@ -115,7 +115,7 @@
 - [x] estimate-request（追補。2026-11-17 の決定） -- 受領見積書に読取の確認の経路（画面・台帳の取り込み・ArchiBench）の欄を足して画面にも出し、登録の応答と現在の状態で原本の指紋（fileSha256）を返し、409 DUPLICATE_ORIGINAL に同じ案件の中の既存の受領見積書の ID を含め、明細行の区分に「端数調整」（正も負も取り、見積の合計に数える）を足す。Dependencies: none（claude-connector の要件の前に）（完了。2026-11-21 に develop へ統合〔#924〕）
 - [ ] unit-price-ledger（追補） -- 2026-11-17 に develop へ統合した（#918・#919・#920）。残り：受領見積書の保存と台帳で書き写した処理の共通化（タスク 6.6）と、似た単価の丸める前の按分の値（要件 8.9・タスク 6.7）の develop への統合。明細行の区分「端数調整」を、似た単価の検索の対象と按分の基準から外す（2026-11-17 の決定 4）。Dependencies: 端数調整は estimate-request の追補
 - [ ] estimate-creation -- 明細行ごとに似た過去単価を表示し（単価＋諸経費按分−値引き按分、業者名つき）、実行金額の行へ反映して出典を記録する（4.5 の改訂、実行金額行の出典欄）。同じ回に IPA の是正項目（5.8）も行う。Dependencies: unit-price-ledger
-- [ ] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）
+- [x] user-authentication -- 外部アプリの認可（OAuth 2.1 の認可サーバー、2FA を通る同意画面、MCP 用のトークン、連携中アプリの一覧と取り消し、監査、利用者単位の回数制限）を加える（33.1・33.3 の改訂）。Dependencies: IPA の user-authentication の完了（要件39・40 の実装）（完了。2026-11-26 に develop へ統合〔#942〕）
 - [ ] quantity-table-generation -- 数量項目に行のキー（分類キー＋区別）・分類キー・追跡用の GlobalId の組を持たせ、行のキーで差分を当てる処理を加える（31.9 の「末尾への追加のみ」との整理）。同じ回に IPA の是正項目（5.6）も行う。Dependencies: claude-connector（第 1 段）
 - [ ] estimate-creation（2 回目） -- 見積の項目に行のキー・分類キーを持たせ、行のキーで差分を当てる処理を加える。取り込みでの端数の扱い（要件22 との関係）を決める。Dependencies: quantity-table-generation の拡張
 - [ ] construction-schedule -- 工程表の項目に行のキー・分類キー・数量表の行のキー・追跡用の GlobalId の組を持たせ、行のキーで差分を当てる処理を加える。同じ回に IPA の是正項目（5.10）も行う。Dependencies: quantity-table-generation の拡張
@@ -141,7 +141,7 @@
 3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）（完了。2026-11-12 に develop へ統合〔#893・#894〕）
 4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）（2026-11-17 に develop へ統合〔#918・#919・#920〕。タスク 6.6・6.7 と端数調整の除外は Existing Spec Updates の追補）
 5. estimate-creation の拡張と IPA の是正（5.8）
-6. user-authentication の拡張（外部アプリの認可）
+6. user-authentication の拡張（外部アプリの認可）（完了。2026-11-26 に develop へ統合〔#942〕。2026-11-22 の利用者の決定で 5 より先に行った）
 7. claude-connector 第 1 段（読み取り・似た単価・受領見積の構造化した登録と原本の添付・1 回限りのアップロード先）
 8. quantity-table-generation の拡張と IPA の是正（5.6）
 9. estimate-creation の 2 回目の拡張、construction-schedule の拡張と IPA の是正（5.10）
